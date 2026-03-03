@@ -75,6 +75,7 @@ bool Updater::UpdateOffsets() {
   Offsets::m_modelState = ParseOffset(clientJson, "m_modelState");
   Offsets::m_hPlayerPawn = ParseOffset(clientJson, "m_hPlayerPawn");
   Offsets::m_iszPlayerName = ParseOffset(clientJson, "m_iszPlayerName");
+  Offsets::dwPlantedC4 = ParseOffset(offsetsJson, "dwPlantedC4");
 
   // Fallback if not found
   if (Offsets::dwEntityList == 0) {

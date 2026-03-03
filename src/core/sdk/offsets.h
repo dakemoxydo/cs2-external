@@ -6,6 +6,7 @@ namespace Offsets {
 extern ptrdiff_t dwEntityList;
 extern ptrdiff_t dwLocalPlayerPawn;
 extern ptrdiff_t dwViewMatrix;
+extern ptrdiff_t dwPlantedC4;
 
 extern ptrdiff_t m_iHealth;
 extern ptrdiff_t m_iTeamNum;

@@ -17,18 +17,19 @@ HWND Overlay::hwnd = nullptr;
 bool Overlay::Create(int /*width*/, int /*height*/) {
   SetProcessDPIAware();
 
-  WNDCLASSEXA wc = {sizeof(WNDCLASSEXA),
-                    CS_CLASSDC,
-                    WndProc,
-                    0L,
-                    0L,
-                    GetModuleHandle(nullptr),
-                    nullptr,
-                    nullptr,
-                    nullptr,
-                    nullptr,
-                    "CS2 Overlay",
-                    nullptr};
+  WNDCLASSEXA wc = {
+      sizeof(WNDCLASSEXA),
+      CS_CLASSDC,
+      WndProc,
+      0L,
+      0L,
+      GetModuleHandle(nullptr),
+      nullptr,
+      nullptr,
+      nullptr,
+      nullptr,
+      "CEF-OSC-Widget", // Masquerade as Chrome/Discord/Nvidia overlay
+      nullptr};
   RegisterClassExA(&wc);
 
   int screenX = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -37,7 +38,7 @@ bool Overlay::Create(int /*width*/, int /*height*/) {
   int screenH = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
   hwnd = CreateWindowExA(WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED,
-                         wc.lpszClassName, "CS2 External Overlay", WS_POPUP,
+                         wc.lpszClassName, "NVIDIA GeForce Overlay", WS_POPUP,
                          screenX, screenY, screenW, screenH, nullptr, nullptr,
                          wc.hInstance, nullptr);
 

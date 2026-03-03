@@ -5,6 +5,7 @@ namespace Offsets {
 ptrdiff_t dwEntityList = 0;
 ptrdiff_t dwLocalPlayerPawn = 0;
 ptrdiff_t dwViewMatrix = 0;
+ptrdiff_t dwPlantedC4 = 0;
 
 ptrdiff_t m_iHealth = 0;
 ptrdiff_t m_iTeamNum = 0;

@@ -1,6 +1,8 @@
 #include "menu.h"
 #include "../overlay/overlay.h"
-#include "features/esp/esp.h" // For Features::config
+#include "features/bomb/bomb.h"
+#include "features/debug_overlay/debug_overlay.h"
+#include "features/esp/esp.h"
 #include "features/feature_manager.h"
 #include <imgui.h>
 #include <string>
@@ -52,10 +54,36 @@ void Menu::Render() {
         ImGui::Checkbox("Draw Boxes", &Features::config.showBox);
         ImGui::Checkbox("Draw Names", &Features::config.showName);
         ImGui::Checkbox("Draw Health", &Features::config.showHealth);
+        ImGui::Checkbox("Draw Weapon", &Features::config.showWeapon);
+        ImGui::Checkbox("Draw Distance", &Features::config.showDistance);
         ImGui::Separator();
         ImGui::Checkbox("Team ESP", &Features::config.showTeammates);
         ImGui::ColorEdit4("Enemy Color", Features::config.boxColor);
-        ImGui::ColorEdit4("Team Color", Features::config.teamColor);
+        if (Features::config.showTeammates)
+          ImGui::ColorEdit4("Team Color", Features::config.teamColor);
+        ImGui::Separator();
+        ImGui::Checkbox("Show Bones", &Features::config.showBones);
+        if (Features::config.showBones)
+          ImGui::SliderFloat("Bone Distance (m)",
+                             &Features::config.skeletonMaxDistance, 5.0f, 60.0f,
+                             "%.0f m");
+        ImGui::ColorEdit4("Bone Color", Features::config.boneColor);
+        ImGui::EndTabItem();
+      }
+
+      if (ImGui::BeginTabItem("Bomb")) {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Bomb Timer");
+        ImGui::Separator();
+        ImGui::Checkbox("Enable Bomb Timer", &Features::bombConfig.enabled);
+        ImGui::TextDisabled("Timer: 41s (fixed, CS2 standard)");
+        ImGui::EndTabItem();
+      }
+
+      if (ImGui::BeginTabItem("Debug")) {
+        ImGui::Text("Debug Overlay");
+        ImGui::Separator();
+        ImGui::Checkbox("Enable Debug Overlay", &Features::debugConfig.enabled);
+        ImGui::Checkbox("Developer Mode", &Features::debugConfig.devMode);
         ImGui::EndTabItem();
       }
 

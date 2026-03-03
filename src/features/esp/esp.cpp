@@ -1,10 +1,9 @@
 #include "esp.h"
 #include "core/game/game_manager.h"
 #include "core/math/math.h"
+#include "core/sdk/entity.h"
 #include "esp_config.h"
 #include "render/draw/draw_list.h"
-#include <chrono>
-#include <iostream>
 #include <string>
 #include <windows.h>
 
@@ -13,36 +12,12 @@ namespace Features {
 EspConfig config;
 
 void Esp::Update() {
-  static auto lastDebugTime = std::chrono::steady_clock::now();
-  auto currentTime = std::chrono::steady_clock::now();
-
-  if (std::chrono::duration_cast<std::chrono::seconds>(currentTime -
-                                                       lastDebugTime)
-          .count() >= 5) {
-    if (config.enabled && Core::GameManager::GetClientBase() != 0) {
-      auto players = Core::GameManager::GetPlayers();
-      std::cout << "[DEBUG-ESP] Running ESP loop. Players found: "
-                << players.size() << std::endl;
-
-      int validCount = 0;
-      for (const auto &p : players) {
-        if (p.IsValid() && p.IsAlive()) {
-          validCount++;
-          SDK::Vector3 pos = p.position;
-          std::cout << "  -> Valid Player HT: " << p.health << " | Pos: ("
-                    << pos.x << ", " << pos.y << ", " << pos.z << ")"
-                    << std::endl;
-        }
-      }
-      std::cout << "[DEBUG-ESP] Valid/Alive players: " << validCount
-                << std::endl;
-    }
-    lastDebugTime = currentTime;
-  }
+  // Lightweight — main work done in GameManager::Update()
 }
 
 void Esp::Render(Render::DrawList &drawList) {
-  if (!config.showBox && !config.showHealth && !config.showName)
+  if (!config.showBox && !config.showHealth && !config.showName &&
+      !config.showWeapon && !config.showDistance && !config.showBones)
     return;
 
   int screenWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
@@ -111,6 +86,46 @@ void Esp::Render(Render::DrawList &drawList) {
         std::string drawName = player.name.empty() ? "Player" : player.name;
         drawList.AddText(x + width / 2.0f - 15.0f, y - 15.0f, drawName.c_str(),
                          textColor);
+      }
+
+      if (config.showWeapon && !player.weapon.empty()) {
+        float weapColor[4] = {1.0f, 0.85f, 0.0f, 1.0f}; // yellow
+        drawList.AddText(x + width / 2.0f - 15.0f, y + height + 2.0f,
+                         player.weapon.c_str(), weapColor);
+      }
+
+      if (config.showDistance && player.distance > 0.0f) {
+        float distColor[4] = {0.7f, 0.7f, 0.7f, 1.0f}; // grey
+        std::string distStr =
+            std::to_string(static_cast<int>(player.distance)) + "m";
+        drawList.AddText(x + width - 5.0f, y + height + 2.0f, distStr.c_str(),
+                         distColor);
+      }
+
+      // ─────────── Skeleton ───────────
+      if (config.showBones && !player.bonePositions.empty() &&
+          (player.distance <= config.skeletonMaxDistance ||
+           config.skeletonMaxDistance <= 0.0f)) {
+        float boneCol[4] = {config.boneColor[0], config.boneColor[1],
+                            config.boneColor[2], config.boneColor[3]};
+
+        for (auto &conn : s_boneConnections) {
+          int idxA = conn[0];
+          int idxB = conn[1];
+          if (idxA >= (int)player.bonePositions.size() ||
+              idxB >= (int)player.bonePositions.size())
+            continue;
+
+          SDK::Vector2 scrA, scrB;
+          bool okA =
+              Core::Math::WorldToScreen(player.bonePositions[idxA], scrA,
+                                        viewMatrix, screenWidth, screenHeight);
+          bool okB =
+              Core::Math::WorldToScreen(player.bonePositions[idxB], scrB,
+                                        viewMatrix, screenWidth, screenHeight);
+          if (okA && okB)
+            drawList.DrawLine(scrA.x, scrA.y, scrB.x, scrB.y, boneCol, 1.2f);
+        }
       }
     }
   }
