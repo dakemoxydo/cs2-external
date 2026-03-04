@@ -1,11 +1,25 @@
 #pragma once
 #include <string>
+#include <vector>
 
 namespace Config {
+
 class ConfigManager {
 public:
-  static bool Load(const std::string &filename);
-  static bool Save(const std::string &filename);
+  /// Save current settings to configs/<name>.json
+  static bool Save(const std::string &name);
+
+  /// Load settings from configs/<name>.json
+  static bool Load(const std::string &name);
+
+  /// List all available config files in the configs/ dir
+  static std::vector<std::string> ListConfigs();
+
+  /// Load built-in default settings
   static void LoadDefault();
+
+  /// Last error description
+  static std::string LastError;
 };
+
 } // namespace Config
