@@ -97,13 +97,13 @@ bool Updater::UpdateOffsets() {
   // ── Fallback hardcoded values if dumper returns 0 ─────────────────────────
   // Values from a2x cs2-dumper as of CS2 patch 1.40.x
   if (Offsets::m_angEyeAngles == 0)
-    Offsets::m_angEyeAngles = 0x1510;
+    Offsets::m_angEyeAngles = 0x3DD0;
   if (Offsets::m_iCrosshairEntityHandle == 0)
     Offsets::m_iCrosshairEntityHandle = 0x13D8;
   if (Offsets::m_bIsScoped == 0)
     Offsets::m_bIsScoped = 0x1404;
   if (Offsets::m_iShotsFired == 0)
-    Offsets::m_iShotsFired = 0x1368;
+    Offsets::m_iShotsFired = 0x270C;
 
   if (Offsets::dwEntityList == 0) {
     std::cerr << "[ERROR] Failed to parse dwEntityList!\n";

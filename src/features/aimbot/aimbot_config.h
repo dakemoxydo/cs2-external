@@ -21,6 +21,7 @@ struct AimbotConfig {
   bool teamCheck = true;     // don't aim at teammates
   bool onlyScoped = false;   // trigger only when scoped (AWP mode)
   bool aimAtVisible = false; // currently unused (vis check stub)
+  bool showFov = true;       // draw FOV circle on screen
 };
 
 } // namespace Features

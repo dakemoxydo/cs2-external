@@ -8,6 +8,7 @@
 #include "render/draw/draw_list.h"
 #include <cmath>
 #include <cstdlib>
+#include <imgui.h>
 #include <windows.h>
 
 namespace Features {
@@ -149,8 +150,24 @@ void Aimbot::Update() {
   s_lastTarget = bestTarget->address;
 }
 
-void Aimbot::Render(Render::DrawList &) {
-  // No visual rendering — aimbot is opaque
+void Aimbot::Render(Render::DrawList &drawList) {
+  if (!aimbotConfig.enabled || !aimbotConfig.showFov)
+    return;
+
+  // FOV circle — draw at screen center.
+  // We approximate FOV degrees → screen pixels using DisplaySize.
+  // At 90° hFOV a 1° offset ≈ screenW/90 px. CS2 default is ~106° hFOV.
+  ImGuiIO &io = ImGui::GetIO();
+  float cx = io.DisplaySize.x * 0.5f;
+  float cy = io.DisplaySize.y * 0.5f;
+
+  // Convert aimbot FOV (degrees) to screen-space radius (pixels)
+  constexpr float CS2_HFOV = 106.0f; // horizontal FOV in degrees
+  float radiusPx = (aimbotConfig.fov / CS2_HFOV) * io.DisplaySize.x;
+
+  // Draw a thin circle; color = white with low alpha
+  static float circleCol[4] = {1.0f, 1.0f, 1.0f, 0.35f};
+  drawList.DrawCircle(cx, cy, radiusPx, circleCol, 64, 1.0f);
 }
 
 } // namespace Features

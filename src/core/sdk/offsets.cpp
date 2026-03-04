@@ -16,11 +16,10 @@ ptrdiff_t m_hPlayerPawn = 0;
 ptrdiff_t m_iszPlayerName = 0;
 
 // Aimbot / Triggerbot
-ptrdiff_t m_angEyeAngles = 0x1384; // C_CSPlayerPawnBase::m_angEyeAngles
-ptrdiff_t m_iCrosshairEntityHandle =
-    0x13D8;                       // m_pObserverServices → crosshair entity
-ptrdiff_t m_bIsScoped = 0x1404;   // C_CSPlayerPawn::m_bIsScoped
-ptrdiff_t m_iShotsFired = 0x1368; // C_CSPlayerPawn::m_iShotsFired
+ptrdiff_t m_angEyeAngles = 0x3DD0; // QAngle
+ptrdiff_t m_iCrosshairEntityHandle = 0x13D8;
+ptrdiff_t m_bIsScoped = 0x1404;
+ptrdiff_t m_iShotsFired = 0x270C; // int32
 
 } // namespace Offsets
 } // namespace SDK

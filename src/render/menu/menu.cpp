@@ -196,6 +196,7 @@ void Menu::Render() {
 
           ImGui::Checkbox("Team Check", &Features::aimbotConfig.teamCheck);
           ImGui::Checkbox("Only Scoped", &Features::aimbotConfig.onlyScoped);
+          ImGui::Checkbox("Show FOV Circle", &Features::aimbotConfig.showFov);
         }
         ImGui::EndTabItem();
       }
