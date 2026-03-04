@@ -25,4 +25,15 @@ target_include_directories(cs2overlay PRIVATE
 )
 
 # Add minimal linking for windows
-target_link_libraries(cs2overlay PRIVATE user32 d3d11 dxgi dwmapi wininet)
+target_link_libraries(cs2overlay PRIVATE user32 d3d11 dxgi dwmapi wininet ntdll)
+
+# ── Post-build: mutate EXE signature so each build has a unique SHA256 ──
+set(MUTATE_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/mutate_signature.ps1")
+add_custom_command(
+  TARGET cs2overlay POST_BUILD
+  COMMAND powershell -ExecutionPolicy Bypass -NonInteractive
+          -File "${MUTATE_SCRIPT}"
+          -ExePath "$<TARGET_FILE:cs2overlay>"
+  COMMENT "Mutating EXE signature..."
+  VERBATIM
+)

@@ -2,6 +2,7 @@
 #include "core/game/game_manager.h"
 #include "core/process/module.h"
 #include "core/process/process.h"
+#include "core/process/stealth.h"
 #include "features/feature_manager.h"
 #include "input/input_manager.h"
 #include "render/draw/draw_list.h"
@@ -17,6 +18,9 @@
 #include "core/sdk/updater.h"
 
 int main() {
+  // ── Anti-detection: spoof PEB process name before anything else ──
+  Core::Stealth::Apply();
+
   std::cout << "========================================\n";
   std::cout << "[INFO] Initializing CS2 External...\n";
   std::cout << "========================================\n";
