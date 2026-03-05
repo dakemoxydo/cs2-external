@@ -20,11 +20,16 @@ extern ptrdiff_t m_hPlayerPawn;
 extern ptrdiff_t m_iszPlayerName;
 extern ptrdiff_t m_pClippingWeapon;
 
-// ── Aimbot / Triggerbot ───────────────────────────────────────────────────
+// ── Aimbot / Triggerbot
 extern ptrdiff_t m_angEyeAngles;           // src: cs2-dumper, client_dll
 extern ptrdiff_t m_iCrosshairEntityHandle; // src: cs2-dumper, client_dll
 extern ptrdiff_t m_bIsScoped;              // src: cs2-dumper, client_dll
 extern ptrdiff_t m_iShotsFired;            // src: cs2-dumper, client_dll
+
+// ── Bomb ──────────────────────────────────────────────────────────────────
+extern ptrdiff_t m_nBombSite;     // src: cs2-dumper, client_dll
+extern ptrdiff_t m_bBombTicking;  // src: cs2-dumper, client_dll
+extern ptrdiff_t m_flTimerLength; // src: cs2-dumper, client_dll
 
 // ── Entity system internals (не экспортируются cs2-dumper напрямую) ───────
 extern ptrdiff_t m_hPawn;                    // CPlayerController::m_hPawn

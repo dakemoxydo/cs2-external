@@ -13,8 +13,12 @@ std::shared_mutex GameManager::stateMutex;
 SDK::Matrix4x4 GameManager::renderViewMatrix = {};
 std::vector<SDK::Entity> GameManager::renderPlayers;
 SDK::Vector3 GameManager::renderLocalPos = {};
+SDK::Vector2 GameManager::renderLocalAngles = {};
 float GameManager::renderLocalYaw = 0.0f;
 int GameManager::renderLocalTeam = 0;
+bool GameManager::renderLocalScoped = false;
+uint32_t GameManager::renderLocalCrosshairHandle = 0;
+SDK::BombInfo GameManager::renderBombInfo = {};
 
 // Поля читаются отдельно через SDK::Offsets — PawnFields была удалена,
 // так как её capture-паддинги не совпадали с реальными смещениями из offsets.h.
@@ -24,8 +28,12 @@ uintptr_t GameManager::clientBase = 0;
 std::vector<SDK::Entity> GameManager::players;
 
 SDK::Vector3 GameManager::localPos = {};
+SDK::Vector2 GameManager::localAngles = {};
 float GameManager::localYaw = 0.0f;
 int GameManager::localTeam = 0;
+bool GameManager::localScoped = false;
+uint32_t GameManager::localCrosshairHandle = 0;
+SDK::BombInfo GameManager::bombInfo = {};
 
 // Cache: pawnListEntry per chunk index
 static constexpr int LIST_CHUNKS = 64;
@@ -54,9 +62,8 @@ void GameManager::Update() {
   players.clear();
   players.reserve(16);
 
-  // Сбрасываем кэш имён каждый кадр — pawnHandle может переиспользоваться
-  // после смерти/смены раунда, и тогда кэш вернёт устаревшее имя.
-  s_nameCache.clear();
+  // Убираем s_nameCache.clear() каждый кадр для оптимизации.
+  // Имена переиспользуются, строка обновится поверх, если pawnHandle совпадёт.
 
   uintptr_t entityList =
       MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwEntityList);
@@ -67,14 +74,48 @@ void GameManager::Update() {
       clientBase + SDK::Offsets::dwLocalPlayerPawn);
 
   localPos = {};
+  localAngles = {};
+  localYaw = 0.0f;
   localTeam = 0;
+  localScoped = false;
+  localCrosshairHandle = 0;
+
   if (localPawn > 0x10000) {
     localPos = MemoryManager::Read<SDK::Vector3>(localPawn +
                                                  SDK::Offsets::m_vOldOrigin);
     localTeam = MemoryManager::Read<int>(localPawn + SDK::Offsets::m_iTeamNum);
-    SDK::Vector2 eyeAngles = MemoryManager::Read<SDK::Vector2>(
+    localAngles = MemoryManager::Read<SDK::Vector2>(
         localPawn + SDK::Offsets::m_angEyeAngles);
-    localYaw = eyeAngles.y;
+    localYaw = localAngles.y;
+    localScoped =
+        MemoryManager::Read<bool>(localPawn + SDK::Offsets::m_bIsScoped);
+    localCrosshairHandle = MemoryManager::Read<uint32_t>(
+        localPawn + SDK::Offsets::m_iCrosshairEntityHandle);
+  }
+
+  // ── Read Bomb State ──
+  bombInfo.isPlanted = false;
+  bombInfo.site = -1;
+  bombInfo.timeLeft = 0.0f;
+
+  if (SDK::Offsets::dwPlantedC4 != 0) {
+    uintptr_t c4Ptr =
+        MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwPlantedC4);
+    if (c4Ptr > 0x10000) {
+      uintptr_t c4 = MemoryManager::Read<uintptr_t>(c4Ptr);
+      if (!c4 || c4 < 0x10000)
+        c4 = c4Ptr;
+
+      bool ticking =
+          MemoryManager::Read<bool>(c4 + SDK::Offsets::m_bBombTicking);
+      if (ticking) {
+        bombInfo.isPlanted = true;
+        bombInfo.site =
+            MemoryManager::Read<int>(c4 + SDK::Offsets::m_nBombSite);
+        bombInfo.timeLeft =
+            MemoryManager::Read<float>(c4 + SDK::Offsets::m_flTimerLength);
+      }
+    }
   }
 
   // ── Batch-read first chunk of controller pointers ──
@@ -93,8 +134,7 @@ void GameManager::Update() {
   }
 
   // ── Invalidate pawn list chunk cache each frame ──
-  for (int c = 0; c < LIST_CHUNKS; c++)
-    s_pawnListCache[c] = 0;
+  memset(s_pawnListCache, 0, sizeof(s_pawnListCache));
 
   // Find localSlot for SpottedByMask
   int localSlot = 0;
@@ -161,6 +201,7 @@ void GameManager::Update() {
     SDK::Entity p;
     p.address = pawn;
     p.controllerAddress = controller;
+    p.pawnHandle = pawnHandle;
     p.health = health;
     p.team = team;
     p.isTeammate = (localTeam != 0 && team == localTeam);
@@ -233,8 +274,12 @@ void GameManager::Update() {
     renderPlayers = players;
     renderViewMatrix = viewMatrix;
     renderLocalPos = localPos;
+    renderLocalAngles = localAngles;
     renderLocalYaw = localYaw;
     renderLocalTeam = localTeam;
+    renderLocalScoped = localScoped;
+    renderLocalCrosshairHandle = localCrosshairHandle;
+    renderBombInfo = bombInfo;
   }
 }
 
@@ -263,6 +308,26 @@ float GameManager::GetLocalYaw() {
 int GameManager::GetLocalTeam() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
   return renderLocalTeam;
+}
+
+SDK::Vector2 GameManager::GetLocalAngles() {
+  std::shared_lock<std::shared_mutex> lock(stateMutex);
+  return renderLocalAngles;
+}
+
+bool GameManager::IsLocalScoped() {
+  std::shared_lock<std::shared_mutex> lock(stateMutex);
+  return renderLocalScoped;
+}
+
+uint32_t GameManager::GetLocalCrosshairEntityHandle() {
+  std::shared_lock<std::shared_mutex> lock(stateMutex);
+  return renderLocalCrosshairHandle;
+}
+
+SDK::BombInfo GameManager::GetBombInfo() {
+  std::shared_lock<std::shared_mutex> lock(stateMutex);
+  return renderBombInfo;
 }
 
 } // namespace Core

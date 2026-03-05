@@ -83,6 +83,11 @@ static void ApplyOffsets(const std::string &offsetsJson,
   Offsets::m_bIsScoped = ParseOffset(clientJson, "m_bIsScoped");
   Offsets::m_iShotsFired = ParseOffset(clientJson, "m_iShotsFired");
 
+  // Bomb
+  Offsets::m_nBombSite = ParseOffset(clientJson, "m_nBombSite");
+  Offsets::m_bBombTicking = ParseOffset(clientJson, "m_bBombTicking");
+  Offsets::m_flTimerLength = ParseOffset(clientJson, "m_flTimerLength");
+
   // Fallback hardcoded values if dumper returns 0
   if (Offsets::m_angEyeAngles == 0)
     Offsets::m_angEyeAngles = 0x3DD0;

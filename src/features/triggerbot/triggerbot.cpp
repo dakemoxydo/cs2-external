@@ -73,14 +73,8 @@ void Triggerbot::Update() {
     return;
   }
 
-  uintptr_t localPawn = Core::MemoryManager::Read<uintptr_t>(
-      Core::GameManager::GetClientBase() + SDK::Offsets::dwLocalPlayerPawn);
-  if (!localPawn)
-    return;
-
-  // Read crosshair entity handle
-  uint32_t crossHairHandle = Core::MemoryManager::Read<uint32_t>(
-      localPawn + SDK::Offsets::m_iCrosshairEntityHandle);
+  // Read crosshair entity handle from GameManager directly
+  uint32_t crossHairHandle = Core::GameManager::GetLocalCrosshairEntityHandle();
 
   // Check if the handle points to a valid enemy in our player list.
   // We rely entirely on GameManager's already-built player list — no duplicate
@@ -93,10 +87,8 @@ void Triggerbot::Update() {
       if (Config::Settings.triggerbot.teamCheck && p.isTeammate)
         continue;
 
-      // Match: read entity handle field from pawn and compare
-      uint32_t entHandle =
-          Core::MemoryManager::Read<uint32_t>(p.address + 0x10);
-      if (entHandle == crossHairHandle) {
+      // Match: compare cached pawnHandle to crossHairHandle
+      if (p.pawnHandle == crossHairHandle) {
         onEnemy = true;
         break;
       }

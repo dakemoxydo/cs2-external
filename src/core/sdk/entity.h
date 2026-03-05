@@ -56,6 +56,7 @@ struct Entity {
   Vector3 position = {0, 0, 0};
   std::string name;
   std::string weapon;
+  uint32_t pawnHandle = 0; // Cached pawn handle for triggerbot/feature lookups
   // Bone positions (world space), indexed by BoneIndex enum
   std::vector<Vector3> bonePositions; // size 30 when valid
 
@@ -64,5 +65,11 @@ struct Entity {
 
   bool IsValid() const { return address != 0; }
   bool IsAlive() const { return health > 0 && health <= 100; }
+};
+
+struct BombInfo {
+  bool isPlanted = false;
+  float timeLeft = 0.0f;
+  int site = -1; // 0 = A, 1 = B, -1 = None
 };
 } // namespace SDK

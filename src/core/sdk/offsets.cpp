@@ -22,6 +22,11 @@ ptrdiff_t m_iCrosshairEntityHandle = 0x13D8;
 ptrdiff_t m_bIsScoped = 0x1404;
 ptrdiff_t m_iShotsFired = 0x270C;
 
+// Bomb
+ptrdiff_t m_nBombSite = 0x119C;
+ptrdiff_t m_bBombTicking = 0x120C;
+ptrdiff_t m_flTimerLength = 0x1210;
+
 // Entity system internals — не экспортируются cs2-dumper, хардкод из
 // реверс-анализа
 ptrdiff_t m_hPawn = 0x6C4; // CPlayerController::m_hPawn

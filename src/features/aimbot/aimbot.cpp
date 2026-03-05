@@ -74,23 +74,19 @@ void Aimbot::Update() {
     return;
   }
 
-  uintptr_t localPawn = Core::MemoryManager::Read<uintptr_t>(
-      Core::GameManager::GetClientBase() + SDK::Offsets::dwLocalPlayerPawn);
-  if (!localPawn)
+  uintptr_t clientBase = Core::GameManager::GetClientBase();
+  if (!clientBase)
     return;
 
   if (Config::Settings.aimbot.onlyScoped) {
-    bool scoped =
-        Core::MemoryManager::Read<bool>(localPawn + SDK::Offsets::m_bIsScoped);
+    bool scoped = Core::GameManager::IsLocalScoped();
     if (!scoped)
       return;
   }
 
-  SDK::Vector2 eyeAngles = Core::MemoryManager::Read<SDK::Vector2>(
-      localPawn + SDK::Offsets::m_angEyeAngles);
+  SDK::Vector2 eyeAngles = Core::GameManager::GetLocalAngles();
 
-  SDK::Vector3 localPos = Core::MemoryManager::Read<SDK::Vector3>(
-      localPawn + SDK::Offsets::m_vOldOrigin);
+  SDK::Vector3 localPos = Core::GameManager::GetLocalPos();
   localPos.z += 64.0f; // approximate eye height
 
   const auto players = Core::GameManager::GetRenderPlayers();

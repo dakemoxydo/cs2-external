@@ -5,7 +5,6 @@
 #include <shared_mutex>
 #include <vector>
 
-
 namespace Core {
 class GameManager {
 public:
@@ -19,8 +18,15 @@ public:
 
   // Local player accessors (used by radar, features)
   static SDK::Vector3 GetLocalPos();
-  static float GetLocalYaw();
+  static float GetLocalYaw(); // Deprecated? Only radar uses it directly or we
+                              // keep it. It returns angles.y
+  static SDK::Vector2 GetLocalAngles();
   static int GetLocalTeam();
+  static bool IsLocalScoped();
+  static uint32_t GetLocalCrosshairEntityHandle();
+
+  // Bomb State
+  static SDK::BombInfo GetBombInfo();
 
 private:
   static uintptr_t clientBase;
@@ -29,15 +35,23 @@ private:
   static SDK::Matrix4x4 viewMatrix;
   static std::vector<SDK::Entity> players;
   static SDK::Vector3 localPos;
+  static SDK::Vector2 localAngles;
   static float localYaw;
   static int localTeam;
+  static bool localScoped;
+  static uint32_t localCrosshairHandle;
+  static SDK::BombInfo bombInfo;
 
   // -- Frontend State (Thread-Safe Copies for Render) --
   static std::shared_mutex stateMutex;
   static SDK::Matrix4x4 renderViewMatrix;
   static std::vector<SDK::Entity> renderPlayers;
   static SDK::Vector3 renderLocalPos;
-  static float renderLocalYaw;
+  static SDK::Vector2 renderLocalAngles;
+  static float renderLocalYaw; // kept for backwards compat with radar
   static int renderLocalTeam;
+  static bool renderLocalScoped;
+  static uint32_t renderLocalCrosshairHandle;
+  static SDK::BombInfo renderBombInfo;
 };
 } // namespace Core

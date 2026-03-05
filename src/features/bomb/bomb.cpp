@@ -11,7 +11,6 @@
 #include <string>
 #include <windows.h>
 
-
 namespace Features {
 
 BombConfig bombConfig;
@@ -22,67 +21,25 @@ static constexpr ptrdiff_t m_nBombSite = 0x119C;    // int  (0=A, 1=B)
 static constexpr ptrdiff_t m_bBombTicking = 0x120C; // bool
 } // namespace C4Off
 
-// в”Ђв”Ђв”Ђ State
-// в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// ─── State
+// ────────────────────────────────────────────────────────────────────────────
 static bool s_planted = false;
-static bool s_prevPlanted = false;
-static std::chrono::steady_clock::time_point s_plantTime;
 static float s_timeLeft = 0.0f;
 static int s_site = -1;
 
 void Bomb::Update() {
-  uintptr_t clientBase = Core::GameManager::GetClientBase();
-  if (!clientBase || SDK::Offsets::dwPlantedC4 == 0)
-    return;
+  SDK::BombInfo info = Core::GameManager::GetBombInfo();
 
-  // Reference bomb detection (same pattern as reference esp):
-  // 1. read pointer-to-C4 from [client.base + dwPlantedC4]
-  // 2. single deref в†’ entity pointer
-  // 3. sanity-check: health > 0 means entity is alive (planted C4 has "health")
-  uintptr_t c4Ptr = Core::MemoryManager::Read<uintptr_t>(
-      clientBase + SDK::Offsets::dwPlantedC4);
-
-  // c4Ptr == 0 means no planted bomb
-  if (!c4Ptr || c4Ptr < 0x10000) {
+  if (!info.isPlanted) {
     s_planted = false;
-    s_prevPlanted = false;
     s_timeLeft = 0.0f;
     s_site = -1;
     return;
   }
 
-  // Read actual entity address (single deref from the pointer)
-  uintptr_t c4 = Core::MemoryManager::Read<uintptr_t>(c4Ptr);
-  if (!c4 || c4 < 0x10000) {
-    // Sometimes dwPlantedC4 IS already the entity directly (no extra deref)
-    c4 = c4Ptr;
-  }
-
-  // Verify bomb is actually ticking
-  bool ticking = Core::MemoryManager::Read<bool>(c4 + C4Off::m_bBombTicking);
-  if (!ticking) {
-    s_planted = false;
-    s_prevPlanted = false;
-    s_timeLeft = 0.0f;
-    s_site = -1;
-    return;
-  }
-
-  s_site = Core::MemoryManager::Read<int>(c4 + C4Off::m_nBombSite);
   s_planted = true;
-
-  if (!s_prevPlanted) {
-    s_plantTime = std::chrono::steady_clock::now();
-    s_prevPlanted = true;
-  }
-
-  constexpr float BOMB_TIME = 40.0f;
-  float elapsed = std::chrono::duration<float>(
-                      std::chrono::steady_clock::now() - s_plantTime)
-                      .count();
-  s_timeLeft = BOMB_TIME - elapsed;
-  if (s_timeLeft < 0.0f)
-    s_timeLeft = 0.0f;
+  s_site = info.site;
+  s_timeLeft = info.timeLeft;
 }
 
 void Bomb::Render(Render::DrawList & /*drawList*/) {
