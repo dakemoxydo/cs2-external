@@ -59,6 +59,9 @@ struct Entity {
   // Bone positions (world space), indexed by BoneIndex enum
   std::vector<Vector3> bonePositions; // size 30 when valid
 
+  bool isSpotted =
+      false; // true = local player has line-of-sight (SpottedByMask)
+
   bool IsValid() const { return address != 0; }
   bool IsAlive() const { return health > 0 && health <= 100; }
 };

@@ -1,4 +1,5 @@
 #include "config/config_manager.h"
+#include "config/settings.h"
 #include "core/game/game_manager.h"
 #include "core/process/module.h"
 #include "core/process/process.h"
@@ -68,7 +69,61 @@ int main() {
   bool isRunning = true;
   bool insertPressed = false;
 
+  // ─── Backend Memory Thread ──────────────────────────────
+  std::thread memoryThread([&isRunning]() {
+    while (isRunning) {
+      auto frameStart = std::chrono::steady_clock::now();
+
+      // Auto-attach logic if cs2.exe wasn't open on launch or crashed
+      if (Core::Process::GetProcessId() == 0) {
+        static auto lastAttach = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - lastAttach)
+                .count() >= 5) {
+          std::cout << "[DEBUG] Attempting to attach to cs2.exe..."
+                    << std::endl;
+          if (Core::Process::Attach(L"cs2.exe")) {
+            std::cout << "[DEBUG] Attached successfully! PID: "
+                      << Core::Process::GetProcessId() << std::endl;
+          } else {
+            std::cout << "[DEBUG] Waiting for game..." << std::endl;
+          }
+          lastAttach = std::chrono::steady_clock::now();
+        }
+      } else {
+        static auto lastMainDebug = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - lastMainDebug)
+                .count() >= 5) {
+          uintptr_t clientBase = Core::GameManager::GetClientBase();
+          auto plrs = Core::GameManager::GetRenderPlayers();
+          std::cout << "[DEBUG-MAIN] Process: ATTACHED | client.dll: 0x"
+                    << std::hex << clientBase << std::dec
+                    << " | Entities: " << plrs.size() << std::endl;
+          lastMainDebug = std::chrono::steady_clock::now();
+        }
+      }
+
+      Core::GameManager::Update();
+
+      int ups = Config::Settings.performance.upsLimit;
+      if (ups <= 0)
+        ups = 64; // Fallback
+
+      auto frameTimeTarget = std::chrono::milliseconds(1000 / ups);
+      auto timeTaken = std::chrono::steady_clock::now() - frameStart;
+      if (timeTaken < frameTimeTarget) {
+        std::this_thread::sleep_for(frameTimeTarget - timeTaken);
+      } else {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+  });
+
+  // ─── Frontend Render Loop ──────────────────────────────
   while (isRunning) {
+    auto frameStart = std::chrono::steady_clock::now();
+
     MSG msg;
     while (PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
       TranslateMessage(&msg);
@@ -100,36 +155,7 @@ int main() {
 
     Input::InputManager::Poll();
 
-    // Auto-attach logic if cs2.exe wasn't open on launch or crashed
-    if (Core::Process::GetProcessId() == 0) {
-      static auto lastAttach = std::chrono::steady_clock::now();
-      if (std::chrono::duration_cast<std::chrono::seconds>(
-              std::chrono::steady_clock::now() - lastAttach)
-              .count() >= 5) {
-        std::cout << "[DEBUG] Attempting to attach to cs2.exe..." << std::endl;
-        if (Core::Process::Attach(L"cs2.exe")) {
-          std::cout << "[DEBUG] Attached successfully! PID: "
-                    << Core::Process::GetProcessId() << std::endl;
-        } else {
-          std::cout << "[DEBUG] Waiting for game..." << std::endl;
-        }
-        lastAttach = std::chrono::steady_clock::now();
-      }
-    } else {
-      static auto lastMainDebug = std::chrono::steady_clock::now();
-      if (std::chrono::duration_cast<std::chrono::seconds>(
-              std::chrono::steady_clock::now() - lastMainDebug)
-              .count() >= 5) {
-        uintptr_t clientBase = Core::GameManager::GetClientBase();
-        auto plrs = Core::GameManager::GetPlayers();
-        std::cout << "[DEBUG-MAIN] Process: ATTACHED | client.dll: 0x"
-                  << std::hex << clientBase << std::dec
-                  << " | Entities: " << plrs.size() << std::endl;
-        lastMainDebug = std::chrono::steady_clock::now();
-      }
-    }
-
-    Core::GameManager::Update();
+    // UpdateAll содержит GetAsyncKeyState/SendInput — только из render-треда
     Features::FeatureManager::UpdateAll();
 
     Render::Renderer::BeginFrame();
@@ -143,7 +169,22 @@ int main() {
     Render::ImGuiManager::Render();
     Render::Renderer::EndFrame();
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    int fps = Config::Settings.performance.fpsLimit;
+    if (fps <= 0)
+      fps = 144; // Fallback
+
+    auto frameTimeTarget = std::chrono::milliseconds(1000 / fps);
+    auto timeTaken = std::chrono::steady_clock::now() - frameStart;
+    if (timeTaken < frameTimeTarget) {
+      std::this_thread::sleep_for(frameTimeTarget - timeTaken);
+    } else {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
+
+  // ── Wait for backend thread to finish ──
+  if (memoryThread.joinable()) {
+    memoryThread.join();
   }
 
   std::cout << "[DEBUG] Shutting down systems..." << std::endl;

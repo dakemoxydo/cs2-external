@@ -1,10 +1,12 @@
-#include "debug_overlay.h"
+﻿#include "debug_overlay.h"
+#include "config/settings.h"
 #include "core/game/game_manager.h"
 #include "core/sdk/offsets.h"
 #include <chrono>
 #include <imgui.h>
 #include <sstream>
 #include <windows.h>
+
 
 namespace Features {
 
@@ -28,7 +30,7 @@ void DebugOverlay::Update() {
 }
 
 void DebugOverlay::Render(Render::DrawList & /*drawList*/) {
-  if (!debugConfig.enabled)
+  if (!Config::Settings.debug.enabled)
     return;
 
   const float PAD = 8.0f;
@@ -53,12 +55,12 @@ void DebugOverlay::Render(Render::DrawList & /*drawList*/) {
   ImVec4 white = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
   ImVec4 cyan = ImVec4(0.0f, 0.9f, 1.0f, 1.0f);
 
-  // ── Normal mode (always visible) ──
+  // в”Ђв”Ђ Normal mode (always visible) в”Ђв”Ђ
   ImGui::TextColored(yellow, "FPS");
   ImGui::SameLine(60);
   ImGui::TextColored(white, "%.0f", s_fps);
 
-  auto &players = Core::GameManager::GetPlayers();
+  auto players = Core::GameManager::GetRenderPlayers();
   ImGui::TextColored(yellow, "Entities");
   ImGui::SameLine(60);
   ImGui::TextColored(white, "%zu", players.size());
@@ -68,8 +70,8 @@ void DebugOverlay::Render(Render::DrawList & /*drawList*/) {
   ImGui::SameLine(60);
   ImGui::TextColored(grey, "%.0fx%.0f", disp.DisplaySize.x, disp.DisplaySize.y);
 
-  // ── Developer mode (extra data) ──
-  if (debugConfig.devMode) {
+  // в”Ђв”Ђ Developer mode (extra data) в”Ђв”Ђ
+  if (Config::Settings.debug.devMode) {
     ImGui::Separator();
     ImGui::TextColored(cyan, "-- DEV --");
 

@@ -12,6 +12,9 @@ public:
   /// Load settings from configs/<name>.json
   static bool Load(const std::string &name);
 
+  /// Apply current settings to features
+  static void ApplySettings();
+
   /// List all available config files in the configs/ dir
   static std::vector<std::string> ListConfigs();
 

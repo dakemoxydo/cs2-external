@@ -4,10 +4,12 @@
 #include "features/debug_overlay/debug_overlay.h"
 #include "features/esp/esp.h"
 #include "features/misc/misc.h"
+#include "features/radar/radar.h"
 #include "features/triggerbot/triggerbot.h"
 #include <memory>
 #include <string>
 #include <vector>
+
 
 namespace Features {
 std::vector<std::unique_ptr<IFeature>> FeatureManager::features;
@@ -18,6 +20,7 @@ void FeatureManager::RegisterAll() {
   features.push_back(std::make_unique<Triggerbot>());
   features.push_back(std::make_unique<Misc>());
   features.push_back(std::make_unique<Bomb>());
+  features.push_back(std::make_unique<Radar>());
   features.push_back(std::make_unique<DebugOverlay>());
 }
 

@@ -1,7 +1,6 @@
-#pragma once
+﻿#pragma once
 #include "esp_config.h"
 #include "features/feature_base.h"
-
 
 namespace Features {
 extern EspConfig config;

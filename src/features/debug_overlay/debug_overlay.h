@@ -1,3 +1,4 @@
+﻿#include "config/settings.h"
 #pragma once
 #include "debug_overlay_config.h"
 #include "features/feature_base.h"
@@ -17,3 +18,5 @@ public:
 };
 
 } // namespace Features
+
+

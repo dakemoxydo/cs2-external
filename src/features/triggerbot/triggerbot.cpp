@@ -1,4 +1,5 @@
-#include "triggerbot.h"
+﻿#include "triggerbot.h"
+#include "config/settings.h"
 #include "core/game/game_manager.h"
 #include "core/memory/memory_manager.h"
 #include "core/sdk/offsets.h"
@@ -6,28 +7,48 @@
 #include "triggerbot_config.h"
 #include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <windows.h>
-
 
 namespace Features {
 
-TriggerbotConfig triggerbotConfig;
+// ── srand once
+// ────────────────────────────────────────────────────────────────
+static void EnsureRandSeeded() {
+  static bool seeded = false;
+  if (!seeded) {
+    srand(static_cast<unsigned int>(time(nullptr)));
+    seeded = true;
+  }
+}
 
-// ─── State machine ──────────────────────────────────────────────────────────
+// ── State machine
+// ─────────────────────────────────────────────────────────────
 enum class TBState { IDLE, TARGET_FOUND, WAITING, SHOOTING, COOLDOWN };
 static TBState s_state = TBState::IDLE;
 static std::chrono::steady_clock::time_point s_timer;
 static int s_delayMs = 0;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers
+// ───────────────────────────────────────────────────────────────────
 static int RandRange(int lo, int hi) {
   if (lo >= hi)
     return lo;
   return lo + rand() % (hi - lo + 1);
 }
 
-static void ClickDown() { mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0); }
-static void ClickUp() { mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0); }
+static void ClickDown() {
+  INPUT inp = {};
+  inp.type = INPUT_MOUSE;
+  inp.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+  SendInput(1, &inp, sizeof(INPUT));
+}
+static void ClickUp() {
+  INPUT inp = {};
+  inp.type = INPUT_MOUSE;
+  inp.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+  SendInput(1, &inp, sizeof(INPUT));
+}
 
 static auto NowMs() { return std::chrono::steady_clock::now(); }
 static long long ElapsedMs(std::chrono::steady_clock::time_point t) {
@@ -35,14 +56,18 @@ static long long ElapsedMs(std::chrono::steady_clock::time_point t) {
       .count();
 }
 
-// ─── Update ──────────────────────────────────────────────────────────────────
+// ── Update
+// ────────────────────────────────────────────────────────────────────
 void Triggerbot::Update() {
-  if (!triggerbotConfig.enabled) {
+  EnsureRandSeeded();
+
+  if (!Config::Settings.triggerbot.enabled) {
     s_state = TBState::IDLE;
     return;
   }
 
-  bool keyHeld = (GetAsyncKeyState(triggerbotConfig.hotkey) & 0x8000) != 0;
+  bool keyHeld =
+      (GetAsyncKeyState(Config::Settings.triggerbot.hotkey) & 0x8000) != 0;
   if (!keyHeld) {
     s_state = TBState::IDLE;
     return;
@@ -57,59 +82,33 @@ void Triggerbot::Update() {
   uint32_t crossHairHandle = Core::MemoryManager::Read<uint32_t>(
       localPawn + SDK::Offsets::m_iCrosshairEntityHandle);
 
-  // Check if the handle points to a valid enemy in our player list
+  // Check if the handle points to a valid enemy in our player list.
+  // We rely entirely on GameManager's already-built player list — no duplicate
+  // RPM.
   bool onEnemy = false;
   if (crossHairHandle != 0 && crossHairHandle != 0xFFFFFFFF) {
-    for (const auto &p : Core::GameManager::GetPlayers()) {
+    for (const auto &p : Core::GameManager::GetRenderPlayers()) {
       if (!p.IsValid() || !p.IsAlive())
         continue;
-      if (triggerbotConfig.teamCheck && p.isTeammate)
+      if (Config::Settings.triggerbot.teamCheck && p.isTeammate)
         continue;
 
-      // The lower 14 bits of the entity handle encode the serial/index
-      // We match by address — if it exists in our valid player list it's an
-      // enemy
-      uint32_t localHandle = Core::MemoryManager::Read<uint32_t>(
-          p.address + 0x10); // entity index field (common offset)
-      if (localHandle == crossHairHandle) {
+      // Match: read entity handle field from pawn and compare
+      uint32_t entHandle =
+          Core::MemoryManager::Read<uint32_t>(p.address + 0x10);
+      if (entHandle == crossHairHandle) {
         onEnemy = true;
         break;
       }
     }
-    // Simpler fallback: if crosshair handle != 0 and entity type is player
-    // Just check that the entity exists in our enemy list by checking address
-    if (!onEnemy) {
-      // Build entity lookup from handle if normal approach fails
-      uintptr_t entityList = Core::MemoryManager::Read<uintptr_t>(
-          Core::GameManager::GetClientBase() + SDK::Offsets::dwEntityList);
-      if (entityList) {
-        uintptr_t pawnListEntry = Core::MemoryManager::Read<uintptr_t>(
-            entityList + 0x10 + 0x8 * ((crossHairHandle & 0x7FFF) >> 9));
-        if (pawnListEntry) {
-          uintptr_t entPawn = Core::MemoryManager::Read<uintptr_t>(
-              pawnListEntry + 0x70 * (crossHairHandle & 0x1FF));
-          if (entPawn > 0x10000) {
-            int health = Core::MemoryManager::Read<int>(
-                entPawn + SDK::Offsets::m_iHealth);
-            int team = Core::MemoryManager::Read<uint8_t>(
-                entPawn + SDK::Offsets::m_iTeamNum);
-            int localTeam = Core::MemoryManager::Read<uint8_t>(
-                localPawn + SDK::Offsets::m_iTeamNum);
-            if (health > 0 && health <= 100 &&
-                !(triggerbotConfig.teamCheck && team == localTeam))
-              onEnemy = true;
-          }
-        }
-      }
-    }
   }
 
-  // ── State machine ────────────────────────────────────────────────────────
+  // ── State machine ─────────────────────────────────────────────────────────
   switch (s_state) {
   case TBState::IDLE:
     if (onEnemy) {
-      s_delayMs =
-          RandRange(triggerbotConfig.delayMin, triggerbotConfig.delayMax);
+      s_delayMs = RandRange(Config::Settings.triggerbot.delayMin,
+                            Config::Settings.triggerbot.delayMax);
       s_timer = NowMs();
       s_state = TBState::TARGET_FOUND;
     }
@@ -144,7 +143,6 @@ void Triggerbot::Update() {
     break;
 
   case TBState::COOLDOWN:
-    // Cooldown: 80–200ms before next trigger (humanized)
     if (ElapsedMs(s_timer) >= RandRange(80, 200)) {
       s_state = TBState::IDLE;
     }

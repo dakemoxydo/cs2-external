@@ -1,14 +1,16 @@
-#include "bomb.h"
+﻿#include "bomb.h"
+#include "config/settings.h"
 #include "core/game/game_manager.h"
 #include "core/math/math.h"
 #include "core/memory/memory_manager.h"
 #include "core/sdk/offsets.h"
 #include "render/draw/draw_list.h"
+#include <chrono>
 #include <cmath>
-#include <ctime>
 #include <imgui.h>
 #include <string>
 #include <windows.h>
+
 
 namespace Features {
 
@@ -20,10 +22,11 @@ static constexpr ptrdiff_t m_nBombSite = 0x119C;    // int  (0=A, 1=B)
 static constexpr ptrdiff_t m_bBombTicking = 0x120C; // bool
 } // namespace C4Off
 
-// ─── State ───────────────────────────────────────────────────────────────────
+// в”Ђв”Ђв”Ђ State
+// в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 static bool s_planted = false;
 static bool s_prevPlanted = false;
-static std::time_t s_plantTime = 0;
+static std::chrono::steady_clock::time_point s_plantTime;
 static float s_timeLeft = 0.0f;
 static int s_site = -1;
 
@@ -34,7 +37,7 @@ void Bomb::Update() {
 
   // Reference bomb detection (same pattern as reference esp):
   // 1. read pointer-to-C4 from [client.base + dwPlantedC4]
-  // 2. single deref → entity pointer
+  // 2. single deref в†’ entity pointer
   // 3. sanity-check: health > 0 means entity is alive (planted C4 has "health")
   uintptr_t c4Ptr = Core::MemoryManager::Read<uintptr_t>(
       clientBase + SDK::Offsets::dwPlantedC4);
@@ -69,19 +72,21 @@ void Bomb::Update() {
   s_planted = true;
 
   if (!s_prevPlanted) {
-    s_plantTime = std::time(nullptr);
+    s_plantTime = std::chrono::steady_clock::now();
     s_prevPlanted = true;
   }
 
   constexpr float BOMB_TIME = 40.0f;
-  float elapsed = static_cast<float>(std::time(nullptr) - s_plantTime);
+  float elapsed = std::chrono::duration<float>(
+                      std::chrono::steady_clock::now() - s_plantTime)
+                      .count();
   s_timeLeft = BOMB_TIME - elapsed;
   if (s_timeLeft < 0.0f)
     s_timeLeft = 0.0f;
 }
 
 void Bomb::Render(Render::DrawList & /*drawList*/) {
-  if (!bombConfig.enabled || !s_planted || s_timeLeft <= 0.0f)
+  if (!Config::Settings.bomb.enabled || !s_planted || s_timeLeft <= 0.0f)
     return;
 
   constexpr float BOMB_TIME = 40.0f;

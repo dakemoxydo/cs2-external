@@ -1,18 +1,29 @@
 #pragma once
 #include "features/aimbot/aimbot_config.h"
+#include "features/bomb/bomb_config.h"
+#include "features/debug_overlay/debug_overlay_config.h"
 #include "features/esp/esp_config.h"
 #include "features/misc/misc_config.h"
 #include "features/radar/radar_config.h"
 #include "features/triggerbot/triggerbot_config.h"
 
-
 namespace Config {
+
+struct PerformanceConfig {
+  int fpsLimit = 144;
+  int upsLimit = 144; // Updates per second for memory reading
+};
+
 struct GlobalSettings {
   Features::EspConfig esp;
   Features::AimbotConfig aimbot;
   Features::TriggerbotConfig triggerbot;
   Features::RadarConfig radar;
   Features::MiscConfig misc;
+  Features::BombConfig bomb;
+  Features::DebugConfig debug;
+  PerformanceConfig performance; // Added performance settings
+  bool menuIsOpen = false;
 };
 
 extern GlobalSettings Settings;

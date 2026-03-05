@@ -1,8 +1,10 @@
 #include "updater.h"
 #include "offsets.h"
+#include <atomic>
 #include <iostream>
 #include <regex>
 #include <string>
+#include <thread>
 #include <windows.h>
 #include <wininet.h>
 
@@ -37,17 +39,15 @@ static std::string FetchHTTP(const std::string &url) {
   return result;
 }
 
-// ─── Parse a decimal or hex number from JSON/header ──────────────────────────
+// ─── Parse a decimal or hex number from JSON ─────────────────────────────────
 // Handles both: "key": 12345  and  "key": "0x3f00"
 static ptrdiff_t ParseOffset(const std::string &src, const std::string &key) {
-  // Try decimal: "key": 12345
   {
     std::regex re("\"" + key + "\"\\s*:\\s*(\\d+)");
     std::smatch m;
     if (std::regex_search(src, m, re))
       return static_cast<ptrdiff_t>(std::stoull(m[1].str()));
   }
-  // Try hex string: "key": "0x1234abcd"
   {
     std::regex re("\"" + key + "\"\\s*:\\s*\"0x([0-9a-fA-F]+)\"");
     std::smatch m;
@@ -57,28 +57,16 @@ static ptrdiff_t ParseOffset(const std::string &src, const std::string &key) {
   return 0;
 }
 
-// ─── UpdateOffsets
-// ────────────────────────────────────────────────────────────
-bool Updater::UpdateOffsets() {
-  std::cout << "[INFO] Fetching latest offsets from a2x/cs2-dumper...\n";
-
-  const std::string BASE =
-      "https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/";
-  std::string offsetsJson = FetchHTTP(BASE + "offsets.json");
-  std::string clientJson = FetchHTTP(BASE + "client_dll.json");
-
-  if (offsetsJson.empty() || clientJson.empty()) {
-    std::cerr << "[ERROR] Failed to fetch offsets from GitHub.\n";
-    return false;
-  }
-
-  // ── offsets.json (engine-level pointers) ──────────────────────────────────
+// ─── Apply fetched JSON to Offsets namespace ─────────────────────────────────
+static void ApplyOffsets(const std::string &offsetsJson,
+                         const std::string &clientJson) {
+  // Engine-level pointers
   Offsets::dwEntityList = ParseOffset(offsetsJson, "dwEntityList");
   Offsets::dwLocalPlayerPawn = ParseOffset(offsetsJson, "dwLocalPlayerPawn");
   Offsets::dwViewMatrix = ParseOffset(offsetsJson, "dwViewMatrix");
   Offsets::dwPlantedC4 = ParseOffset(offsetsJson, "dwPlantedC4");
 
-  // ── client_dll.json (member offsets) ──────────────────────────────────────
+  // Member offsets
   Offsets::m_iHealth = ParseOffset(clientJson, "m_iHealth");
   Offsets::m_iTeamNum = ParseOffset(clientJson, "m_iTeamNum");
   Offsets::m_vOldOrigin = ParseOffset(clientJson, "m_vOldOrigin");
@@ -86,16 +74,16 @@ bool Updater::UpdateOffsets() {
   Offsets::m_modelState = ParseOffset(clientJson, "m_modelState");
   Offsets::m_hPlayerPawn = ParseOffset(clientJson, "m_hPlayerPawn");
   Offsets::m_iszPlayerName = ParseOffset(clientJson, "m_iszPlayerName");
+  Offsets::m_pClippingWeapon = ParseOffset(clientJson, "m_pClippingWeapon");
 
-  // ── Aimbot / Triggerbot member offsets ────────────────────────────────────
+  // Aimbot / Triggerbot
   Offsets::m_angEyeAngles = ParseOffset(clientJson, "m_angEyeAngles");
   Offsets::m_iCrosshairEntityHandle =
       ParseOffset(clientJson, "m_iCrosshairEntityHandle");
   Offsets::m_bIsScoped = ParseOffset(clientJson, "m_bIsScoped");
   Offsets::m_iShotsFired = ParseOffset(clientJson, "m_iShotsFired");
 
-  // ── Fallback hardcoded values if dumper returns 0 ─────────────────────────
-  // Values from a2x cs2-dumper as of CS2 patch 1.40.x
+  // Fallback hardcoded values if dumper returns 0
   if (Offsets::m_angEyeAngles == 0)
     Offsets::m_angEyeAngles = 0x3DD0;
   if (Offsets::m_iCrosshairEntityHandle == 0)
@@ -105,14 +93,7 @@ bool Updater::UpdateOffsets() {
   if (Offsets::m_iShotsFired == 0)
     Offsets::m_iShotsFired = 0x270C;
 
-  if (Offsets::dwEntityList == 0) {
-    std::cerr << "[ERROR] Failed to parse dwEntityList!\n";
-    return false;
-  }
-
-  // ── Print summary ─────────────────────────────────────────────────────────
-  std::cout << std::hex;
-  std::cout << "[INFO] Offsets loaded:\n"
+  std::cout << std::hex << "[INFO] Offsets loaded:\n"
             << "  dwEntityList:             0x" << Offsets::dwEntityList << "\n"
             << "  dwLocalPlayerPawn:        0x" << Offsets::dwLocalPlayerPawn
             << "\n"
@@ -124,9 +105,42 @@ bool Updater::UpdateOffsets() {
             << Offsets::m_iCrosshairEntityHandle << "\n"
             << "  m_bIsScoped:              0x" << Offsets::m_bIsScoped << "\n"
             << "  m_iShotsFired:            0x" << Offsets::m_iShotsFired
-            << "\n";
-  std::cout << std::dec;
-  return true;
+            << "\n"
+            << std::dec;
+}
+
+// ─── Background fetch thread ─────────────────────────────────────────────────
+static std::atomic<bool> s_fetchDone{false};
+
+static void FetchThreadProc() {
+  const std::string BASE =
+      "https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/";
+  std::string offsetsJson = FetchHTTP(BASE + "offsets.json");
+  std::string clientJson = FetchHTTP(BASE + "client_dll.json");
+
+  if (offsetsJson.empty() || clientJson.empty()) {
+    std::cerr
+        << "[ERROR] Failed to fetch offsets from GitHub. Using defaults.\n";
+    s_fetchDone = true;
+    return;
+  }
+
+  if (ParseOffset(offsetsJson, "dwEntityList") == 0) {
+    std::cerr
+        << "[ERROR] Failed to parse dwEntityList — keeping current values.\n";
+    s_fetchDone = true;
+    return;
+  }
+
+  ApplyOffsets(offsetsJson, clientJson);
+  s_fetchDone = true;
+}
+
+// ─── Public: kick off async update, returns immediately ──────────────────────
+bool Updater::UpdateOffsets() {
+  std::cout << "[INFO] Launching async offset update from a2x/cs2-dumper...\n";
+  std::thread(FetchThreadProc).detach();
+  return true; // Main thread continues with default/last offsets immediately
 }
 
 } // namespace SDK

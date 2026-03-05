@@ -1,3 +1,4 @@
+﻿#include "config/settings.h"
 #pragma once
 #include "bomb_config.h"
 #include "features/feature_base.h"
@@ -16,3 +17,5 @@ public:
 };
 
 } // namespace Features
+
+
