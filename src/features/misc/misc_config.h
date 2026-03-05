@@ -9,5 +9,8 @@ struct MiscConfig {
   float crosshairColor[4] = {0.0f, 1.0f, 0.0f, 0.85f}; // green
   float crosshairThickness = 1.5f;
   bool crosshairGap = true; // gap in center of cross
+
+  int menuTheme = 0; // 0=Midnight, 1=Blood, 2=Cyber, 3=Lavender, 4=Gold,
+                     // 5=Monochrome, 6=Toxic
 };
 } // namespace Features

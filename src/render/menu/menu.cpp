@@ -3,10 +3,12 @@
 #include "config/config_manager.h"
 #include "config/settings.h"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <string>
 #include <vector>
 
-// ─── Key picker ──────────────────────────────────────────────────────────────
+// ─── Key picker
+// ──────────────────────────────────────────────────────────────
 // Returns button label given VK code
 static const char *KeyLabel(int vk) {
   switch (vk) {
@@ -61,67 +63,17 @@ static bool HotkeyPicker(const char *label, int &keyTarget) {
     }
     ImGui::PopStyleColor();
 
-    // ESC cancels listening without changing the key
     if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
       s_listening = nullptr;
     } else {
-      // Extended candidate list: mouse buttons, modifiers, F-keys, arrows,
-      // digits, common letters
       static const int candidateVKs[] = {
-          // Mouse
-          0x01,
-          0x02,
-          0x04,
-          0x05,
-          0x06,
-          // Modifiers
-          VK_SHIFT,
-          VK_CONTROL,
-          VK_MENU,
-          // Navigation
-          VK_INSERT,
-          VK_END,
-          VK_HOME,
-          VK_DELETE,
-          VK_LEFT,
-          VK_RIGHT,
-          VK_UP,
-          VK_DOWN,
-          // F-keys
-          VK_F1,
-          VK_F2,
-          VK_F3,
-          VK_F4,
-          VK_F5,
-          VK_F6,
-          VK_F7,
-          VK_F8,
-          VK_F9,
-          VK_F10,
-          VK_F11,
-          VK_F12,
-          // Digits
-          '0',
-          '1',
-          '2',
-          '3',
-          '4',
-          '5',
-          '6',
-          '7',
-          '8',
-          '9',
-          // Common letters
-          'Z',
-          'X',
-          'C',
-          'V',
-          'F',
-          'G',
-          'H',
-          'R',
-          'T',
-          'B',
+          0x01,    0x02,      0x04,   0x05,    0x06,      VK_SHIFT, VK_CONTROL,
+          VK_MENU, VK_INSERT, VK_END, VK_HOME, VK_DELETE, VK_LEFT,  VK_RIGHT,
+          VK_UP,   VK_DOWN,   VK_F1,  VK_F2,   VK_F3,     VK_F4,    VK_F5,
+          VK_F6,   VK_F7,     VK_F8,  VK_F9,   VK_F10,    VK_F11,   VK_F12,
+          '0',     '1',       '2',    '3',     '4',       '5',      '6',
+          '7',     '8',       '9',    'Z',     'X',       'C',      'V',
+          'F',     'G',       'H',    'R',     'T',       'B',
       };
       for (int v : candidateVKs) {
         if (GetAsyncKeyState(v) & 0x8000) {
@@ -139,12 +91,243 @@ static bool HotkeyPicker(const char *label, int &keyTarget) {
   return changed;
 }
 
-// в”Ђв”Ђв”Ђ Config UI state
-// в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// ─── Custom Widgets
+static void ApplyTheme(int theme) {
+  ImGuiStyle *style = &ImGui::GetStyle();
+  ImVec4 *colors = style->Colors;
+
+  style->WindowRounding = 12.0f;
+  style->ChildRounding = 8.0f;
+  style->FrameRounding = 6.0f;
+  style->PopupRounding = 8.0f;
+  style->ScrollbarRounding = 6.0f;
+  style->GrabRounding = 6.0f;
+  style->TabRounding = 6.0f;
+
+  style->WindowBorderSize = 1.0f;
+  style->ChildBorderSize = 0.0f; // Cleaner look
+  style->FrameBorderSize = 0.0f;
+  style->PopupBorderSize = 1.0f;
+
+  style->FramePadding = ImVec2(8.0f, 6.0f);
+  style->ItemSpacing = ImVec2(10.0f, 10.0f);
+  style->ItemInnerSpacing = ImVec2(8.0f, 6.0f);
+
+  if (theme == 0) { // Midnight
+    colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.06f, 0.07f, 1.00f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
+    colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
+    colors[ImGuiCol_Border] = ImVec4(0.15f, 0.15f, 0.17f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.14f, 0.14f, 0.16f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.18f, 0.18f, 0.20f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.20f, 0.22f, 1.00f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.06f, 0.06f, 0.07f, 1.00f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.40f, 0.35f, 0.80f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.45f, 0.40f, 0.85f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.35f, 0.30f, 0.70f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.40f, 0.35f, 0.80f, 0.50f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.45f, 0.40f, 0.85f, 0.60f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.45f, 0.40f, 0.85f, 0.80f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.50f, 0.45f, 0.90f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.60f, 0.55f, 0.95f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.50f, 0.45f, 0.90f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.92f, 1.00f);
+  } else if (theme == 1) { // Blood
+    colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.05f, 0.05f, 1.00f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.12f, 0.08f, 0.08f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.25f, 0.10f, 0.10f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.20f, 0.10f, 0.10f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.25f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.30f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.70f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.80f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.60f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.70f, 0.20f, 0.20f, 0.50f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.80f, 0.30f, 0.30f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.90f, 0.40f, 0.40f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.90f, 0.30f, 0.30f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.95f, 0.85f, 0.85f, 1.00f);
+  } else if (theme == 2) { // Cyber
+    colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.08f, 0.08f, 1.00f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.08f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.10f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.12f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.15f, 0.30f, 0.30f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.10f, 0.60f, 0.60f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.15f, 0.70f, 0.70f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.05f, 0.50f, 0.50f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.10f, 0.60f, 0.60f, 0.50f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.15f, 0.30f, 0.30f, 0.80f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.20f, 0.80f, 0.80f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.30f, 0.90f, 0.90f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.20f, 0.90f, 0.90f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.85f, 0.95f, 0.95f, 1.00f);
+  } else if (theme == 3) { // Lavender
+    colors[ImGuiCol_WindowBg] = ImVec4(0.09f, 0.08f, 0.12f, 1.00f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.12f, 0.11f, 0.15f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.18f, 0.16f, 0.22f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.15f, 0.13f, 0.18f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.20f, 0.18f, 0.25f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.25f, 0.22f, 0.30f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.55f, 0.45f, 0.85f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.65f, 0.55f, 0.90f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.45f, 0.35f, 0.75f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.55f, 0.45f, 0.85f, 0.50f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.65f, 0.55f, 0.90f, 0.60f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.65f, 0.55f, 0.90f, 0.80f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.65f, 0.55f, 0.95f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.75f, 0.65f, 0.95f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.65f, 0.55f, 0.95f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.92f, 0.90f, 0.95f, 1.00f);
+  } else if (theme == 4) { // Gold/Luxury
+    colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.05f, 0.05f, 1.00f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.20f, 0.16f, 0.10f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.18f, 0.16f, 0.14f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.18f, 0.15f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.75f, 0.60f, 0.20f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.85f, 0.70f, 0.30f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.65f, 0.50f, 0.15f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.75f, 0.60f, 0.20f, 0.50f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.85f, 0.70f, 0.30f, 0.60f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.85f, 0.70f, 0.30f, 0.80f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.85f, 0.75f, 0.35f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.95f, 0.85f, 0.45f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.85f, 0.75f, 0.35f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.95f, 0.90f, 0.85f, 1.00f);
+  } else if (theme == 5) { // Monochrome
+    colors[ImGuiCol_WindowBg] = ImVec4(0.02f, 0.02f, 0.02f, 1.00f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.05f, 0.05f, 0.05f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.80f, 0.80f, 0.80f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.40f, 0.40f, 0.40f, 0.50f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.60f, 0.60f, 0.60f, 0.60f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.60f, 0.60f, 0.60f, 0.80f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.80f, 0.80f, 0.80f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.80f, 0.80f, 0.80f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
+  } else if (theme == 6) { // Toxic
+    colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.05f, 0.05f, 1.00f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.08f, 0.09f, 0.08f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.20f, 0.30f, 0.20f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.12f, 0.15f, 0.12f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.18f, 0.25f, 0.18f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.35f, 0.22f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.40f, 0.80f, 0.10f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.50f, 0.90f, 0.20f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.30f, 0.70f, 0.05f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.40f, 0.80f, 0.10f, 0.50f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.50f, 0.90f, 0.20f, 0.60f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.50f, 0.90f, 0.20f, 0.80f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.50f, 0.90f, 0.20f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.60f, 1.00f, 0.30f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.50f, 0.90f, 0.20f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.95f, 0.95f, 0.95f, 1.00f);
+  }
+}
+
+static bool DrawToggle(const char *label, bool *v) {
+  ImGuiWindow *window = ImGui::GetCurrentWindow();
+  if (window->SkipItems)
+    return false;
+
+  ImGuiContext &g = *GImGui;
+  const ImGuiStyle &style = g.Style;
+  const ImGuiID id = window->GetID(label);
+  const ImVec2 label_size = ImGui::CalcTextSize(label, NULL, true);
+
+  float height = ImGui::GetFrameHeight();
+  float width = height * 1.55f;
+  float radius = height * 0.50f;
+
+  const ImVec2 pos = window->DC.CursorPos;
+  const ImRect total_bb(
+      pos,
+      ImVec2(pos.x + width +
+                 (label_size.x > 0.0f ? style.ItemInnerSpacing.x + label_size.x
+                                      : 0.0f),
+             pos.y + height));
+
+  ImGui::ItemSize(total_bb, style.FramePadding.y);
+  if (!ImGui::ItemAdd(total_bb, id))
+    return false;
+
+  bool hovered, held;
+  bool pressed = ImGui::ButtonBehavior(total_bb, id, &hovered, &held);
+  if (pressed) {
+    *v = !(*v);
+    ImGui::MarkItemEdited(id);
+  }
+
+  // Animation float in state storage
+  float t = *v ? 1.0f : 0.0f;
+  float *t_anim = (float *)ImGui::GetStateStorage()->GetVoidPtr(id);
+  if (!t_anim) {
+    t_anim = (float *)ImGui::MemAlloc(sizeof(float));
+    *t_anim = t;
+    ImGui::GetStateStorage()->SetVoidPtr(id, t_anim);
+  }
+
+  float ANIM_SPEED = g.IO.DeltaTime * 12.0f;
+  if (*t_anim != t) {
+    *t_anim += (*v ? 1.0f : -1.0f) * ANIM_SPEED;
+    if (*t_anim < 0.0f)
+      *t_anim = 0.0f;
+    if (*t_anim > 1.0f)
+      *t_anim = 1.0f;
+  }
+
+  // Colors
+  ImU32 col_bg;
+  ImVec4 col_off = style.Colors[ImGuiCol_FrameBg];
+  ImVec4 col_on = style.Colors[ImGuiCol_Button];
+  if (hovered) {
+    col_off = style.Colors[ImGuiCol_FrameBgHovered];
+    col_on = style.Colors[ImGuiCol_ButtonHovered];
+  }
+
+  ImU32 bg_color = ImGui::GetColorU32(ImLerp(col_off, col_on, *t_anim));
+
+  window->DrawList->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height),
+                                  bg_color, height * 0.5f);
+  window->DrawList->AddCircleFilled(
+      ImVec2(pos.x + radius + (*t_anim) * (width - radius * 2.0f),
+             pos.y + radius),
+      radius - 1.5f, IM_COL32(255, 255, 255, 255));
+
+  if (label_size.x > 0.0f) {
+    ImGui::RenderText(ImVec2(pos.x + width + style.ItemInnerSpacing.x,
+                             pos.y + style.FramePadding.y),
+                      label);
+  }
+
+  return pressed;
+}
+
+static bool ColorEditInline(const char *label, float *color) {
+  ImGui::SameLine(ImGui::GetContentRegionAvail().x -
+                  ImGui::GetFrameHeight() * 1.5f);
+  return ImGui::ColorEdit4(
+      label, color,
+      ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel |
+          ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_AlphaPreviewHalf);
+}
+
+// ─── Config UI state
 static char s_configName[64] = "default";
 static std::vector<std::string> s_configList;
 static int s_configSelected = 0;
-static bool s_configDirty = false; // show * in title
+static bool s_configDirty = false;
+static int s_currentTab = 0; // 0=Legit, 1=Visuals, 2=Misc, 3=Settings
 
 namespace Render {
 bool Menu::isOpen = false;
@@ -159,433 +342,298 @@ void Menu::Render() {
     SetWindowLong(Render::Overlay::GetWindowHandle(), GWL_EXSTYLE,
                   ex & ~WS_EX_TRANSPARENT);
 
-  ImGui::SetNextWindowSize(ImVec2(780, 560), ImGuiCond_FirstUseEver);
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
-  ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+  ApplyTheme(Config::Settings.misc.menuTheme);
+
+  ImGui::SetNextWindowSize(ImVec2(850, 620), ImGuiCond_FirstUseEver);
 
   char title[64];
-  snprintf(title, sizeof(title), "CS2 External v2.0%s###MainWindow",
+  snprintf(title, sizeof(title), "Antigravity External%s###MainWindow",
            s_configDirty ? " *" : "");
 
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
   if (ImGui::Begin(title, &isOpen, ImGuiWindowFlags_NoCollapse)) {
-    if (ImGui::BeginTabBar("Tabs")) {
+    ImGui::PopStyleVar();
 
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ ESP
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-      if (ImGui::BeginTabItem("ESP")) {
+    // ─── VERTICAL LAYOUT ───
+    ImGui::BeginChild("Sidebar", ImVec2(160, 0), true);
 
-        // в”Ђв”Ђ Enable
-        // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-        if (ImGui::Checkbox("Enable ESP", &Config::Settings.esp.enabled)) {
-          Config::ConfigManager::ApplySettings();
-        }
-        ImGui::Checkbox("Team ESP", &Config::Settings.esp.showTeammates);
+    ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 10));
 
+    ImGui::Dummy(ImVec2(0, 10)); // Top padding
+    if (ImGui::Selectable("LEGIT", s_currentTab == 0, 0, ImVec2(0, 35)))
+      s_currentTab = 0;
+    if (ImGui::Selectable("VISUALS", s_currentTab == 1, 0, ImVec2(0, 35)))
+      s_currentTab = 1;
+    if (ImGui::Selectable("MISC", s_currentTab == 2, 0, ImVec2(0, 35)))
+      s_currentTab = 2;
+    if (ImGui::Selectable("SETTINGS", s_currentTab == 3, 0, ImVec2(0, 35)))
+      s_currentTab = 3;
+
+    ImGui::PopStyleVar(2);
+
+    ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 50);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.1f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.2f, 0.2f, 1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.4f, 0.0f, 0.0f, 1));
+    if (ImGui::Button("UNLOAD", ImVec2(ImGui::GetContentRegionAvail().x, 40)))
+      shouldClose = true;
+    ImGui::PopStyleColor(3);
+
+    ImGui::EndChild();
+
+    ImGui::SameLine(0, 10);
+
+    // ─── CONTENT ───
+    ImGui::BeginChild("Content", ImVec2(0, 0), false, 0);
+    ImGui::Dummy(ImVec2(0, 5));
+
+    if (s_currentTab == 0) { // ─── LEGIT
+      ImGui::Columns(2, "LegitCols", false);
+
+      ImGui::BeginChild("AimbotCard", ImVec2(0, 0), true);
+      ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered],
+                         "Aimbot");
+      ImGui::Separator();
+      if (DrawToggle("Enable Aimbot", &Config::Settings.aimbot.enabled))
+        Config::ConfigManager::ApplySettings();
+      if (Config::Settings.aimbot.enabled) {
         ImGui::Spacing();
-
-        // в”Ђв”Ђ Box
-        // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.f), "  Box");
-        ImGui::Separator();
-        ImGui::Checkbox("Draw Box", &Config::Settings.esp.showBox);
-        if (Config::Settings.esp.showBox) {
-          const char *boxStyles[] = {"Rect", "Corners", "Filled"};
-          int bsInt = static_cast<int>(Config::Settings.esp.boxStyle);
-          if (ImGui::Combo("Box Style", &bsInt, boxStyles, 3))
-            Config::Settings.esp.boxStyle =
-                static_cast<Features::BoxStyle>(bsInt);
-          if (Config::Settings.esp.boxStyle == Features::BoxStyle::Filled)
-            ImGui::SliderFloat("Fill Alpha", &Config::Settings.esp.fillBoxAlpha,
-                               0.02f, 0.5f, "%.2f");
-        }
-
+        HotkeyPicker("Hold Key Aimbot", Config::Settings.aimbot.hotkey);
         ImGui::Spacing();
+        ImGui::SliderFloat("FOV", &Config::Settings.aimbot.fov, 1.0f, 30.0f,
+                           "%.1f deg");
+        ImGui::SliderFloat("Smooth", &Config::Settings.aimbot.smooth, 1.0f,
+                           20.0f, "%.1f");
+        ImGui::SliderFloat("Sensitivity", &Config::Settings.aimbot.sensitivity,
+                           0.1f, 10.0f, "%.1f");
+        ImGui::SliderFloat("Jitter", &Config::Settings.aimbot.jitter, 0.0f,
+                           0.15f, "%.3f");
 
-        ImGui::Spacing();
-
-        // в”Ђв”Ђ Health Bar
-        // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-        ImGui::TextColored(ImVec4(0.3f, 1.f, 0.4f, 1.f), "  Health");
         ImGui::Separator();
-        ImGui::Checkbox("Draw Health Bar", &Config::Settings.esp.showHealth);
-        if (Config::Settings.esp.showHealth) {
-          const char *hpStyles[] = {"Side (Vertical)", "Bottom (Horizontal)"};
-          int hsInt = static_cast<int>(Config::Settings.esp.healthBarStyle);
-          if (ImGui::Combo("Bar Style", &hsInt, hpStyles, 2))
-            Config::Settings.esp.healthBarStyle =
-                static_cast<Features::HealthBarStyle>(hsInt);
-          ImGui::Checkbox("Show HP Text", &Config::Settings.esp.showHealthText);
-        }
-
-        ImGui::Spacing();
-
-        // в”Ђв”Ђ Labels
-        // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-        ImGui::TextColored(ImVec4(1.f, 1.f, 0.5f, 1.f), "  Labels");
-        ImGui::Separator();
-        ImGui::Checkbox("Draw Name", &Config::Settings.esp.showName);
-        ImGui::Checkbox("Draw Weapon", &Config::Settings.esp.showWeapon);
-        ImGui::Checkbox("Draw Distance", &Config::Settings.esp.showDistance);
-
-        ImGui::Spacing();
-
-        // в”Ђв”Ђ Snap Lines
-        // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-        ImGui::TextColored(ImVec4(0.8f, 0.5f, 1.f, 1.f), "  Snap Lines");
-        ImGui::Separator();
-        ImGui::Checkbox("Show Snap Lines", &Config::Settings.esp.showSnapLines);
-
-        ImGui::Spacing();
-
-        // в”Ђв”Ђ Skeleton
-        // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-        ImGui::TextColored(ImVec4(1.f, 1.f, 1.f, 0.6f), "  Skeleton");
-        ImGui::Separator();
-        ImGui::Checkbox("Show Skeleton", &Config::Settings.esp.showBones);
-        if (Config::Settings.esp.showBones) {
-          ImGui::Checkbox("Skeleton Outline",
-                          &Config::Settings.esp.skeletonOutline);
-          ImGui::SliderFloat("Max Distance",
-                             &Config::Settings.esp.skeletonMaxDistance, 5.0f,
-                             60.0f, "%.0f m");
-        }
-
-        ImGui::EndTabItem();
-      }
-
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ AIMBOT
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-      if (ImGui::BeginTabItem("Aimbot")) {
-        ImGui::TextColored(ImVec4(1, 0.4f, 0.3f, 1), "Aimbot");
-        ImGui::Separator();
-        if (ImGui::Checkbox("Enable Aimbot",
-                            &Config::Settings.aimbot.enabled)) {
-          Config::ConfigManager::ApplySettings();
-        }
-
-        if (Config::Settings.aimbot.enabled) {
-          ImGui::Spacing();
-          HotkeyPicker("Hold Key", Config::Settings.aimbot.hotkey);
-          if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Click to rebind. Supports Mouse4/Mouse5.");
-
-          ImGui::Spacing();
-          ImGui::SliderFloat("FOV", &Config::Settings.aimbot.fov, 1.0f, 30.0f,
-                             "%.1f deg");
-          ImGui::SliderFloat("Smooth", &Config::Settings.aimbot.smooth, 1.0f,
-                             20.0f, "%.1f");
-          ImGui::SliderFloat("Sensitivity",
-                             &Config::Settings.aimbot.sensitivity, 0.1f, 10.0f,
-                             "%.1f");
-          if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Match your CS2 in-game sensitivity setting");
-          ImGui::SliderFloat("Jitter", &Config::Settings.aimbot.jitter, 0.0f,
-                             0.15f, "%.3f");
-          if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Adds random noise to avoid machine-perfect patterns");
-
-          ImGui::Separator();
-          const char *bones[] = {"Pelvis", "Chest", "Neck", "Head"};
-          const int bVals[] = {0, 4, 5, 6};
-          int sel = 3;
-          for (int i = 0; i < 4; i++)
-            if (bVals[i] == Config::Settings.aimbot.targetBone) {
-              sel = i;
-              break;
-            }
-          if (ImGui::Combo("Target Bone", &sel, bones, 4))
-            Config::Settings.aimbot.targetBone = bVals[sel];
-
-          ImGui::Checkbox("Target Lock", &Config::Settings.aimbot.targetLock);
-          ImGui::Checkbox("Visible Only", &Config::Settings.aimbot.visibleOnly);
-          ImGui::Checkbox("Team Check", &Config::Settings.aimbot.teamCheck);
-          ImGui::Checkbox("Only Scoped", &Config::Settings.aimbot.onlyScoped);
-          ImGui::Checkbox("Show FOV Circle", &Config::Settings.aimbot.showFov);
-        }
-        ImGui::EndTabItem();
-      }
-
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ TRIGGERBOT
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-      if (ImGui::BeginTabItem("Triggerbot")) {
-        ImGui::TextColored(ImVec4(1, 0.7f, 0.1f, 1), "Triggerbot");
-        ImGui::Separator();
-        if (ImGui::Checkbox("Enable Triggerbot",
-                            &Config::Settings.triggerbot.enabled)) {
-          Config::ConfigManager::ApplySettings();
-        }
-
-        if (Config::Settings.triggerbot.enabled) {
-          ImGui::Spacing();
-          HotkeyPicker("Hold Key", Config::Settings.triggerbot.hotkey);
-
-          ImGui::SliderInt("Min Delay (ms)",
-                           &Config::Settings.triggerbot.delayMin, 0, 150);
-          ImGui::SliderInt("Max Delay (ms)",
-                           &Config::Settings.triggerbot.delayMax,
-                           Config::Settings.triggerbot.delayMin, 300);
-          ImGui::Checkbox("Team Check", &Config::Settings.triggerbot.teamCheck);
-
-          ImGui::Spacing();
-          ImGui::TextDisabled("State: IDLE->FOUND->WAIT->SHOOT->COOLDOWN");
-        }
-        ImGui::EndTabItem();
-      }
-
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ RADAR
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-      if (ImGui::BeginTabItem("Radar")) {
-        ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.f), "Radar Overlay");
-        ImGui::Separator();
-        if (ImGui::Checkbox("Enable Radar", &Config::Settings.radar.enabled)) {
-          Config::ConfigManager::ApplySettings();
-        }
-
-        if (Config::Settings.radar.enabled) {
-          ImGui::Spacing();
-          ImGui::Checkbox("Rotate Map", &Config::Settings.radar.rotate);
-          ImGui::Checkbox("Show Teammates",
-                          &Config::Settings.radar.showTeammates);
-          ImGui::Checkbox("Visible Check",
-                          &Config::Settings.radar.visibleCheck);
-
-          ImGui::Spacing();
-          const char *stretchModes[] = {"None", "16:9 to 4:3", "16:9 to 16:10",
-                                        "16:9 to 5:4"};
-          ImGui::Combo("Stretch Type", &Config::Settings.radar.stretchType,
-                       stretchModes, 4);
-
-          const char *maps[] = {"Custom", "Mirage (1.88)", "Dust2 (2.32)",
-                                "Inferno (1.44)", "Nuke (1.99)"};
-          ImGui::Combo("Map Scale", &Config::Settings.radar.mapIndex, maps, 5);
-
-          if (Config::Settings.radar.mapIndex == 0) {
-            ImGui::SliderFloat("Custom Calibration",
-                               &Config::Settings.radar.mapCalibration, 0.5f,
-                               5.0f, "%.3f");
+        const char *bones[] = {"Pelvis", "Chest", "Neck", "Head"};
+        const int bVals[] = {0, 4, 5, 6};
+        int sel = 3;
+        for (int i = 0; i < 4; i++)
+          if (bVals[i] == Config::Settings.aimbot.targetBone) {
+            sel = i;
+            break;
           }
+        if (ImGui::Combo("Target Bone", &sel, bones, 4))
+          Config::Settings.aimbot.targetBone = bVals[sel];
 
-          ImGui::Spacing();
-          ImGui::SliderFloat("Scale / Zoom", &Config::Settings.radar.zoom, 0.1f,
-                             3.0f, "%.2f");
-          ImGui::SliderFloat("Point Size", &Config::Settings.radar.pointSize,
-                             2.0f, 8.0f, "%.1f px");
-          ImGui::SliderFloat("Background Alpha",
-                             &Config::Settings.radar.bgAlpha, 0.0f, 1.0f,
-                             "%.2f");
-        }
-        ImGui::EndTabItem();
+        DrawToggle("Target Lock", &Config::Settings.aimbot.targetLock);
+        DrawToggle("Visible Only", &Config::Settings.aimbot.visibleOnly);
+        DrawToggle("Team Check Aimbot", &Config::Settings.aimbot.teamCheck);
+        DrawToggle("Only Scoped", &Config::Settings.aimbot.onlyScoped);
+        DrawToggle("Show FOV Circle", &Config::Settings.aimbot.showFov);
       }
+      ImGui::EndChild();
 
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ MISC
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-      if (ImGui::BeginTabItem("Misc")) {
-        ImGui::Text("Miscellaneous");
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.6f, 1, 0.6f, 1), "AWP Crosshair");
-        if (ImGui::Checkbox("Enable", &Config::Settings.misc.awpCrosshair)) {
-          Config::ConfigManager::ApplySettings();
-        }
-        if (Config::Settings.misc.awpCrosshair) {
-          const char *styles[] = {"Dot", "Cross", "Circle", "All"};
-          ImGui::Combo("Style", &Config::Settings.misc.crosshairStyle, styles,
-                       4);
-          ImGui::SliderFloat("Size", &Config::Settings.misc.crosshairSize, 2.0f,
-                             25.0f, "%.0f px");
-          ImGui::SliderFloat("Thickness",
-                             &Config::Settings.misc.crosshairThickness, 0.5f,
-                             4.0f, "%.1f");
-          ImGui::Checkbox("Center Gap", &Config::Settings.misc.crosshairGap);
-        }
-        ImGui::EndTabItem();
-      }
+      ImGui::NextColumn();
 
-      // ─── PERFORMANCE
-      // ───────────────────────────────────────────────────────────────────────
-      if (ImGui::BeginTabItem("Performance")) {
-        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.9f, 1),
-                           "Limits & Optimization");
-        ImGui::Separator();
-
-        ImGui::SliderInt("FPS Limit", &Config::Settings.performance.fpsLimit,
-                         10, 500, "%d FPS");
-        if (ImGui::IsItemHovered())
-          ImGui::SetTooltip(
-              "Limits the rendering loop framerate. Saves GPU/CPU.");
-
-        ImGui::SliderInt("UPS Limit (Memory)",
-                         &Config::Settings.performance.upsLimit, 10, 500,
-                         "%d UPS");
-        if (ImGui::IsItemHovered())
-          ImGui::SetTooltip(
-              "Limits memory read logic updates per second. Lowering this "
-              "drastically increases FPS but reduces ESP smoothness.");
-
-        ImGui::EndTabItem();
-      }
-
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ BOMB
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-      if (ImGui::BeginTabItem("Bomb")) {
-        ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "Bomb Timer");
-        ImGui::Separator();
-        if (ImGui::Checkbox("Enable Bomb Timer",
-                            &Config::Settings.bomb.enabled)) {
-          Config::ConfigManager::ApplySettings();
-        }
-        ImGui::TextDisabled("Timer: 40s (CS2 standard). Site auto-detected.");
-        ImGui::EndTabItem();
-      }
-
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ COLORS
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-      if (ImGui::BeginTabItem("Colors")) {
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.8f, 1.f), "Menu & ESP Colors");
-        ImGui::Separator();
-
-        ImGuiColorEditFlags flags =
-            ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoTooltip;
-
-        if (ImGui::CollapsingHeader("ESP Visuals",
-                                    ImGuiTreeNodeFlags_DefaultOpen)) {
-          ImGui::ColorEdit4("Box Base", Config::Settings.esp.boxColor, flags);
-          ImGui::ColorEdit4("Box Team", Config::Settings.esp.teamColor, flags);
-          ImGui::ColorEdit4("Skeleton & Head", Config::Settings.esp.boneColor,
-                            flags);
-          ImGui::ColorEdit4("Skeleton Outline",
-                            Config::Settings.esp.skeletonOutlineColor,
-                            flags); // Added here
-          ImGui::ColorEdit4("Snap Lines", Config::Settings.esp.snapLineColor,
-                            flags);
-        }
-
-        if (ImGui::CollapsingHeader("ESP Text",
-                                    ImGuiTreeNodeFlags_DefaultOpen)) {
-          ImGui::ColorEdit4("Name Text", Config::Settings.esp.nameColor, flags);
-          ImGui::ColorEdit4("Weapon Text", Config::Settings.esp.weaponColor,
-                            flags);
-          ImGui::ColorEdit4("Distance Text", Config::Settings.esp.distColor,
-                            flags);
-        }
-
-        if (ImGui::CollapsingHeader("Radar", ImGuiTreeNodeFlags_DefaultOpen)) {
-          ImGui::ColorEdit4("Radar Enemy (Base)",
-                            Config::Settings.radar.enemyColor, flags);
-          ImGui::ColorEdit4("Radar Visible Enemy",
-                            Config::Settings.radar.visibleColor, flags);
-          ImGui::ColorEdit4("Radar Hidden Enemy",
-                            Config::Settings.radar.hiddenColor, flags);
-          ImGui::ColorEdit4("Radar Team", Config::Settings.radar.teamColor,
-                            flags);
-        }
-
-        if (ImGui::CollapsingHeader("Misc", ImGuiTreeNodeFlags_DefaultOpen)) {
-          ImGui::ColorEdit4("Crosshair", Config::Settings.misc.crosshairColor,
-                            flags);
-        }
-
-        ImGui::EndTabItem();
-      }
-
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ DEBUG
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-      if (ImGui::BeginTabItem("Debug")) {
-        ImGui::Text("Debug Overlay");
-        ImGui::Separator();
-        if (ImGui::Checkbox("Enable Debug Overlay",
-                            &Config::Settings.debug.enabled)) {
-          Config::ConfigManager::ApplySettings();
-        }
-        ImGui::Checkbox("Developer Mode", &Config::Settings.debug.devMode);
-        ImGui::EndTabItem();
-      }
-
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ SETTINGS / CONFIG
-      // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-      if (ImGui::BeginTabItem("Settings")) {
-        ImGui::Text("Config Manager");
-        ImGui::Separator();
+      ImGui::BeginChild("TriggerbotCard", ImVec2(0, 0), true);
+      ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered],
+                         "Triggerbot");
+      ImGui::Separator();
+      if (DrawToggle("Enable Triggerbot", &Config::Settings.triggerbot.enabled))
+        Config::ConfigManager::ApplySettings();
+      if (Config::Settings.triggerbot.enabled) {
         ImGui::Spacing();
-
-        // Config name input
-        ImGui::InputText("Config Name", s_configName, sizeof(s_configName));
-        ImGui::SameLine();
-        if (ImGui::Button("Save")) {
-          Config::ConfigManager::Save(s_configName);
-          s_configDirty = false;
-          s_configList = Config::ConfigManager::ListConfigs();
-        }
-
-        // Config list
-        if (ImGui::Button("Refresh List"))
-          s_configList = Config::ConfigManager::ListConfigs();
-
-        if (!s_configList.empty()) {
-          ImGui::Spacing();
-          ImGui::Text("Available Configs:");
-          ImGui::BeginChild("ConfigList", ImVec2(0, 120), true);
-          for (int i = 0; i < (int)s_configList.size(); i++) {
-            bool sel = (i == s_configSelected);
-            if (ImGui::Selectable(s_configList[i].c_str(), sel))
-              s_configSelected = i;
-          }
-          ImGui::EndChild();
-
-          if (!s_configList.empty()) {
-            if (ImGui::Button("Load Selected")) {
-              strncpy_s(s_configName, s_configList[s_configSelected].c_str(),
-                        sizeof(s_configName) - 1);
-              Config::ConfigManager::Load(s_configList[s_configSelected]);
-              s_configDirty = false;
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Delete Selected")) {
-              // Simple: just rename to inform user (no fs::remove in release -
-              // safe)
-              ImGui::OpenPopup("ConfirmDelete");
-            }
-          }
-        }
-
-        if (!Config::ConfigManager::LastError.empty()) {
-          ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "Error: %s",
-                             Config::ConfigManager::LastError.c_str());
-        }
-
+        HotkeyPicker("Hold Key Trigger", Config::Settings.triggerbot.hotkey);
         ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
+        ImGui::SliderInt("Min Delay (ms)",
+                         &Config::Settings.triggerbot.delayMin, 0, 150);
+        ImGui::SliderInt("Max Delay (ms)",
+                         &Config::Settings.triggerbot.delayMax,
+                         Config::Settings.triggerbot.delayMin, 300);
+        DrawToggle("Team Check Trigger",
+                   &Config::Settings.triggerbot.teamCheck);
+      }
+      ImGui::EndChild();
 
-        // Load defaults
-        if (ImGui::Button("Reset to Defaults")) {
-          Config::ConfigManager::LoadDefault();
-        }
+      ImGui::Columns(1);
+    } else if (s_currentTab == 1) { // ─── VISUALS
+      ImGui::Columns(2, "VisCols", false);
 
-        // Initialize config list on first render
-        if (s_configList.empty())
-          s_configList = Config::ConfigManager::ListConfigs();
+      ImGui::BeginChild("ESPCard", ImVec2(0, 0), true);
+      ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered],
+                         "Player ESP");
+      ImGui::Separator();
+      if (DrawToggle("Enable ESP", &Config::Settings.esp.enabled))
+        Config::ConfigManager::ApplySettings();
+      DrawToggle("Team ESP", &Config::Settings.esp.showTeammates);
 
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.1f, 0.1f, 1));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                              ImVec4(1.0f, 0.2f, 0.2f, 1));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,
-                              ImVec4(0.6f, 0.0f, 0.0f, 1));
-        if (ImGui::Button("UNLOAD CHEAT",
-                          ImVec2(ImGui::GetContentRegionAvail().x, 40)))
-          shouldClose = true;
-        ImGui::PopStyleColor(3);
-        ImGui::EndTabItem();
+      ImGui::Spacing();
+      DrawToggle("Draw Box", &Config::Settings.esp.showBox);
+      ColorEditInline("##box_color", Config::Settings.esp.boxColor);
+      if (Config::Settings.esp.showBox) {
+        const char *boxStyles[] = {"Rect", "Corners", "Filled"};
+        int bsInt = static_cast<int>(Config::Settings.esp.boxStyle);
+        if (ImGui::Combo("Box Style", &bsInt, boxStyles, 3))
+          Config::Settings.esp.boxStyle =
+              static_cast<Features::BoxStyle>(bsInt);
+        if (Config::Settings.esp.boxStyle == Features::BoxStyle::Filled)
+          ImGui::SliderFloat("Fill Alpha", &Config::Settings.esp.fillBoxAlpha,
+                             0.02f, 0.5f, "%.2f");
       }
 
-      ImGui::EndTabBar();
+      DrawToggle("Draw Health Bar", &Config::Settings.esp.showHealth);
+      if (Config::Settings.esp.showHealth) {
+        const char *hpStyles[] = {"Side", "Bottom"};
+        int hsInt = static_cast<int>(Config::Settings.esp.healthBarStyle);
+        if (ImGui::Combo("Bar Style", &hsInt, hpStyles, 2))
+          Config::Settings.esp.healthBarStyle =
+              static_cast<Features::HealthBarStyle>(hsInt);
+      }
+
+      DrawToggle("Draw Name", &Config::Settings.esp.showName);
+      ColorEditInline("##name_color", Config::Settings.esp.nameColor);
+
+      DrawToggle("Draw Weapon", &Config::Settings.esp.showWeapon);
+      ColorEditInline("##weap_color", Config::Settings.esp.weaponColor);
+
+      DrawToggle("Draw Distance", &Config::Settings.esp.showDistance);
+
+      DrawToggle("Snap Lines", &Config::Settings.esp.showSnapLines);
+      ColorEditInline("##snap_color", Config::Settings.esp.snapLineColor);
+
+      DrawToggle("Skeleton", &Config::Settings.esp.showBones);
+      ColorEditInline("##bone_color", Config::Settings.esp.boneColor);
+      if (Config::Settings.esp.showBones) {
+        DrawToggle("Skeleton Outline", &Config::Settings.esp.skeletonOutline);
+        ColorEditInline("##skel_out_color",
+                        Config::Settings.esp.skeletonOutlineColor);
+      }
+
+      ImGui::EndChild();
+      ImGui::NextColumn();
+
+      ImGui::BeginChild("RadarCard",
+                        ImVec2(0, ImGui::GetWindowHeight() * 0.65f), true);
+      ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered],
+                         "Radar Overlay");
+      ImGui::Separator();
+      if (DrawToggle("Enable Radar", &Config::Settings.radar.enabled))
+        Config::ConfigManager::ApplySettings();
+      if (Config::Settings.radar.enabled) {
+        DrawToggle("Rotate Map", &Config::Settings.radar.rotate);
+        DrawToggle("Show Teammates Radar",
+                   &Config::Settings.radar.showTeammates);
+        DrawToggle("Visible Check Radar", &Config::Settings.radar.visibleCheck);
+
+        const char *maps[] = {"Custom", "Mirage", "Dust2", "Inferno", "Nuke"};
+        ImGui::Combo("Map", &Config::Settings.radar.mapIndex, maps, 5);
+        ImGui::SliderFloat("Zoom", &Config::Settings.radar.zoom, 0.1f, 3.0f,
+                           "%.2f");
+        ImGui::SliderFloat("Point Size", &Config::Settings.radar.pointSize,
+                           2.0f, 8.0f, "%.1f");
+      }
+      ImGui::EndChild();
+
+      ImGui::BeginChild("BombCard", ImVec2(0, 0), true);
+      ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered],
+                         "World Options");
+      ImGui::Separator();
+      if (DrawToggle("Enable Bomb Timer", &Config::Settings.bomb.enabled))
+        Config::ConfigManager::ApplySettings();
+      ImGui::EndChild();
+
+      ImGui::Columns(1);
+    } else if (s_currentTab == 2) { // ─── MISC
+      ImGui::BeginChild("MiscCard", ImVec2(0, 0), true);
+      ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered],
+                         "Miscellaneous");
+      ImGui::Separator();
+
+      if (DrawToggle("AWP Crosshair", &Config::Settings.misc.awpCrosshair))
+        Config::ConfigManager::ApplySettings();
+      ColorEditInline("##awp_cross_color",
+                      Config::Settings.misc.crosshairColor);
+
+      if (Config::Settings.misc.awpCrosshair) {
+        const char *styles[] = {"Dot", "Cross", "Circle", "All"};
+        ImGui::Combo("Style", &Config::Settings.misc.crosshairStyle, styles, 4);
+        ImGui::SliderFloat("Size", &Config::Settings.misc.crosshairSize, 2.0f,
+                           25.0f, "%.0f px");
+        ImGui::SliderFloat("Thickness",
+                           &Config::Settings.misc.crosshairThickness, 0.5f,
+                           4.0f, "%.1f");
+        DrawToggle("Center Gap", &Config::Settings.misc.crosshairGap);
+      }
+      ImGui::EndChild();
+    } else if (s_currentTab == 3) { // ─── SETTINGS
+      ImGui::Columns(2, "SetCols", false);
+
+      ImGui::BeginChild("ConfigCard", ImVec2(0, 0), true);
+      ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered],
+                         "Configuration");
+      ImGui::Separator();
+
+      const char *themes[] = {"Midnight", "Blood",      "Cyber", "Lavender",
+                              "Gold",     "Monochrome", "Toxic"};
+      ImGui::Combo("Theme Preset", &Config::Settings.misc.menuTheme, themes, 7);
+
+      ImGui::Spacing();
+      ImGui::InputText("Name", s_configName, sizeof(s_configName));
+      if (ImGui::Button("Save Config",
+                        ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+        Config::ConfigManager::Save(s_configName);
+        s_configList = Config::ConfigManager::ListConfigs();
+      }
+
+      ImGui::Spacing();
+      if (ImGui::Button("Refresh List",
+                        ImVec2(ImGui::GetContentRegionAvail().x, 0)))
+        s_configList = Config::ConfigManager::ListConfigs();
+
+      ImGui::BeginChild("List", ImVec2(0, 120), true);
+      for (int i = 0; i < (int)s_configList.size(); i++) {
+        if (ImGui::Selectable(s_configList[i].c_str(), i == s_configSelected))
+          s_configSelected = i;
+      }
+      ImGui::EndChild();
+
+      if (!s_configList.empty()) {
+        if (ImGui::Button("Load Selected",
+                          ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+          strncpy_s(s_configName, s_configList[s_configSelected].c_str(),
+                    sizeof(s_configName) - 1);
+          Config::ConfigManager::Load(s_configList[s_configSelected]);
+        }
+      }
+      ImGui::EndChild();
+
+      ImGui::NextColumn();
+
+      ImGui::BeginChild("PerfCard", ImVec2(0, 0), true);
+      ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered],
+                         "Performance & Debug");
+      ImGui::Separator();
+
+      ImGui::SliderInt("FPS Limit", &Config::Settings.performance.fpsLimit, 10,
+                       500, "%d FPS");
+      ImGui::SliderInt("UPS Limit (Max)",
+                       &Config::Settings.performance.upsLimit, 10, 500,
+                       "%d UPS");
+
+      ImGui::Spacing();
+      ImGui::Separator();
+      ImGui::Spacing();
+
+      if (DrawToggle("Enable Debug Overlay", &Config::Settings.debug.enabled))
+        Config::ConfigManager::ApplySettings();
+      DrawToggle("Developer Mode", &Config::Settings.debug.devMode);
+
+      ImGui::EndChild();
+      ImGui::Columns(1);
     }
+
+    ImGui::EndChild(); // Content
+  } else {
+    ImGui::PopStyleVar();
   }
   ImGui::End();
-  ImGui::PopStyleVar(2);
 }
 
 bool Menu::IsOpen() { return isOpen; }
