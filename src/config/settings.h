@@ -3,6 +3,7 @@
 #include "features/bomb/bomb_config.h"
 #include "features/debug_overlay/debug_overlay_config.h"
 #include "features/esp/esp_config.h"
+
 #include "features/misc/misc_config.h"
 #include "features/radar/radar_config.h"
 #include "features/triggerbot/triggerbot_config.h"
@@ -22,6 +23,7 @@ struct GlobalSettings {
   Features::MiscConfig misc;
   Features::BombConfig bomb;
   Features::DebugConfig debug;
+
   PerformanceConfig performance; // Added performance settings
   bool menuIsOpen = false;
 };

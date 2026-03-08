@@ -18,6 +18,8 @@ float GameManager::renderLocalYaw = 0.0f;
 int GameManager::renderLocalTeam = 0;
 bool GameManager::renderLocalScoped = false;
 uint32_t GameManager::renderLocalCrosshairHandle = 0;
+uintptr_t GameManager::renderLocalPawn = 0;
+uintptr_t GameManager::renderEntityList = 0;
 SDK::BombInfo GameManager::renderBombInfo = {};
 
 // Поля читаются отдельно через SDK::Offsets — PawnFields была удалена,
@@ -33,6 +35,8 @@ float GameManager::localYaw = 0.0f;
 int GameManager::localTeam = 0;
 bool GameManager::localScoped = false;
 uint32_t GameManager::localCrosshairHandle = 0;
+uintptr_t GameManager::localPawn = 0;
+uintptr_t GameManager::entityList = 0;
 SDK::BombInfo GameManager::bombInfo = {};
 
 // Cache: pawnListEntry per chunk index
@@ -65,13 +69,13 @@ void GameManager::Update() {
   // Убираем s_nameCache.clear() каждый кадр для оптимизации.
   // Имена переиспользуются, строка обновится поверх, если pawnHandle совпадёт.
 
-  uintptr_t entityList =
+  entityList =
       MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwEntityList);
   if (!entityList)
     return;
 
-  uintptr_t localPawn = MemoryManager::Read<uintptr_t>(
-      clientBase + SDK::Offsets::dwLocalPlayerPawn);
+  localPawn = MemoryManager::Read<uintptr_t>(clientBase +
+                                             SDK::Offsets::dwLocalPlayerPawn);
 
   localPos = {};
   localAngles = {};
@@ -279,6 +283,8 @@ void GameManager::Update() {
     renderLocalTeam = localTeam;
     renderLocalScoped = localScoped;
     renderLocalCrosshairHandle = localCrosshairHandle;
+    renderLocalPawn = localPawn;
+    renderEntityList = entityList;
     renderBombInfo = bombInfo;
   }
 }
@@ -328,6 +334,34 @@ uint32_t GameManager::GetLocalCrosshairEntityHandle() {
 SDK::BombInfo GameManager::GetBombInfo() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
   return renderBombInfo;
+}
+
+uintptr_t GameManager::GetLocalPlayerPawn() {
+  std::shared_lock<std::shared_mutex> lock(stateMutex);
+  return renderLocalPawn;
+}
+
+uintptr_t GameManager::GetEntityList() {
+  std::shared_lock<std::shared_mutex> lock(stateMutex);
+  return renderEntityList;
+}
+
+uintptr_t GameManager::GetEntityFromHandle(uint32_t handle) {
+  if (!handle || handle == 0xFFFFFFFF)
+    return 0;
+
+  uintptr_t list = GetEntityList();
+  if (!list)
+    return 0;
+
+  uintptr_t listEntry = MemoryManager::Read<uintptr_t>(
+      list + 0x10 + 0x8 * ((handle & 0x7FFF) >> 9));
+  if (!listEntry)
+    return 0;
+
+  uintptr_t entity =
+      MemoryManager::Read<uintptr_t>(listEntry + 0x70 * (handle & 0x1FF));
+  return entity;
 }
 
 } // namespace Core

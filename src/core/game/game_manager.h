@@ -25,6 +25,11 @@ public:
   static bool IsLocalScoped();
   static uint32_t GetLocalCrosshairEntityHandle();
 
+  // Engine pointers for external feature logic
+  static uintptr_t GetLocalPlayerPawn();
+  static uintptr_t GetEntityList();
+  static uintptr_t GetEntityFromHandle(uint32_t handle);
+
   // Bomb State
   static SDK::BombInfo GetBombInfo();
 
@@ -40,6 +45,8 @@ private:
   static int localTeam;
   static bool localScoped;
   static uint32_t localCrosshairHandle;
+  static uintptr_t localPawn;
+  static uintptr_t entityList;
   static SDK::BombInfo bombInfo;
 
   // -- Frontend State (Thread-Safe Copies for Render) --
@@ -52,6 +59,8 @@ private:
   static int renderLocalTeam;
   static bool renderLocalScoped;
   static uint32_t renderLocalCrosshairHandle;
+  static uintptr_t renderLocalPawn;
+  static uintptr_t renderEntityList;
   static SDK::BombInfo renderBombInfo;
 };
 } // namespace Core

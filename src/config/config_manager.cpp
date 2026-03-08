@@ -180,6 +180,7 @@ bool ConfigManager::Save(const std::string &name) {
   WriteColor(f, "misc_color", M.crosshairColor);
   WriteBool(f, "misc_gap", M.crosshairGap);
   WriteInt(f, "misc_menuTheme", M.menuTheme);
+
   // Bomb
   WriteBool(f, "bomb_enabled", B.enabled);
   // Performance
@@ -265,6 +266,7 @@ bool ConfigManager::Load(const std::string &name) {
   ReadColor(j, "misc_color", M.crosshairColor);
   M.crosshairGap = ReadB(j, "misc_gap", M.crosshairGap);
   M.menuTheme = ReadI(j, "misc_menuTheme", M.menuTheme);
+
   // Bomb
   B.enabled = ReadB(j, "bomb_enabled", B.enabled);
   // Performance

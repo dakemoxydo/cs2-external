@@ -327,7 +327,7 @@ static char s_configName[64] = "default";
 static std::vector<std::string> s_configList;
 static int s_configSelected = 0;
 static bool s_configDirty = false;
-static int s_currentTab = 0; // 0=Legit, 1=Visuals, 2=Misc, 3=Settings
+static int s_currentTab = 0; // 0=Legit, 1=Visuals, 2=Misc, 3=Skins, 4=Settings
 
 namespace Render {
 bool Menu::isOpen = false;
@@ -367,8 +367,10 @@ void Menu::Render() {
       s_currentTab = 1;
     if (ImGui::Selectable("MISC", s_currentTab == 2, 0, ImVec2(0, 35)))
       s_currentTab = 2;
-    if (ImGui::Selectable("SETTINGS", s_currentTab == 3, 0, ImVec2(0, 35)))
+    if (ImGui::Selectable("SKINS", s_currentTab == 3, 0, ImVec2(0, 35)))
       s_currentTab = 3;
+    if (ImGui::Selectable("SETTINGS", s_currentTab == 4, 0, ImVec2(0, 35)))
+      s_currentTab = 4;
 
     ImGui::PopStyleVar(2);
 
@@ -562,7 +564,45 @@ void Menu::Render() {
         DrawToggle("Center Gap", &Config::Settings.misc.crosshairGap);
       }
       ImGui::EndChild();
-    } else if (s_currentTab == 3) { // ─── SETTINGS
+    } else if (s_currentTab == 3) { // ─── SKINS
+      ImGui::BeginChild("KnifeCard", ImVec2(0, 0), true);
+      ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered],
+                         "Knife Changer");
+      ImGui::Separator();
+
+      if (DrawToggle("Enable Knife Changer",
+                     &Config::Settings.knifeChanger.enabled))
+        Config::ConfigManager::ApplySettings();
+
+      if (Config::Settings.knifeChanger.enabled) {
+        ImGui::Spacing();
+        const char *knifeNames[] = {"Bayonet",        "Flip Knife", "Gut Knife",
+                                    "Karambit",       "M9 Bayonet", "Huntsman",
+                                    "Falchion",       "Bowie",      "Butterfly",
+                                    "Shadow Daggers", "Paracord",   "Survival",
+                                    "Ursus",          "Navaja",     "Stiletto",
+                                    "Talon",          "Classic",    "Skeleton"};
+        const int knifeIds[] = {500, 505, 506, 507, 508, 509, 512, 514, 515,
+                                516, 519, 520, 521, 522, 523, 524, 525, 526};
+
+        int sel = 3;
+        for (int i = 0; i < 18; i++) {
+          if (knifeIds[i] == Config::Settings.knifeChanger.knifeModel) {
+            sel = i;
+            break;
+          }
+        }
+        if (ImGui::Combo("Knife Model", &sel, knifeNames, 18))
+          Config::Settings.knifeChanger.knifeModel = knifeIds[sel];
+
+        ImGui::SliderInt("Paint Kit ID",
+                         &Config::Settings.knifeChanger.paintKit, 0, 1000);
+        ImGui::SliderFloat("Wear", &Config::Settings.knifeChanger.wear, 0.0f,
+                           1.0f, "%.3f");
+        ImGui::SliderInt("Seed", &Config::Settings.knifeChanger.seed, 0, 1000);
+      }
+      ImGui::EndChild();
+    } else if (s_currentTab == 4) { // ─── SETTINGS
       ImGui::Columns(2, "SetCols", false);
 
       ImGui::BeginChild("ConfigCard", ImVec2(0, 0), true);
