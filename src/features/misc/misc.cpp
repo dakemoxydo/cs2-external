@@ -8,7 +8,6 @@
 #include <imgui.h>
 #include <windows.h>
 
-
 namespace Features {
 
 void Misc::Update() {
@@ -20,32 +19,11 @@ void Misc::Render(Render::DrawList &drawList) {
   if (!Config::Settings.misc.awpCrosshair)
     return;
 
-  // Only show when NOT scoped (when scoped the in-game scope is enough)
-  uintptr_t localPawn = Core::MemoryManager::Read<uintptr_t>(
-      Core::GameManager::GetClientBase() + SDK::Offsets::dwLocalPlayerPawn);
-  if (!localPawn)
-    return;
-
-  bool isScoped =
-      Core::MemoryManager::Read<bool>(localPawn + SDK::Offsets::m_bIsScoped);
+  bool isScoped = Core::GameManager::IsLocalScoped();
   if (isScoped)
     return;
 
-  // Read weapon to restrict crosshair to sniper rifles only
-  uintptr_t cw = Core::MemoryManager::Read<uintptr_t>(
-      localPawn + SDK::Offsets::m_pClippingWeapon);
-  if (cw <= 0x10000)
-    return;
-  uintptr_t wPtr = Core::MemoryManager::Read<uintptr_t>(cw + 0x10);
-  if (wPtr <= 0x10000)
-    return;
-  uintptr_t nPtr = Core::MemoryManager::Read<uintptr_t>(wPtr + 0x20);
-  if (nPtr <= 0x10000)
-    return;
-
-  char wb[64] = {};
-  Core::MemoryManager::ReadRaw(nPtr, wb, sizeof(wb) - 1);
-  std::string weaponName = wb;
+  std::string weaponName = Core::GameManager::GetLocalWeaponName();
   if (weaponName.find("awp") == std::string::npos &&
       weaponName.find("ssg08") == std::string::npos) {
     return;

@@ -16,6 +16,17 @@ ptrdiff_t m_hPlayerPawn = 0;
 ptrdiff_t m_iszPlayerName = 0;
 ptrdiff_t m_pClippingWeapon = 0x3DC0;
 
+ptrdiff_t m_pWeaponServices = 0;
+ptrdiff_t m_hActiveWeapon = 0;
+ptrdiff_t m_AttributeManager = 0;
+ptrdiff_t m_Item = 0;
+ptrdiff_t m_iItemDefinitionIndex = 0;
+ptrdiff_t m_hModel = 0;
+ptrdiff_t m_iItemIDHigh = 0;
+ptrdiff_t m_nFallbackPaintKit = 0;
+ptrdiff_t m_flFallbackWear = 0;
+ptrdiff_t m_nFallbackSeed = 0;
+
 // Aimbot / Triggerbot
 ptrdiff_t m_angEyeAngles = 0x3DD0;
 ptrdiff_t m_iCrosshairEntityHandle = 0x13D8;

@@ -30,6 +30,15 @@ public:
   static uintptr_t GetEntityList();
   static uintptr_t GetEntityFromHandle(uint32_t handle);
 
+  // Weapon and entity data accessors (to avoid MemoryManager reads in features)
+  static std::string GetLocalWeaponName();
+  static uintptr_t GetWeaponServices(uintptr_t pawn);
+  static uint32_t GetActiveWeaponHandle(uintptr_t weaponServices);
+  static short GetEntityItemDefinitionIndex(uintptr_t entity);
+  static uintptr_t GetEntityGameSceneNode(uintptr_t entity);
+  static uint64_t GetModelHandle(uintptr_t gameSceneNode);
+  static uint64_t FindModelHandleByDefIndex(int defIndex);
+
   // Bomb State
   static SDK::BombInfo GetBombInfo();
 

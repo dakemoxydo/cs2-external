@@ -76,6 +76,19 @@ static void ApplyOffsets(const std::string &offsetsJson,
   Offsets::m_iszPlayerName = ParseOffset(clientJson, "m_iszPlayerName");
   Offsets::m_pClippingWeapon = ParseOffset(clientJson, "m_pClippingWeapon");
 
+  // Knife Changer & Weapons
+  Offsets::m_pWeaponServices = ParseOffset(clientJson, "m_pWeaponServices");
+  Offsets::m_hActiveWeapon = ParseOffset(clientJson, "m_hActiveWeapon");
+  Offsets::m_AttributeManager = ParseOffset(clientJson, "m_AttributeManager");
+  Offsets::m_Item = ParseOffset(clientJson, "m_Item");
+  Offsets::m_iItemDefinitionIndex =
+      ParseOffset(clientJson, "m_iItemDefinitionIndex");
+  Offsets::m_hModel = ParseOffset(clientJson, "m_hModel");
+  Offsets::m_iItemIDHigh = ParseOffset(clientJson, "m_iItemIDHigh");
+  Offsets::m_nFallbackPaintKit = ParseOffset(clientJson, "m_nFallbackPaintKit");
+  Offsets::m_flFallbackWear = ParseOffset(clientJson, "m_flFallbackWear");
+  Offsets::m_nFallbackSeed = ParseOffset(clientJson, "m_nFallbackSeed");
+
   // Aimbot / Triggerbot
   Offsets::m_angEyeAngles = ParseOffset(clientJson, "m_angEyeAngles");
   Offsets::m_iCrosshairEntityHandle =

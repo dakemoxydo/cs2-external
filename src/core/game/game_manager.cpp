@@ -364,4 +364,87 @@ uintptr_t GameManager::GetEntityFromHandle(uint32_t handle) {
   return entity;
 }
 
+std::string GameManager::GetLocalWeaponName() {
+  uintptr_t pawn = GetLocalPlayerPawn();
+  if (!pawn || pawn <= 0x10000)
+    return "";
+  uintptr_t cw =
+      MemoryManager::Read<uintptr_t>(pawn + SDK::Offsets::m_pClippingWeapon);
+  if (cw <= 0x10000)
+    return "";
+  uintptr_t wPtr = MemoryManager::Read<uintptr_t>(cw + 0x10);
+  if (wPtr <= 0x10000)
+    return "";
+  uintptr_t nPtr = MemoryManager::Read<uintptr_t>(wPtr + 0x20);
+  if (nPtr <= 0x10000)
+    return "";
+  char wb[64] = {};
+  MemoryManager::ReadRaw(nPtr, wb, sizeof(wb) - 1);
+  return std::string(wb);
+}
+
+uintptr_t GameManager::GetWeaponServices(uintptr_t pawn) {
+  if (!pawn)
+    return 0;
+  return MemoryManager::Read<uintptr_t>(pawn + SDK::Offsets::m_pWeaponServices);
+}
+
+uint32_t GameManager::GetActiveWeaponHandle(uintptr_t weaponServices) {
+  if (!weaponServices)
+    return 0;
+  return MemoryManager::Read<uint32_t>(weaponServices +
+                                       SDK::Offsets::m_hActiveWeapon);
+}
+
+short GameManager::GetEntityItemDefinitionIndex(uintptr_t entity) {
+  if (!entity)
+    return 0;
+  uintptr_t econItemView =
+      entity + SDK::Offsets::m_AttributeManager + SDK::Offsets::m_Item;
+  return MemoryManager::Read<short>(econItemView +
+                                    SDK::Offsets::m_iItemDefinitionIndex);
+}
+
+uintptr_t GameManager::GetEntityGameSceneNode(uintptr_t entity) {
+  if (!entity)
+    return 0;
+  return MemoryManager::Read<uintptr_t>(entity +
+                                        SDK::Offsets::m_pGameSceneNode);
+}
+
+uint64_t GameManager::GetModelHandle(uintptr_t gameSceneNode) {
+  if (!gameSceneNode)
+    return 0;
+  return MemoryManager::Read<uint64_t>(
+      gameSceneNode + SDK::Offsets::m_modelState + SDK::Offsets::m_hModel);
+}
+
+uint64_t GameManager::FindModelHandleByDefIndex(int targetDefIndex) {
+  uintptr_t list = GetEntityList();
+  if (!list)
+    return 0;
+
+  for (int i = 65; i <= 2048; i++) {
+    uintptr_t listEntry =
+        MemoryManager::Read<uintptr_t>(list + 0x10 + 0x8 * (i >> 9));
+    if (!listEntry)
+      continue;
+    uintptr_t entity =
+        MemoryManager::Read<uintptr_t>(listEntry + 0x70 * (i & 0x1FF));
+    if (!entity)
+      continue;
+
+    short defIndex = GetEntityItemDefinitionIndex(entity);
+    if (defIndex == targetDefIndex) {
+      uintptr_t gameSceneNode = GetEntityGameSceneNode(entity);
+      if (gameSceneNode) {
+        uint64_t handle = GetModelHandle(gameSceneNode);
+        if (handle)
+          return handle;
+      }
+    }
+  }
+  return 0;
+}
+
 } // namespace Core
