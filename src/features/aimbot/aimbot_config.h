@@ -1,5 +1,5 @@
 #pragma once
-#include "core/sdk/entity.h"
+#include "../../core/sdk/entity.h"
 
 namespace Features {
 

@@ -7,6 +7,9 @@ public:
                 float thickness = 1.0f);
   void DrawBox(float x, float y, float w, float h, float color[4],
                float thickness = 1.0f);
+  void DrawFilledRect(float x, float y, float w, float h, float color[4]);
+  void DrawCornerBox(float x, float y, float w, float h, float color[4],
+                     float thickness = 1.5f);
   void AddText(float x, float y, const char *text, float color[4]);
   void DrawCircle(float x, float y, float radius, float color[4],
                   int segments = 12, float thickness = 1.0f);

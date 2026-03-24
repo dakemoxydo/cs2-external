@@ -1,6 +1,7 @@
 #pragma once
 #include "../sdk/entity.h"
 #include "../sdk/structs.h"
+#include <atomic>
 #include <mutex>
 #include <shared_mutex>
 #include <vector>
@@ -11,6 +12,9 @@ public:
   static bool Init();
   static void Update();
 
+  static void EnableBoneRead(bool enable);
+  static void EnableWeaponRead(bool enable);
+
   // Rendering getters (thread-safe using shared_mutex)
   static SDK::Matrix4x4 GetViewMatrix();
   static uintptr_t GetClientBase();
@@ -18,9 +22,10 @@ public:
 
   // Local player accessors (used by radar, features)
   static SDK::Vector3 GetLocalPos();
-  static float GetLocalYaw(); // Deprecated? Only radar uses it directly or we
-                              // keep it. It returns angles.y
-  static SDK::Vector2 GetLocalAngles();
+  static SDK::Vector3 GetLocalEyePos();
+  static SDK::Vector2 GetLocalAngles(); // Use .y for yaw
+  static SDK::Vector2 GetLocalAimPunch();
+  static int GetLocalShotsFired();
   static int GetLocalTeam();
   static bool IsLocalScoped();
   static uint32_t GetLocalCrosshairEntityHandle();
@@ -28,29 +33,29 @@ public:
   // Engine pointers for external feature logic
   static uintptr_t GetLocalPlayerPawn();
   static uintptr_t GetEntityList();
+  // NOTE: Makes a live RPM call — call only from memory thread, not render thread
   static uintptr_t GetEntityFromHandle(uint32_t handle);
 
   // Weapon and entity data accessors (to avoid MemoryManager reads in features)
   static std::string GetLocalWeaponName();
-  static uintptr_t GetWeaponServices(uintptr_t pawn);
-  static uint32_t GetActiveWeaponHandle(uintptr_t weaponServices);
-  static short GetEntityItemDefinitionIndex(uintptr_t entity);
   static uintptr_t GetEntityGameSceneNode(uintptr_t entity);
-  static uint64_t GetModelHandle(uintptr_t gameSceneNode);
-  static uint64_t FindModelHandleByDefIndex(int defIndex);
 
   // Bomb State
   static SDK::BombInfo GetBombInfo();
 
 private:
   static uintptr_t clientBase;
+  static std::atomic<bool> s_readBones;
+  static std::atomic<bool> s_readWeapons;
 
   // -- Backend State (Written by Memory Thread) --
   static SDK::Matrix4x4 viewMatrix;
   static std::vector<SDK::Entity> players;
   static SDK::Vector3 localPos;
+  static SDK::Vector3 localEyePos;
   static SDK::Vector2 localAngles;
-  static float localYaw;
+  static SDK::Vector2 localAimPunch;
+  static int localShotsFired;
   static int localTeam;
   static bool localScoped;
   static uint32_t localCrosshairHandle;
@@ -58,18 +63,22 @@ private:
   static uintptr_t entityList;
   static SDK::BombInfo bombInfo;
 
-  // -- Frontend State (Thread-Safe Copies for Render) --
+  // -- Frontend State (Thread-Safe Cached Copies for Render) --
+  static std::vector<SDK::Entity> playerBuffers[2];
+  static std::atomic<int> activeBufferIndex;
+
   static std::shared_mutex stateMutex;
-  static SDK::Matrix4x4 renderViewMatrix;
-  static std::vector<SDK::Entity> renderPlayers;
-  static SDK::Vector3 renderLocalPos;
-  static SDK::Vector2 renderLocalAngles;
-  static float renderLocalYaw; // kept for backwards compat with radar
-  static int renderLocalTeam;
-  static bool renderLocalScoped;
-  static uint32_t renderLocalCrosshairHandle;
-  static uintptr_t renderLocalPawn;
-  static uintptr_t renderEntityList;
-  static SDK::BombInfo renderBombInfo;
+  static SDK::Matrix4x4 cachedViewMatrix;
+  static SDK::Vector3 cachedLocalPos;
+  static SDK::Vector3 cachedLocalEyePos;
+  static SDK::Vector2 cachedLocalAngles;
+  static SDK::Vector2 cachedLocalAimPunch;
+  static int cachedLocalShotsFired;
+  static int cachedLocalTeam;
+  static bool cachedLocalScoped;
+  static uint32_t cachedLocalCrosshairHandle;
+  static uintptr_t cachedLocalPawn;
+  static uintptr_t cachedEntityList;
+  static SDK::BombInfo cachedBombInfo;
 };
 } // namespace Core

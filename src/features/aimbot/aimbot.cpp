@@ -1,36 +1,34 @@
-﻿#include "aimbot.h"
+#include "aimbot.h"
 #include "aimbot_config.h"
-#include "config/settings.h"
-#include "core/game/game_manager.h"
-#include "core/math/math.h"
-#include "core/memory/memory_manager.h"
-#include "core/process/process.h"
-#include "core/sdk/offsets.h"
-#include "render/draw/draw_list.h"
-#include <cmath>
-#include <cstdlib>
-#include <imgui.h>
+#include "../../config/settings.h"
+#include "../../core/game/game_manager.h"
+#include "../../core/math/math.h"
+#include "../../input/input_manager.h"
+#include "../../core/process/stealth.h"
+#include "../rcs/rcs.h"
+#include "../feature_base.h"
 #include <windows.h>
+#include <algorithm>
+#include <cmath>
+#include <string>
+#include <imgui.h>
+#include "../../render/draw/draw_list.h"
 
 namespace Features {
 
-// ── Human-like aimbot constants
-// ─────────────────────────────────────────────── Jitter table: 16 precomputed
-// noise offsets (degrees) applied cyclically
-static const float s_jitterTable[16] = {
-    0.012f,  -0.018f, 0.007f, -0.031f, 0.022f, 0.011f,  -0.009f, 0.025f,
-    -0.014f, 0.003f,  0.028f, -0.006f, 0.019f, -0.023f, 0.008f,  -0.017f,
-};
-static int s_jitterIdx = 0;
-
-// ── Internal state
-// ────────────────────────────────────────────────────────────
+// ── Internal state (Safe to use static as all features update in one thread)
 static uintptr_t s_lastTarget = 0;
 static float s_dxRemainder = 0.0f;
 static float s_dyRemainder = 0.0f;
 
-// ── SendInput replaces deprecated mouse_event
-// ─────────────────────────────────
+// Pre-computed jitter table for small micro-movements (16 steps)
+static const float s_jitterTable[] = {
+    0.01f, -0.02f, 0.03f, 0.01f, -0.01f, 0.02f, -0.03f, 0.01f,
+    0.02f, -0.01f, 0.01f, -0.02f, 0.01f, 0.03f, -0.01f, 0.02f
+};
+static int s_jitterIdx = 0;
+
+// ── Mouse movement using mouse_event (less detectable than SendInput)
 static void SendMouse(float dpitch, float dyaw) {
   // COUNTS_PER_DEG depends on user's in-game sensitivity setting
   const float sens = Config::Settings.aimbot.sensitivity;
@@ -39,87 +37,89 @@ static void SendMouse(float dpitch, float dyaw) {
   float fx = -dyaw * countsPerDeg + s_dxRemainder;
   float fy = dpitch * countsPerDeg + s_dyRemainder;
 
+  // Near target noise reduction to eliminate jitter
+  float totalMove = sqrtf(fx * fx + fy * fy);
+  if (totalMove > 0.4f) {
+      float noiseScale = fminf(1.0f, totalMove * 0.15f);
+      fx += ((rand() % 100 - 50) / 100.0f) * 0.25f * noiseScale;
+      fy += ((rand() % 100 - 50) / 100.0f) * 0.25f * noiseScale;
+  }
+
   int dx = static_cast<int>(fx);
   int dy = static_cast<int>(fy);
 
-  s_dxRemainder = fx - dx;
-  s_dyRemainder = fy - dy;
+  // Store remainder for next frame with sub-pixel precision
+  s_dxRemainder = fx - static_cast<float>(dx);
+  s_dyRemainder = fy - static_cast<float>(dy);
 
-  if (dx == 0 && dy == 0)
-    return;
+  if (dx != 0 || dy != 0) {
+      Input::InputManager::SendMouseDelta(dx, dy);
+  }
 
-  INPUT inp = {};
-  inp.type = INPUT_MOUSE;
-  inp.mi.dx = static_cast<LONG>(dx);
-  inp.mi.dy = static_cast<LONG>(dy);
-  inp.mi.dwFlags = MOUSEEVENTF_MOVE;
-  SendInput(1, &inp, sizeof(INPUT));
+  // Micro-delay to break timing patterns
+  if ((rand() % 10) == 0) {
+    Core::Stealth::RandomizedSleep(0, 1);
+  }
 }
 
-// ── Sigmoid smooth step
-// ───────────────────────────────────────────────────────
-static float CalcSmoothStep(float deltaDeg, float smooth) {
-  float t = deltaDeg / (smooth * 2.0f + 0.001f);
-  t = fminf(t, 1.0f);
-  return t * t * (3.0f - 2.0f * t); // smooth cubic: 3t²-2t³
-}
+const char *Aimbot::GetName() { return "Aimbot"; }
 
-// ── Update
-// ────────────────────────────────────────────────────────────────────
 void Aimbot::Update() {
-  if (!Config::Settings.aimbot.enabled)
-    return;
-  if (!GetAsyncKeyState(Config::Settings.aimbot.hotkey)) {
+  if (!Config::Settings.aimbot.enabled) {
     s_lastTarget = 0;
     return;
   }
 
-  uintptr_t clientBase = Core::GameManager::GetClientBase();
-  if (!clientBase)
+  // Check hotkey
+  if (!(GetAsyncKeyState(Config::Settings.aimbot.hotkey) & 0x8000)) {
+    s_lastTarget = 0;
     return;
-
-  if (Config::Settings.aimbot.onlyScoped) {
-    bool scoped = Core::GameManager::IsLocalScoped();
-    if (!scoped)
-      return;
   }
 
+  SDK::Vector3 eyePos = Core::GameManager::GetLocalEyePos();
   SDK::Vector2 eyeAngles = Core::GameManager::GetLocalAngles();
+  SDK::Vector2 aimPunch = Core::GameManager::GetLocalAimPunch();
+  int shotsFired = Core::GameManager::GetLocalShotsFired();
+  std::string weapon = Core::GameManager::GetLocalWeaponName();
 
-  SDK::Vector3 localPos = Core::GameManager::GetLocalPos();
-  localPos.z += 64.0f; // approximate eye height
+  // RCS state check
+  bool rcsActive = RCSSystem::IsWeaponSupported(weapon) && 
+                   shotsFired >= Config::Settings.rcs.startBullet;
 
-  const auto players = Core::GameManager::GetRenderPlayers();
+  auto players = Core::GameManager::GetRenderPlayers();
+  if (players.empty()) return;
 
-  // ── Target selection (optionally retry without lock) ──────────────────────
+  const SDK::Entity *bestTarget = nullptr;
+  float bestAngleDelta = Config::Settings.aimbot.fov;
+
   bool retryWithoutLock = false;
   do {
     retryWithoutLock = false;
 
-    const SDK::Entity *bestTarget = nullptr;
-    float bestAngleDelta = Config::Settings.aimbot.fov;
-
     for (const auto &p : players) {
-      if (!p.IsValid() || !p.IsAlive())
-        continue;
-      if (Config::Settings.aimbot.teamCheck && p.isTeammate)
-        continue;
+      if (p.health <= 0 || p.health > 100) continue;
+      // Local player and team check
+      if (Config::Settings.aimbot.teamCheck && p.isTeammate) continue;
+      
       if (Config::Settings.aimbot.visibleOnly && !p.isSpotted)
         continue;
 
-      // Target lock filtering
-      if (Config::Settings.aimbot.targetLock && s_lastTarget != 0) {
-        if (p.address != s_lastTarget)
-          continue;
-      }
+      // Target Lock Logic
+      if (s_lastTarget != 0 && p.address != s_lastTarget && Config::Settings.aimbot.targetLock)
+        continue;
 
       if (p.bonePositions.empty() ||
           Config::Settings.aimbot.targetBone >= (int)p.bonePositions.size())
         continue;
 
-      SDK::Vector3 bonePos =
-          p.bonePositions[Config::Settings.aimbot.targetBone];
-      SDK::Vector2 targetAngles = Core::Math::CalcAngle(localPos, bonePos);
+      SDK::Vector3 bonePos = p.bonePositions[Config::Settings.aimbot.targetBone];
+      SDK::Vector2 targetAngles = Core::Math::CalcAngle(eyePos, bonePos);
+
+      // RCS Prediction for target selection
+      if (rcsActive && Config::Settings.rcs.enabled) {
+        targetAngles.x -= aimPunch.x * Config::Settings.rcs.pitchStrength * 2.0f;
+        targetAngles.y -= aimPunch.y * Config::Settings.rcs.yawStrength * 2.0f;
+      }
 
       float dp = Core::Math::DeltaAngle(eyeAngles.x, targetAngles.x);
       float dy = Core::Math::DeltaAngle(eyeAngles.y, targetAngles.y);
@@ -131,63 +131,70 @@ void Aimbot::Update() {
       }
     }
 
-    // If locked target is gone — release lock and scan again (no recursion)
-    if (!bestTarget && Config::Settings.aimbot.targetLock &&
-        s_lastTarget != 0) {
+    if (!bestTarget && Config::Settings.aimbot.targetLock && s_lastTarget != 0) {
       s_lastTarget = 0;
       retryWithoutLock = true;
       continue;
     }
 
-    if (!bestTarget) {
-      s_lastTarget = 0;
+    if (!bestTarget) return;
+
+    // ── Mouse Fighting Protection ───────────────────────────────────────────
+    static float s_lastTotalDelta = 0.0f;
+    static ULONGLONG s_pauseUntil = 0;
+
+    SDK::Vector3 targetPos = bestTarget->bonePositions[Config::Settings.aimbot.targetBone];
+    
+    // Add micro-jitter for humanity
+    float jBase = s_jitterTable[s_jitterIdx & 15] * Config::Settings.aimbot.jitter * 40.0f;
+    s_jitterIdx = (s_jitterIdx + 1) & 15;
+    targetPos.z += jBase;
+
+    SDK::Vector2 finalTargetAngles = Core::Math::CalcAngle(eyePos, targetPos);
+
+    if (rcsActive && Config::Settings.rcs.enabled) {
+      finalTargetAngles.x -= aimPunch.x * Config::Settings.rcs.pitchStrength * 2.0f;
+      finalTargetAngles.y -= aimPunch.y * Config::Settings.rcs.yawStrength * 2.0f;
+    }
+
+    float dp = Core::Math::DeltaAngle(eyeAngles.x, finalTargetAngles.x);
+    float dyw = Core::Math::DeltaAngle(eyeAngles.y, finalTargetAngles.y);
+    float totalDelta = sqrtf(dp * dp + dyw * dyw);
+
+    if (s_lastTarget == bestTarget->address) {
+       if (totalDelta > s_lastTotalDelta + 1.0f) { // User physically swiped away
+           s_pauseUntil = GetTickCount64() + 350;
+       }
+    }
+    s_lastTotalDelta = totalDelta;
+
+    if (GetTickCount64() < s_pauseUntil) {
+      s_lastTarget = bestTarget->address;
       return;
     }
 
-    // ── Compute angle to target ───────────────────────────────────────────
-    SDK::Vector3 bonePos =
-        bestTarget->bonePositions[Config::Settings.aimbot.targetBone];
+    // ── Smoothing Logic ───────────────────────────────────────────
+    float baseSmooth = fmaxf(1.0f, Config::Settings.aimbot.smooth);
+    float step = totalDelta / baseSmooth;
+    
+    // Near-target slowdown (REMOVES SHAKE COMPLETELY)
+    if (totalDelta < 0.15f) {
+        step *= 0.2f; 
+    } else {
+        float minVel = 0.35f / baseSmooth;
+        if (step < minVel) step = minVel;
+    }
+    
+    if (step > totalDelta) step = totalDelta;
 
-    // Small random offset — humans rarely aim dead-center
-    float jBase = s_jitterTable[s_jitterIdx & 15] *
-                  Config::Settings.aimbot.jitter * 40.0f;
-    s_jitterIdx = (s_jitterIdx + 1) & 15;
-    bonePos.z += jBase;
+    float ratio = (totalDelta > 0.001f) ? (step / totalDelta) : 1.0f;
 
-    SDK::Vector2 targetAngles = Core::Math::CalcAngle(localPos, bonePos);
-
-    float dp = Core::Math::DeltaAngle(eyeAngles.x, targetAngles.x);
-    float dyw = Core::Math::DeltaAngle(eyeAngles.y, targetAngles.y);
-    float totalDelta = sqrtf(dp * dp + dyw * dyw);
-
-    // ── Dynamic human-like smooth ─────────────────────────────────────────
-    float baseSmooth = Config::Settings.aimbot.smooth;
-    float dynamicFactor =
-        (totalDelta > 4.0f) ? (baseSmooth * 0.7f) : (baseSmooth * 1.4f);
-    if (dynamicFactor < 1.0f)
-      dynamicFactor = 1.0f;
-
-    float step = CalcSmoothStep(totalDelta, dynamicFactor);
-    step = fmaxf(step, 0.01f);
-
-    // Per-axis jitter noise
-    float jP =
-        s_jitterTable[(s_jitterIdx + 3) & 15] * Config::Settings.aimbot.jitter;
-    float jY =
-        s_jitterTable[(s_jitterIdx + 7) & 15] * Config::Settings.aimbot.jitter;
-    s_jitterIdx = (s_jitterIdx + 2) & 15;
-
-    float movePitch = dp * step + jP;
-    float moveYaw = dyw * step + jY;
-
-    SendMouse(movePitch, moveYaw);
-
+    SendMouse(dp * ratio, dyw * ratio);
     s_lastTarget = bestTarget->address;
+
   } while (retryWithoutLock);
 }
 
-// ── Render: FOV circle
-// ────────────────────────────────────────────────────────
 void Aimbot::Render(Render::DrawList &drawList) {
   if (!Config::Settings.aimbot.enabled || !Config::Settings.aimbot.showFov)
     return;
@@ -199,7 +206,7 @@ void Aimbot::Render(Render::DrawList &drawList) {
   constexpr float CS2_HFOV = 106.0f;
   float radiusPx = (Config::Settings.aimbot.fov / CS2_HFOV) * io.DisplaySize.x;
 
-  static float circleCol[4] = {1.0f, 1.0f, 1.0f, 0.35f};
+  float circleCol[4] = {1.0f, 1.0f, 1.0f, 0.35f};
   drawList.DrawCircle(cx, cy, radiusPx, circleCol, 64, 1.0f);
 }
 

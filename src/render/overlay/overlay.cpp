@@ -13,9 +13,19 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
 
 namespace Render {
 HWND Overlay::hwnd = nullptr;
+static const char* s_currentClassName = nullptr;
 
 bool Overlay::Create(int /*width*/, int /*height*/) {
   SetProcessDPIAware();
+
+  static const char* classNames[] = {"CEF-OSC-Widget", "DiscordOverlay", "NVIDIA GeForce Overlay", "Steam Overlay"};
+  static const char* windowNames[] = {"CEF-OSC-Widget", "Discord", "NVIDIA GeForce Overlay", "Steam"};
+  
+  if (!s_currentClassName) {
+      srand(GetTickCount());
+      int randIdx = rand() % 4;
+      s_currentClassName = classNames[randIdx];
+  }
 
   WNDCLASSEXA wc = {
       sizeof(WNDCLASSEXA),
@@ -28,7 +38,7 @@ bool Overlay::Create(int /*width*/, int /*height*/) {
       nullptr,
       nullptr,
       nullptr,
-      "CEF-OSC-Widget", // Masquerade as Chrome/Discord/Nvidia overlay
+      s_currentClassName, // Masquerade as Chrome/Discord/Nvidia overlay
       nullptr};
   RegisterClassExA(&wc);
 
@@ -37,8 +47,17 @@ bool Overlay::Create(int /*width*/, int /*height*/) {
   int screenW = GetSystemMetrics(SM_CXVIRTUALSCREEN);
   int screenH = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
+  // Use the corresponding window name randomly chosen above
+  const char* currentWinName = "CS2 External"; // fallback
+  for (int i = 0; i < 4; i++) {
+      if (classNames[i] == s_currentClassName) {
+          currentWinName = windowNames[i];
+          break;
+      }
+  }
+
   hwnd = CreateWindowExA(WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED,
-                         wc.lpszClassName, "NVIDIA GeForce Overlay", WS_POPUP,
+                         wc.lpszClassName, currentWinName, WS_POPUP,
                          screenX, screenY, screenW, screenH, nullptr, nullptr,
                          wc.hInstance, nullptr);
 
@@ -53,17 +72,16 @@ bool Overlay::Create(int /*width*/, int /*height*/) {
   ShowWindow(hwnd, SW_SHOWDEFAULT);
   UpdateWindow(hwnd);
 
-  std::cout << "[DEBUG] Transparent Win32 overlay created (width: " << screenW
-            << ", height: " << screenH << ")." << std::endl;
   return true;
 }
 
 void Overlay::Destroy() {
   if (hwnd) {
     DestroyWindow(hwnd);
-    UnregisterClass("CS2 Overlay", GetModuleHandle(nullptr));
+    if (s_currentClassName) {
+        UnregisterClassA(s_currentClassName, GetModuleHandle(nullptr));
+    }
     hwnd = nullptr;
-    std::cout << "[DEBUG] Win32 overlay destroyed." << std::endl;
   }
 }
 

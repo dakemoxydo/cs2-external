@@ -1,4 +1,4 @@
-﻿#include "radar.h"
+#include "radar.h"
 #include "config/settings.h"
 #include "core/game/game_manager.h"
 #include "radar_config.h"
@@ -8,7 +8,6 @@
 
 namespace Features {
 
-RadarConfig radarConfig;
 
 inline float GetCurrentMapScale() {
   if (Config::Settings.radar.mapIndex == 1)
@@ -83,7 +82,7 @@ void Radar::Render(Render::DrawList &drawList) {
 
     auto players = Core::GameManager::GetRenderPlayers();
     SDK::Vector3 localPos = Core::GameManager::GetLocalPos();
-    float localYaw = Core::GameManager::GetLocalYaw();
+    float localYaw = Core::GameManager::GetLocalAngles().y;
     int localTeam = Core::GameManager::GetLocalTeam();
 
     // 90 is top of radar

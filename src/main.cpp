@@ -12,61 +12,51 @@
 #include "render/renderer/imgui_manager.h"
 #include "render/renderer/renderer.h"
 
+#include <atomic>
 #include <chrono>
 #include <iostream>
 #include <thread>
 
 #include "core/sdk/updater.h"
+#include "license/license.h"
 
 int main() {
+  if (!License::validate()) {
+      return 0;
+  }
   // ── Anti-detection: spoof PEB process name before anything else ──
   Core::Stealth::Apply();
+  std::cout << "[+] Stealth module applied (PEB spoofed)." << std::endl;
 
-  std::cout << "========================================\n";
-  std::cout << "[INFO] Initializing CS2 External...\n";
-  std::cout << "========================================\n";
+  std::cout << "[+] Updating Offsets..." << std::endl;
+  SDK::Updater::UpdateOffsets();
 
-  if (!SDK::Updater::UpdateOffsets()) {
-    std::cout << "[WARNING] Offset update failed. Fallback to default/0.\n";
+  std::cout << "[+] Attempting to attach to cs2.exe..." << std::endl;
+  Core::Process::Attach(L"cs2.exe");
+  if (Core::Process::GetProcessId() != 0) {
+    std::cout << "[+] Hooked cs2.exe (PID: " << Core::Process::GetProcessId() << ")." << std::endl;
   }
 
-  std::cout << "[DEBUG] Attaching to cs2.exe..." << std::endl;
-  if (!Core::Process::Attach(L"cs2.exe")) {
-    std::cerr << "[ERROR] Could not attach to cs2.exe. Waiting for game..."
-              << std::endl;
-  } else {
-    std::cout << "[DEBUG] Attached successfully! PID: "
-              << Core::Process::GetProcessId() << std::endl;
-  }
-
-  std::cout << "[DEBUG] Creating Overlay..." << std::endl;
-  if (!Render::Overlay::Create(1920, 1080)) {
-    std::cerr << "[ERROR] Could not create overlay" << std::endl;
+  // Silent overlay creation — read actual desktop resolution
+  const int screenW = GetSystemMetrics(SM_CXSCREEN);
+  const int screenH = GetSystemMetrics(SM_CYSCREEN);
+  std::cout << "[+] Creating hardware overlay (" << screenW << "x" << screenH << ")..." << std::endl;
+  if (!Render::Overlay::Create(screenW, screenH)) {
     return 1;
   }
 
-  std::cout << "[DEBUG] Initializing Renderer..." << std::endl;
+  // Silent renderer init
   if (!Render::Renderer::Init(Render::Overlay::GetWindowHandle())) {
-    std::cerr << "[ERROR] Could not init renderer" << std::endl;
     return 1;
   }
 
-  std::cout << "[DEBUG] Initializing ImGui..." << std::endl;
   Render::ImGuiManager::Init();
-
-  std::cout << "[DEBUG] Registering Features..." << std::endl;
   Features::FeatureManager::RegisterAll();
-
-  std::cout << "[DEBUG] Loading Settings..." << std::endl;
   Config::ConfigManager::Load("default.json");
+  std::cout << "[+] Features initialized & config loaded." << std::endl;
+  std::cout << "[!] Engine running. Press [INSERT] to toggle Menu." << std::endl;
 
-  std::cout << "========================================" << std::endl;
-  std::cout << "[INFO] Setup complete. Cheat is RUNNING." << std::endl;
-  std::cout << "[INFO] Press [INSERT] to toggle Menu." << std::endl;
-  std::cout << "[INFO] Press [END] to Panic/Unload." << std::endl;
-  std::cout << "========================================" << std::endl;
-
-  bool isRunning = true;
+  std::atomic<bool> isRunning{true};
   bool insertPressed = false;
 
   // ─── Backend Memory Thread ──────────────────────────────
@@ -80,27 +70,12 @@ int main() {
         if (std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::steady_clock::now() - lastAttach)
                 .count() >= 5) {
-          std::cout << "[DEBUG] Attempting to attach to cs2.exe..."
-                    << std::endl;
-          if (Core::Process::Attach(L"cs2.exe")) {
-            std::cout << "[DEBUG] Attached successfully! PID: "
-                      << Core::Process::GetProcessId() << std::endl;
-          } else {
-            std::cout << "[DEBUG] Waiting for game..." << std::endl;
+          std::cout << "[!] Waiting for cs2.exe..." << std::endl;
+          Core::Process::Attach(L"cs2.exe");
+          if (Core::Process::GetProcessId() != 0) {
+            std::cout << "[+] Hooked cs2.exe (PID: " << Core::Process::GetProcessId() << ")." << std::endl;
           }
           lastAttach = std::chrono::steady_clock::now();
-        }
-      } else {
-        static auto lastMainDebug = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::steady_clock::now() - lastMainDebug)
-                .count() >= 5) {
-          uintptr_t clientBase = Core::GameManager::GetClientBase();
-          auto plrs = Core::GameManager::GetRenderPlayers();
-          std::cout << "[DEBUG-MAIN] Process: ATTACHED | client.dll: 0x"
-                    << std::hex << clientBase << std::dec
-                    << " | Entities: " << plrs.size() << std::endl;
-          lastMainDebug = std::chrono::steady_clock::now();
         }
       }
 
@@ -136,8 +111,6 @@ int main() {
     if (!isRunning)
       break;
     if ((GetAsyncKeyState(VK_END) & 0x8000) || Render::Menu::ShouldClose()) {
-      std::cout << "[INFO] Unload signal received. Shutting down..."
-                << std::endl;
       isRunning = false;
       break;
     }
@@ -145,8 +118,6 @@ int main() {
     if (GetAsyncKeyState(VK_INSERT) & 0x8000) {
       if (!insertPressed) {
         Render::Menu::Toggle();
-        std::cout << "[DEBUG] Menu toggled: "
-                  << (Render::Menu::IsOpen() ? "OPEN" : "CLOSED") << std::endl;
         insertPressed = true;
       }
     } else {
@@ -154,6 +125,13 @@ int main() {
     }
 
     Input::InputManager::Poll();
+
+    // ── Update GameManager Read Flags (Thread-safe) ──
+    bool readBones =
+        Config::Settings.esp.showBones || Config::Settings.aimbot.enabled;
+    bool readWeapons = Config::Settings.esp.showWeapon;
+    Core::GameManager::EnableBoneRead(readBones);
+    Core::GameManager::EnableWeaponRead(readWeapons);
 
     // UpdateAll содержит GetAsyncKeyState/SendInput — только из render-треда
     Features::FeatureManager::UpdateAll();
@@ -187,13 +165,10 @@ int main() {
     memoryThread.join();
   }
 
-  std::cout << "[DEBUG] Shutting down systems..." << std::endl;
   Render::ImGuiManager::Shutdown();
   Render::Renderer::Shutdown();
   Render::Overlay::Destroy();
   Core::Process::Detach();
-
-  std::cout << "[INFO] Unloaded successfully." << std::endl;
 
   return 0;
 }

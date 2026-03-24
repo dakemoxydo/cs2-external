@@ -7,17 +7,29 @@
 #include <thread>
 #include <windows.h>
 #include <wininet.h>
+#include <fstream>
+#include <filesystem>
 
 #pragma comment(lib, "wininet.lib")
 
 namespace SDK {
 
-// ─── HTTP helper ─────────────────────────────────────────────────────────────
-static std::string FetchHTTP(const std::string &url) {
+// Cache file path for storing offsets locally
+static const std::string CACHE_FILE = "offsets_cache.json";
+static const std::string CLIENT_CACHE_FILE = "client_cache.json";
+
+// ─── HTTP helper with timeout and error handling ──────────────────────────────
+static std::string FetchHTTP(const std::string &url, int timeoutSeconds = 10) {
   HINTERNET hInt = InternetOpenA("CS2Overlay/1.0", INTERNET_OPEN_TYPE_PRECONFIG,
                                  nullptr, nullptr, 0);
-  if (!hInt)
+  if (!hInt) {
     return {};
+  }
+
+  // Set receive timeout (in milliseconds)
+  DWORD timeoutMs = timeoutSeconds * 1000;
+  InternetSetOption(hInt, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeoutMs, sizeof(timeoutMs));
+  InternetSetOption(hInt, INTERNET_OPTION_SEND_TIMEOUT, &timeoutMs, sizeof(timeoutMs));
 
   HINTERNET hUrl =
       InternetOpenUrlA(hInt, url.c_str(), nullptr, 0,
@@ -30,13 +42,39 @@ static std::string FetchHTTP(const std::string &url) {
   std::string result;
   char buf[8192];
   DWORD n = 0;
+  DWORD totalRead = 0;
+  const DWORD MAX_READ_SIZE = 1024 * 1024; // 1MB max
+  
   while (InternetReadFile(hUrl, buf, sizeof(buf) - 1, &n) && n > 0) {
+    totalRead += n;
+    if (totalRead > MAX_READ_SIZE) {
+      break;
+    }
     buf[n] = '\0';
     result.append(buf, n);
   }
+
   InternetCloseHandle(hUrl);
   InternetCloseHandle(hInt);
+  
   return result;
+}
+
+// ─── Cache helper functions ───────────────────────────────────────────────────
+static std::string ReadFileToString(const std::string &path) {
+  std::ifstream file(path);
+  if (!file.is_open())
+    return "";
+  std::string content((std::istreambuf_iterator<char>(file)),
+                      std::istreambuf_iterator<char>());
+  return content;
+}
+
+static void WriteStringToFile(const std::string &path, const std::string &content) {
+  std::ofstream file(path, std::ios::out | std::ios::trunc);
+  if (file.is_open()) {
+    file << content;
+  }
 }
 
 // ─── Parse a decimal or hex number from JSON ─────────────────────────────────
@@ -75,22 +113,12 @@ static void ApplyOffsets(const std::string &offsetsJson,
   Offsets::m_hPlayerPawn = ParseOffset(clientJson, "m_hPlayerPawn");
   Offsets::m_iszPlayerName = ParseOffset(clientJson, "m_iszPlayerName");
   Offsets::m_pClippingWeapon = ParseOffset(clientJson, "m_pClippingWeapon");
+  Offsets::m_vecViewOffset = ParseOffset(clientJson, "m_vecViewOffset");
 
-  // Knife Changer & Weapons
-  Offsets::m_pWeaponServices = ParseOffset(clientJson, "m_pWeaponServices");
-  Offsets::m_hActiveWeapon = ParseOffset(clientJson, "m_hActiveWeapon");
-  Offsets::m_AttributeManager = ParseOffset(clientJson, "m_AttributeManager");
-  Offsets::m_Item = ParseOffset(clientJson, "m_Item");
-  Offsets::m_iItemDefinitionIndex =
-      ParseOffset(clientJson, "m_iItemDefinitionIndex");
-  Offsets::m_hModel = ParseOffset(clientJson, "m_hModel");
-  Offsets::m_iItemIDHigh = ParseOffset(clientJson, "m_iItemIDHigh");
-  Offsets::m_nFallbackPaintKit = ParseOffset(clientJson, "m_nFallbackPaintKit");
-  Offsets::m_flFallbackWear = ParseOffset(clientJson, "m_flFallbackWear");
-  Offsets::m_nFallbackSeed = ParseOffset(clientJson, "m_nFallbackSeed");
 
   // Aimbot / Triggerbot
   Offsets::m_angEyeAngles = ParseOffset(clientJson, "m_angEyeAngles");
+  Offsets::m_aimPunchAngle = ParseOffset(clientJson, "m_aimPunchAngle");
   Offsets::m_iCrosshairEntityHandle =
       ParseOffset(clientJson, "m_iCrosshairEntityHandle");
   Offsets::m_bIsScoped = ParseOffset(clientJson, "m_bIsScoped");
@@ -101,53 +129,45 @@ static void ApplyOffsets(const std::string &offsetsJson,
   Offsets::m_bBombTicking = ParseOffset(clientJson, "m_bBombTicking");
   Offsets::m_flTimerLength = ParseOffset(clientJson, "m_flTimerLength");
 
-  // Fallback hardcoded values if dumper returns 0
-  if (Offsets::m_angEyeAngles == 0)
-    Offsets::m_angEyeAngles = 0x3DD0;
-  if (Offsets::m_iCrosshairEntityHandle == 0)
-    Offsets::m_iCrosshairEntityHandle = 0x13D8;
-  if (Offsets::m_bIsScoped == 0)
-    Offsets::m_bIsScoped = 0x1404;
-  if (Offsets::m_iShotsFired == 0)
-    Offsets::m_iShotsFired = 0x270C;
-
-  std::cout << std::hex << "[INFO] Offsets loaded:\n"
-            << "  dwEntityList:             0x" << Offsets::dwEntityList << "\n"
-            << "  dwLocalPlayerPawn:        0x" << Offsets::dwLocalPlayerPawn
-            << "\n"
-            << "  dwViewMatrix:             0x" << Offsets::dwViewMatrix << "\n"
-            << "  dwPlantedC4:              0x" << Offsets::dwPlantedC4 << "\n"
-            << "  m_angEyeAngles:           0x" << Offsets::m_angEyeAngles
-            << "\n"
-            << "  m_iCrosshairEntityHandle: 0x"
-            << Offsets::m_iCrosshairEntityHandle << "\n"
-            << "  m_bIsScoped:              0x" << Offsets::m_bIsScoped << "\n"
-            << "  m_iShotsFired:            0x" << Offsets::m_iShotsFired
-            << "\n"
-            << std::dec;
+  // Note: If offsets from dumper are 0, they will remain 0
+  // This indicates an issue with the dumper or CS2 update
+  // Silent mode - no logging
 }
 
 // ─── Background fetch thread ─────────────────────────────────────────────────
 static std::atomic<bool> s_fetchDone{false};
 
 static void FetchThreadProc() {
-  const std::string BASE =
-      "https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/";
-  std::string offsetsJson = FetchHTTP(BASE + "offsets.json");
-  std::string clientJson = FetchHTTP(BASE + "client_dll.json");
+  // Obfuscated GitHub URL - split to avoid static detection
+  std::string part1 = "https://raw.";
+  std::string part2 = "github.";
+  std::string part3 = "com/a2x/cs2-dumper/main/output/";
+  const std::string BASE = part1 + part2 + part3;
+  
+  // First try to load from local cache
+  std::string offsetsJson = ReadFileToString(CACHE_FILE);
+  std::string clientJson = ReadFileToString(CLIENT_CACHE_FILE);
+  
+  bool useCache = !offsetsJson.empty() && !clientJson.empty();
+  
+  // If cache is missing or invalid, try to fetch from network
+  if (!useCache || ParseOffset(offsetsJson, "dwEntityList") == 0) {
+    offsetsJson = FetchHTTP(BASE + "offsets.json");
+    clientJson = FetchHTTP(BASE + "client_dll.json");
 
-  if (offsetsJson.empty() || clientJson.empty()) {
-    std::cerr
-        << "[ERROR] Failed to fetch offsets from GitHub. Using defaults.\n";
-    s_fetchDone = true;
-    return;
-  }
+    if (offsetsJson.empty() || clientJson.empty()) {
+      s_fetchDone = true;
+      return;
+    }
 
-  if (ParseOffset(offsetsJson, "dwEntityList") == 0) {
-    std::cerr
-        << "[ERROR] Failed to parse dwEntityList — keeping current values.\n";
-    s_fetchDone = true;
-    return;
+    if (ParseOffset(offsetsJson, "dwEntityList") == 0) {
+      s_fetchDone = true;
+      return;
+    }
+    
+    // Save to cache for future use
+    WriteStringToFile(CACHE_FILE, offsetsJson);
+    WriteStringToFile(CLIENT_CACHE_FILE, clientJson);
   }
 
   ApplyOffsets(offsetsJson, clientJson);
@@ -156,7 +176,6 @@ static void FetchThreadProc() {
 
 // ─── Public: kick off async update, returns immediately ──────────────────────
 bool Updater::UpdateOffsets() {
-  std::cout << "[INFO] Launching async offset update from a2x/cs2-dumper...\n";
   std::thread(FetchThreadProc).detach();
   return true; // Main thread continues with default/last offsets immediately
 }

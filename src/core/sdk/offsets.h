@@ -19,21 +19,11 @@ extern ptrdiff_t m_modelState;
 extern ptrdiff_t m_hPlayerPawn;
 extern ptrdiff_t m_iszPlayerName;
 extern ptrdiff_t m_pClippingWeapon;
-
-// ── Knife Changer & Weapons (client_dll.json)
-extern ptrdiff_t m_pWeaponServices;
-extern ptrdiff_t m_hActiveWeapon;
-extern ptrdiff_t m_AttributeManager;
-extern ptrdiff_t m_Item;
-extern ptrdiff_t m_iItemDefinitionIndex;
-extern ptrdiff_t m_hModel;
-extern ptrdiff_t m_iItemIDHigh;
-extern ptrdiff_t m_nFallbackPaintKit;
-extern ptrdiff_t m_flFallbackWear;
-extern ptrdiff_t m_nFallbackSeed;
+extern ptrdiff_t m_vecViewOffset;
 
 // ── Aimbot / Triggerbot
 extern ptrdiff_t m_angEyeAngles;           // src: cs2-dumper, client_dll
+extern ptrdiff_t m_aimPunchAngle;
 extern ptrdiff_t m_iCrosshairEntityHandle; // src: cs2-dumper, client_dll
 extern ptrdiff_t m_bIsScoped;              // src: cs2-dumper, client_dll
 extern ptrdiff_t m_iShotsFired;            // src: cs2-dumper, client_dll

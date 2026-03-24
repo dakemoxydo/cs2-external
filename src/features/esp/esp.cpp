@@ -1,4 +1,4 @@
-﻿#include "esp.h"
+#include "esp.h"
 #include "config/settings.h"
 #include "core/game/game_manager.h"
 #include "core/math/math.h"
@@ -21,28 +21,6 @@ void Esp::Update() {
 // в”Ђв”Ђв”Ђ Helpers
 // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
-// Draw corner-bracket style box (4 corners, each with two short lines)
-static void DrawCornerBox(float x, float y, float w, float h, float col[4],
-                          float thickness) {
-  auto *dl = ImGui::GetBackgroundDrawList();
-  ImU32 c =
-      ImGui::ColorConvertFloat4ToU32(ImVec4(col[0], col[1], col[2], col[3]));
-  float cx = w * 0.22f; // corner extent X
-  float cy = h * 0.12f; // corner extent Y
-
-  // Top-left
-  dl->AddLine(ImVec2(x, y), ImVec2(x + cx, y), c, thickness);
-  dl->AddLine(ImVec2(x, y), ImVec2(x, y + cy), c, thickness);
-  // Top-right
-  dl->AddLine(ImVec2(x + w, y), ImVec2(x + w - cx, y), c, thickness);
-  dl->AddLine(ImVec2(x + w, y), ImVec2(x + w, y + cy), c, thickness);
-  // Bottom-left
-  dl->AddLine(ImVec2(x, y + h), ImVec2(x + cx, y + h), c, thickness);
-  dl->AddLine(ImVec2(x, y + h), ImVec2(x, y + h - cy), c, thickness);
-  // Bottom-right
-  dl->AddLine(ImVec2(x + w, y + h), ImVec2(x + w - cx, y + h), c, thickness);
-  dl->AddLine(ImVec2(x + w, y + h), ImVec2(x + w, y + h - cy), c, thickness);
-}
 
 // в”Ђв”Ђв”Ђ Render
 // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
@@ -60,7 +38,6 @@ void Esp::Render(Render::DrawList &drawList) {
   const int screenWidth = static_cast<int>(io.DisplaySize.x);
   const int screenHeight = static_cast<int>(io.DisplaySize.y);
   const SDK::Matrix4x4 viewMatrix = Core::GameManager::GetViewMatrix();
-  auto *bgDL = ImGui::GetBackgroundDrawList();
 
   const auto players = Core::GameManager::GetRenderPlayers();
 
@@ -119,19 +96,17 @@ void Esp::Render(Render::DrawList &drawList) {
       case BoxStyle::Corners: {
         // Dark shadow
         float shadowCol[4] = {0.f, 0.f, 0.f, 0.7f};
-        DrawCornerBox(x - 1, y - 1, width + 2, height + 2, shadowCol, 3.0f);
-        DrawCornerBox(x, y, width, height, drawColor, 1.5f);
+        drawList.DrawCornerBox(x - 1, y - 1, width + 2, height + 2, shadowCol, 3.0f);
+        drawList.DrawCornerBox(x, y, width, height, drawColor, 1.5f);
         break;
       }
       case BoxStyle::Filled: {
         // Semi-transparent fill
-        ImVec4 fillV(drawColor[0], drawColor[1], drawColor[2],
-                     Config::Settings.esp.fillBoxAlpha);
-        bgDL->AddRectFilled(ImVec2(x, y), ImVec2(x + width, y + height),
-                            ImGui::ColorConvertFloat4ToU32(fillV));
+        float fillCol[4] = {drawColor[0], drawColor[1], drawColor[2],
+                            Config::Settings.esp.fillBoxAlpha};
+        drawList.DrawFilledRect(x, y, width, height, fillCol);
         // Outer glow / outline
-        drawList.DrawBox(x - 1, y - 1, width + 2, height + 2, outlineColor,
-                         1.0f);
+        drawList.DrawBox(x - 1, y - 1, width + 2, height + 2, outlineColor, 1.0f);
         drawList.DrawBox(x, y, width, height, drawColor, 1.5f);
         break;
       }

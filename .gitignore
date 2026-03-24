@@ -21,5 +21,9 @@ out.txt
 imgui.ini
 *.tmp
 
+# Offset cache files (generated locally)
+offsets_cache.json
+client_cache.json
+
 # Reference repository (if not intended to be a submodule)
 git cs2/

@@ -125,8 +125,6 @@ HANDLE Process::TryStealHandle(DWORD targetPid) {
     CloseHandle(hOwner);
 
     if (::GetProcessId(dup) == targetPid) {
-      std::cout << "[INFO] Handle stolen from trusted PID " << e.OwnerPid
-                << "\n";
       return dup;
     }
     CloseHandle(dup);
@@ -162,7 +160,6 @@ bool Process::Attach(const std::wstring &processName) {
 
   // Fallback: regular OpenProcess
   if (!hProcess) {
-    std::cout << "[INFO] Handle steal failed — using OpenProcess (fallback)\n";
     hProcess = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION,
                            FALSE, processId);
   }

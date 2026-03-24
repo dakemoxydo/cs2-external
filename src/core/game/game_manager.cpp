@@ -2,25 +2,32 @@
 #include "../memory/memory_manager.h"
 #include "../process/module.h"
 #include "../sdk/offsets.h"
+#include "../sdk/entity_classes.h"
 #include <cmath>
-#include <iostream>
 #include <unordered_map>
 
 namespace Core {
 
 // Thread synchronization primitives
 std::shared_mutex GameManager::stateMutex;
-SDK::Matrix4x4 GameManager::renderViewMatrix = {};
-std::vector<SDK::Entity> GameManager::renderPlayers;
-SDK::Vector3 GameManager::renderLocalPos = {};
-SDK::Vector2 GameManager::renderLocalAngles = {};
-float GameManager::renderLocalYaw = 0.0f;
-int GameManager::renderLocalTeam = 0;
-bool GameManager::renderLocalScoped = false;
-uint32_t GameManager::renderLocalCrosshairHandle = 0;
-uintptr_t GameManager::renderLocalPawn = 0;
-uintptr_t GameManager::renderEntityList = 0;
-SDK::BombInfo GameManager::renderBombInfo = {};
+SDK::Matrix4x4 GameManager::cachedViewMatrix = {};
+
+std::vector<SDK::Entity> GameManager::playerBuffers[2];
+std::atomic<int> GameManager::activeBufferIndex{0};
+
+std::atomic<bool> GameManager::s_readBones{false};
+std::atomic<bool> GameManager::s_readWeapons{false};
+SDK::Vector3 GameManager::cachedLocalPos = {};
+SDK::Vector3 GameManager::cachedLocalEyePos = {};
+SDK::Vector2 GameManager::cachedLocalAngles = {};
+SDK::Vector2 GameManager::cachedLocalAimPunch = {};
+int GameManager::cachedLocalShotsFired = 0;
+int GameManager::cachedLocalTeam = 0;
+bool GameManager::cachedLocalScoped = false;
+uint32_t GameManager::cachedLocalCrosshairHandle = 0;
+uintptr_t GameManager::cachedLocalPawn = 0;
+uintptr_t GameManager::cachedEntityList = 0;
+SDK::BombInfo GameManager::cachedBombInfo = {};
 
 // Поля читаются отдельно через SDK::Offsets — PawnFields была удалена,
 // так как её capture-паддинги не совпадали с реальными смещениями из offsets.h.
@@ -30,8 +37,10 @@ uintptr_t GameManager::clientBase = 0;
 std::vector<SDK::Entity> GameManager::players;
 
 SDK::Vector3 GameManager::localPos = {};
+SDK::Vector3 GameManager::localEyePos = {};
 SDK::Vector2 GameManager::localAngles = {};
-float GameManager::localYaw = 0.0f;
+SDK::Vector2 GameManager::localAimPunch = {};
+int GameManager::localShotsFired = 0;
 int GameManager::localTeam = 0;
 bool GameManager::localScoped = false;
 uint32_t GameManager::localCrosshairHandle = 0;
@@ -46,11 +55,7 @@ static std::unordered_map<uint32_t, std::string> s_nameCache;
 
 bool GameManager::Init() {
   clientBase = Module::GetBaseAddress(L"client.dll");
-  if (!clientBase)
-    return false;
-  std::cout << "[DEBUG] client.dll base: 0x" << std::hex << clientBase
-            << std::dec << std::endl;
-  return true;
+  return clientBase != 0;
 }
 
 void GameManager::Update() {
@@ -74,27 +79,39 @@ void GameManager::Update() {
   if (!entityList)
     return;
 
-  localPawn = MemoryManager::Read<uintptr_t>(clientBase +
-                                             SDK::Offsets::dwLocalPlayerPawn);
+  SDK::CEntityList entityListObj(entityList);
+
+  // ── Cache Invalidation ──
+  // If the first chunk address changes, we are on a new map or reconnected
+  static uintptr_t s_lastFirstChunk = 0;
+  uintptr_t currentFirstChunk = entityListObj.GetListEntry(0);
+  if (currentFirstChunk != s_lastFirstChunk) {
+    s_lastFirstChunk = currentFirstChunk;
+    memset(s_pawnListCache, 0, sizeof(s_pawnListCache));
+    s_nameCache.clear();
+  }
+
+  SDK::CPlayerPawn localPlayer(MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwLocalPlayerPawn));
+  localPawn = localPlayer.GetAddress();
 
   localPos = {};
+  localEyePos = {};
   localAngles = {};
-  localYaw = 0.0f;
+  localAimPunch = {};
+  localShotsFired = 0;
   localTeam = 0;
   localScoped = false;
   localCrosshairHandle = 0;
 
-  if (localPawn > 0x10000) {
-    localPos = MemoryManager::Read<SDK::Vector3>(localPawn +
-                                                 SDK::Offsets::m_vOldOrigin);
-    localTeam = MemoryManager::Read<int>(localPawn + SDK::Offsets::m_iTeamNum);
-    localAngles = MemoryManager::Read<SDK::Vector2>(
-        localPawn + SDK::Offsets::m_angEyeAngles);
-    localYaw = localAngles.y;
-    localScoped =
-        MemoryManager::Read<bool>(localPawn + SDK::Offsets::m_bIsScoped);
-    localCrosshairHandle = MemoryManager::Read<uint32_t>(
-        localPawn + SDK::Offsets::m_iCrosshairEntityHandle);
+  if (localPlayer.IsValid()) {
+    localPos = localPlayer.GetOldOrigin();
+    localEyePos = localPlayer.GetCameraPos();
+    localTeam = localPlayer.GetTeam();
+    localAngles = localPlayer.GetEyeAngles();
+    localAimPunch = localPlayer.GetAimPunch();
+    localShotsFired = localPlayer.GetShotsFired();
+    localScoped = localPlayer.IsScoped();
+    localCrosshairHandle = localPlayer.GetCrosshairEntityHandle();
   }
 
   // ── Read Bomb State ──
@@ -106,18 +123,15 @@ void GameManager::Update() {
     uintptr_t c4Ptr =
         MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwPlantedC4);
     if (c4Ptr > 0x10000) {
-      uintptr_t c4 = MemoryManager::Read<uintptr_t>(c4Ptr);
-      if (!c4 || c4 < 0x10000)
-        c4 = c4Ptr;
-
-      bool ticking =
-          MemoryManager::Read<bool>(c4 + SDK::Offsets::m_bBombTicking);
-      if (ticking) {
+      uintptr_t c4Addr = MemoryManager::Read<uintptr_t>(c4Ptr);
+      if (!c4Addr || c4Addr < 0x10000)
+        c4Addr = c4Ptr;
+      
+      SDK::CPlantedC4 c4(c4Addr);
+      if (c4.IsTicking()) {
         bombInfo.isPlanted = true;
-        bombInfo.site =
-            MemoryManager::Read<int>(c4 + SDK::Offsets::m_nBombSite);
-        bombInfo.timeLeft =
-            MemoryManager::Read<float>(c4 + SDK::Offsets::m_flTimerLength);
+        bombInfo.site = c4.GetSite();
+        bombInfo.timeLeft = c4.GetTimeLeft();
       }
     }
   }
@@ -143,15 +157,12 @@ void GameManager::Update() {
   // Find localSlot for SpottedByMask
   int localSlot = 0;
   for (int i = 0; i < MAX_PLAYERS; i++) {
-    uintptr_t controller = controllerPointers[i];
-    if (!controller)
+    SDK::CPlayerController controller(controllerPointers[i]);
+    if (!controller.IsValid())
       continue;
-    uint32_t pawnHandle =
-        MemoryManager::Read<uint32_t>(controller + SDK::Offsets::m_hPawn);
+    uint32_t pawnHandle = controller.GetPawnHandle();
     if (pawnHandle && pawnHandle != 0xFFFFFFFF) {
-      bool isLocal = MemoryManager::Read<bool>(
-          controller + SDK::Offsets::m_bIsLocalPlayerController);
-      if (isLocal) {
+      if (controller.IsLocalPlayerController()) {
         localSlot = (pawnHandle & 0x7FFF) - 1;
         break;
       }
@@ -159,12 +170,11 @@ void GameManager::Update() {
   }
 
   for (int i = 0; i < MAX_PLAYERS; i++) {
-    uintptr_t controller = controllerPointers[i];
-    if (!controller || controller < 0x10000)
+    SDK::CPlayerController controller(controllerPointers[i]);
+    if (!controller.IsValid())
       continue;
 
-    uint32_t pawnHandle =
-        MemoryManager::Read<uint32_t>(controller + SDK::Offsets::m_hPawn);
+    uint32_t pawnHandle = controller.GetPawnHandle();
     if (!pawnHandle || pawnHandle == 0xFFFFFFFF)
       continue;
 
@@ -174,37 +184,29 @@ void GameManager::Update() {
       continue;
 
     if (!s_pawnListCache[chunkIdx]) {
-      s_pawnListCache[chunkIdx] =
-          MemoryManager::Read<uintptr_t>(entityList + 0x10 + 0x8 * chunkIdx);
+      s_pawnListCache[chunkIdx] = entityListObj.GetListEntry(chunkIdx);
     }
-    uintptr_t pawnListEntry = s_pawnListCache[chunkIdx];
-    if (!pawnListEntry)
+    
+    SDK::CPlayerPawn pawn = entityListObj.GetPawnFromHandle(pawnHandle, s_pawnListCache[chunkIdx]);
+    if (!pawn.IsValid() || pawn.GetAddress() == localPawn)
       continue;
 
-    // CEntityIdentity stride = 0x70 байт, entity ptr at +0x00 каждой записи
-    uintptr_t pawn = MemoryManager::Read<uintptr_t>(
-        pawnListEntry + (pawnHandle & 0x1FF) * 0x70);
-    if (!pawn || pawn < 0x10000 || pawn == localPawn)
-      continue;
-
-    // Читаем health, team, origin через offsets.h — строго по правилам проекта
-    int health = MemoryManager::Read<int>(pawn + SDK::Offsets::m_iHealth);
+    int health = pawn.GetHealth();
     if (health <= 0 || health > 100)
       continue;
 
-    int team = MemoryManager::Read<int>(pawn + SDK::Offsets::m_iTeamNum);
+    int team = pawn.GetTeam();
     if (team != 2 && team != 3)
       continue;
 
-    SDK::Vector3 position =
-        MemoryManager::Read<SDK::Vector3>(pawn + SDK::Offsets::m_vOldOrigin);
+    SDK::Vector3 position = pawn.GetOldOrigin();
     if (position.x == 0.0f && position.y == 0.0f && position.z == 0.0f)
       continue;
 
     // ── Build entity ──
     SDK::Entity p;
-    p.address = pawn;
-    p.controllerAddress = controller;
+    p.address = pawn.GetAddress();
+    p.controllerAddress = controller.GetAddress();
     p.pawnHandle = pawnHandle;
     p.health = health;
     p.team = team;
@@ -212,17 +214,12 @@ void GameManager::Update() {
     p.position = position;
 
     // Read spotted state
-    uint32_t spottedMask = MemoryManager::Read<uint32_t>(
-        pawn + SDK::Offsets::m_entitySpottedState +
-        SDK::Offsets::m_bSpottedByMaskOffset);
+    uint32_t spottedMask = pawn.GetSpottedStateMask();
     p.isSpotted = (spottedMask & (1 << localSlot)) != 0;
 
     // Name (Cached)
     if (s_nameCache.find(pawnHandle) == s_nameCache.end()) {
-      char nameBuffer[128] = {};
-      MemoryManager::ReadRaw(controller + SDK::Offsets::m_iszPlayerName,
-                             nameBuffer, sizeof(nameBuffer) - 1);
-      s_nameCache[pawnHandle] = nameBuffer;
+      s_nameCache[pawnHandle] = controller.GetPlayerName();
     }
     p.name = s_nameCache[pawnHandle];
 
@@ -234,37 +231,24 @@ void GameManager::Update() {
       p.distance = sqrtf(dx * dx + dy * dy + dz * dz) / 100.0f;
     }
 
-    // Weapon (triple-deref pointer chain)
-    {
-      uintptr_t cw = MemoryManager::Read<uintptr_t>(
-          pawn + SDK::Offsets::m_pClippingWeapon);
-      if (cw > 0x10000) {
-        uintptr_t wPtr = MemoryManager::Read<uintptr_t>(cw + 0x10);
-        if (wPtr > 0x10000) {
-          uintptr_t nPtr = MemoryManager::Read<uintptr_t>(wPtr + 0x20);
-          if (nPtr > 0x10000) {
-            char wb[64] = {};
-            MemoryManager::ReadRaw(nPtr, wb, sizeof(wb) - 1);
-            p.weapon = wb;
-            if (p.weapon.rfind("weapon_", 0) == 0)
-              p.weapon = p.weapon.substr(7);
-          }
-        }
-      }
+    // Weapon
+    if (s_readWeapons.load(std::memory_order_relaxed)) {
+      p.weapon = pawn.GetWeaponName();
     }
 
     // ── Skeleton bones (one batch ReadRaw) ──
-    uintptr_t gameScene =
-        MemoryManager::Read<uintptr_t>(pawn + SDK::Offsets::m_pGameSceneNode);
-    if (gameScene > 0x10000) {
-      uintptr_t boneArray = MemoryManager::Read<uintptr_t>(
-          gameScene + SDK::Offsets::m_boneArrayOffset);
-      if (boneArray > 0x10000) {
-        BoneData rawBones[BONE_COUNT];
-        if (MemoryManager::ReadRaw(boneArray, rawBones, sizeof(rawBones))) {
-          p.bonePositions.resize(BONE_COUNT);
-          for (int b = 0; b < BONE_COUNT; b++)
-            p.bonePositions[b] = rawBones[b].pos;
+    if (s_readBones.load(std::memory_order_relaxed)) {
+      uintptr_t gameScene = pawn.GetGameSceneNode();
+      if (gameScene > 0x10000) {
+        uintptr_t boneArray = MemoryManager::Read<uintptr_t>(
+            gameScene + SDK::Offsets::m_boneArrayOffset);
+        if (boneArray > 0x10000) {
+          BoneData rawBones[BONE_COUNT];
+          if (MemoryManager::ReadRaw(boneArray, rawBones, sizeof(rawBones))) {
+            p.bonePositions.resize(BONE_COUNT);
+            for (int b = 0; b < BONE_COUNT; b++)
+              p.bonePositions[b] = rawBones[b].pos;
+          }
         }
       }
     }
@@ -273,79 +257,102 @@ void GameManager::Update() {
   }
 
   // ── Push to frontend (Thread-Safe Buffer) ──
+  int writeIdx = activeBufferIndex.load(std::memory_order_relaxed) ^ 1;
+  playerBuffers[writeIdx] = players;
+  activeBufferIndex.store(writeIdx, std::memory_order_release);
+
   {
     std::unique_lock<std::shared_mutex> lock(stateMutex);
-    renderPlayers = players;
-    renderViewMatrix = viewMatrix;
-    renderLocalPos = localPos;
-    renderLocalAngles = localAngles;
-    renderLocalYaw = localYaw;
-    renderLocalTeam = localTeam;
-    renderLocalScoped = localScoped;
-    renderLocalCrosshairHandle = localCrosshairHandle;
-    renderLocalPawn = localPawn;
-    renderEntityList = entityList;
-    renderBombInfo = bombInfo;
+    cachedViewMatrix = viewMatrix;
+    cachedLocalPos = localPos;
+    cachedLocalEyePos = localEyePos;
+    cachedLocalAngles = localAngles;
+    cachedLocalAimPunch = localAimPunch;
+    cachedLocalShotsFired = localShotsFired;
+    cachedLocalTeam = localTeam;
+    cachedLocalScoped = localScoped;
+    cachedLocalCrosshairHandle = localCrosshairHandle;
+    cachedLocalPawn = localPawn;
+    cachedEntityList = entityList;
+    cachedBombInfo = bombInfo;
   }
 }
 
+// ── Thread-safe rendering getters ─────────────────────────────────────────────
+
 SDK::Matrix4x4 GameManager::GetViewMatrix() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return renderViewMatrix;
+  return cachedViewMatrix;
 }
 
-uintptr_t GameManager::GetClientBase() { return clientBase; }
-
 std::vector<SDK::Entity> GameManager::GetRenderPlayers() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return renderPlayers;
+  int readIdx = activeBufferIndex.load(std::memory_order_acquire);
+  return playerBuffers[readIdx];
 }
 
 SDK::Vector3 GameManager::GetLocalPos() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return renderLocalPos;
+  return cachedLocalPos;
 }
 
-float GameManager::GetLocalYaw() {
+SDK::Vector3 GameManager::GetLocalEyePos() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return renderLocalYaw;
+  return cachedLocalEyePos;
+}
+
+
+SDK::Vector2 GameManager::GetLocalAimPunch() {
+  std::shared_lock<std::shared_mutex> lock(stateMutex);
+  return cachedLocalAimPunch;
+}
+
+int GameManager::GetLocalShotsFired() {
+  std::shared_lock<std::shared_mutex> lock(stateMutex);
+  return cachedLocalShotsFired;
 }
 
 int GameManager::GetLocalTeam() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return renderLocalTeam;
+  return cachedLocalTeam;
 }
 
 SDK::Vector2 GameManager::GetLocalAngles() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return renderLocalAngles;
+  return cachedLocalAngles;
 }
 
 bool GameManager::IsLocalScoped() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return renderLocalScoped;
+  return cachedLocalScoped;
 }
 
 uint32_t GameManager::GetLocalCrosshairEntityHandle() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return renderLocalCrosshairHandle;
+  return cachedLocalCrosshairHandle;
 }
 
 SDK::BombInfo GameManager::GetBombInfo() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return renderBombInfo;
+  return cachedBombInfo;
 }
 
 uintptr_t GameManager::GetLocalPlayerPawn() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return renderLocalPawn;
+  return cachedLocalPawn;
 }
 
 uintptr_t GameManager::GetEntityList() {
   std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return renderEntityList;
+  return cachedEntityList;
 }
 
+// NOTE: Now protected by shared_lock — clientBase written once during Init()
+uintptr_t GameManager::GetClientBase() {
+  std::shared_lock<std::shared_mutex> lock(stateMutex);
+  return clientBase;
+}
+
+// NOTE: Makes a live RPM call — must be called only from memory thread
 uintptr_t GameManager::GetEntityFromHandle(uint32_t handle) {
   if (!handle || handle == 0xFFFFFFFF)
     return 0;
@@ -380,29 +387,10 @@ std::string GameManager::GetLocalWeaponName() {
     return "";
   char wb[64] = {};
   MemoryManager::ReadRaw(nPtr, wb, sizeof(wb) - 1);
-  return std::string(wb);
-}
-
-uintptr_t GameManager::GetWeaponServices(uintptr_t pawn) {
-  if (!pawn)
-    return 0;
-  return MemoryManager::Read<uintptr_t>(pawn + SDK::Offsets::m_pWeaponServices);
-}
-
-uint32_t GameManager::GetActiveWeaponHandle(uintptr_t weaponServices) {
-  if (!weaponServices)
-    return 0;
-  return MemoryManager::Read<uint32_t>(weaponServices +
-                                       SDK::Offsets::m_hActiveWeapon);
-}
-
-short GameManager::GetEntityItemDefinitionIndex(uintptr_t entity) {
-  if (!entity)
-    return 0;
-  uintptr_t econItemView =
-      entity + SDK::Offsets::m_AttributeManager + SDK::Offsets::m_Item;
-  return MemoryManager::Read<short>(econItemView +
-                                    SDK::Offsets::m_iItemDefinitionIndex);
+  std::string name(wb);
+  if (name.rfind("weapon_", 0) == 0)
+    return name.substr(7);
+  return name;
 }
 
 uintptr_t GameManager::GetEntityGameSceneNode(uintptr_t entity) {
@@ -412,39 +400,12 @@ uintptr_t GameManager::GetEntityGameSceneNode(uintptr_t entity) {
                                         SDK::Offsets::m_pGameSceneNode);
 }
 
-uint64_t GameManager::GetModelHandle(uintptr_t gameSceneNode) {
-  if (!gameSceneNode)
-    return 0;
-  return MemoryManager::Read<uint64_t>(
-      gameSceneNode + SDK::Offsets::m_modelState + SDK::Offsets::m_hModel);
+void GameManager::EnableBoneRead(bool enable) {
+  s_readBones.store(enable, std::memory_order_relaxed);
 }
 
-uint64_t GameManager::FindModelHandleByDefIndex(int targetDefIndex) {
-  uintptr_t list = GetEntityList();
-  if (!list)
-    return 0;
-
-  for (int i = 65; i <= 2048; i++) {
-    uintptr_t listEntry =
-        MemoryManager::Read<uintptr_t>(list + 0x10 + 0x8 * (i >> 9));
-    if (!listEntry)
-      continue;
-    uintptr_t entity =
-        MemoryManager::Read<uintptr_t>(listEntry + 0x70 * (i & 0x1FF));
-    if (!entity)
-      continue;
-
-    short defIndex = GetEntityItemDefinitionIndex(entity);
-    if (defIndex == targetDefIndex) {
-      uintptr_t gameSceneNode = GetEntityGameSceneNode(entity);
-      if (gameSceneNode) {
-        uint64_t handle = GetModelHandle(gameSceneNode);
-        if (handle)
-          return handle;
-      }
-    }
-  }
-  return 0;
+void GameManager::EnableWeaponRead(bool enable) {
+  s_readWeapons.store(enable, std::memory_order_relaxed);
 }
 
 } // namespace Core

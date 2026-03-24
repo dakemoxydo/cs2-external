@@ -3,11 +3,10 @@
 #include "features/bomb/bomb_config.h"
 #include "features/debug_overlay/debug_overlay_config.h"
 #include "features/esp/esp_config.h"
-#include "features/knife_changer/knife_changer_config.h"
-
 #include "features/misc/misc_config.h"
 #include "features/radar/radar_config.h"
 #include "features/triggerbot/triggerbot_config.h"
+#include "features/rcs/rcs_config.h"
 
 namespace Config {
 
@@ -22,9 +21,9 @@ struct GlobalSettings {
   Features::TriggerbotConfig triggerbot;
   Features::RadarConfig radar;
   Features::MiscConfig misc;
-  Features::KnifeChangerConfig knifeChanger;
   Features::BombConfig bomb;
   Features::DebugConfig debug;
+  Features::RCSConfig rcs;
 
   PerformanceConfig performance; // Added performance settings
   bool menuIsOpen = false;

@@ -1,9 +1,10 @@
-﻿#include "triggerbot.h"
+#include "triggerbot.h"
 #include "config/settings.h"
 #include "core/game/game_manager.h"
 #include "core/memory/memory_manager.h"
 #include "core/sdk/offsets.h"
 #include "render/draw/draw_list.h"
+#include "input/input_manager.h"
 #include "triggerbot_config.h"
 #include <chrono>
 #include <cstdlib>
@@ -35,19 +36,6 @@ static int RandRange(int lo, int hi) {
   if (lo >= hi)
     return lo;
   return lo + rand() % (hi - lo + 1);
-}
-
-static void ClickDown() {
-  INPUT inp = {};
-  inp.type = INPUT_MOUSE;
-  inp.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-  SendInput(1, &inp, sizeof(INPUT));
-}
-static void ClickUp() {
-  INPUT inp = {};
-  inp.type = INPUT_MOUSE;
-  inp.mi.dwFlags = MOUSEEVENTF_LEFTUP;
-  SendInput(1, &inp, sizeof(INPUT));
 }
 
 static auto NowMs() { return std::chrono::steady_clock::now(); }
@@ -120,7 +108,7 @@ void Triggerbot::Update() {
       break;
     }
     if (ElapsedMs(s_timer) >= s_delayMs) {
-      ClickDown();
+      Input::InputManager::SendMouseClick(true);
       s_timer = NowMs();
       s_state = TBState::SHOOTING;
     }
@@ -128,7 +116,7 @@ void Triggerbot::Update() {
 
   case TBState::SHOOTING:
     if (ElapsedMs(s_timer) >= 25) { // hold click for ~25ms
-      ClickUp();
+      Input::InputManager::SendMouseClick(false);
       s_timer = NowMs();
       s_state = TBState::COOLDOWN;
     }

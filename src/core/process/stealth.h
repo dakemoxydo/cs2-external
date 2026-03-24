@@ -7,12 +7,14 @@ namespace Core {
 /// Call Stealth::Apply() BEFORE Process::Attach() at program startup.
 class Stealth {
 public:
-  /// Rename our own process in the PEB so tools/VAC see a fake module path.
-  /// targetName: e.g. L"nvcontainer.exe"
-  static void SpoofProcessName(const wchar_t* targetName);
-
   /// Apply all stealth measures at once.
   static void Apply();
+
+  /// Randomized sleep to break timing patterns.
+  static void RandomizedSleep(int baseMs, int varianceMs);
+
+  /// Check if analysis tools are running (panic trigger).
+  static bool ShouldPanic();
 };
 
 } // namespace Core

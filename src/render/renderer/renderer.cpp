@@ -44,8 +44,6 @@ bool Renderer::Init(HWND hwnd) {
   pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &pRenderTargetView);
   pBackBuffer->Release();
 
-  std::cout << "[DEBUG] D3D11 SwapChain & RenderTarget initialized."
-            << std::endl;
   return true;
 }
 
@@ -66,7 +64,6 @@ void Renderer::Shutdown() {
     pDevice->Release();
     pDevice = nullptr;
   }
-  std::cout << "[DEBUG] D3D11 Shutdown." << std::endl;
 }
 
 void Renderer::BeginFrame() {

@@ -20,8 +20,6 @@ bool ImGuiManager::Init() {
   if (!ImGui_ImplDX11_Init(Renderer::GetDevice(), Renderer::GetContext()))
     return false;
 
-  std::cout << "[DEBUG] ImGui context created and backends initialized."
-            << std::endl;
   return true;
 }
 
@@ -29,7 +27,6 @@ void ImGuiManager::Shutdown() {
   ImGui_ImplDX11_Shutdown();
   ImGui_ImplWin32_Shutdown();
   ImGui::DestroyContext();
-  std::cout << "[DEBUG] ImGui context destroyed." << std::endl;
 }
 
 void ImGuiManager::NewFrame() {
