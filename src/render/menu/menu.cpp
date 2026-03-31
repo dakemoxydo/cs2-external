@@ -3,6 +3,7 @@
 #include "config/config_manager.h"
 #include "config/settings.h"
 #include "core/sdk/updater.h"
+#include "features/skinchanger/skinchanger.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <string>
@@ -259,7 +260,7 @@ static char s_configName[64] = "default";
 static std::vector<std::string> s_configList;
 static int s_configSelected = 0;
 static bool s_configDirty = false;
-static int s_currentTab = 0; // 0=Legit, 1=Visuals, 2=Misc, 3=Settings
+static int s_currentTab = 0; // 0=Legit, 1=Visuals, 2=Skins, 3=Misc, 4=Settings
 
 // ─── Offset update state
 static bool s_offsetUpdatePending = false;
@@ -355,8 +356,8 @@ void Menu::Render() {
     ImGui::Dummy(ImVec2(0, 12)); // Top padding
 
     // Навигационные элементы
-    const char *tabNames[] = {"LEGIT", "VISUALS", "MISC", "SETTINGS"};
-    for (int i = 0; i < 4; i++) {
+    const char *tabNames[] = {"LEGIT", "VISUALS", "SKINS", "MISC", "SETTINGS"};
+    for (int i = 0; i < 5; i++) {
       bool isSelected = (s_currentTab == i);
       if (isSelected) {
         ImGui::PushStyleColor(ImGuiCol_Button, accent);
@@ -446,7 +447,7 @@ void Menu::Render() {
       UI::EndCard();
 
       ImGui::Columns(1);
-    } else if (s_currentTab == 1) { // ─── VISUALS
+    } else if (s_currentTab == 2) { // ─── VISUALS
       ImGui::Columns(2, "VisCols", false);
 
       if (UI::BeginCard("Player ESP")) {
@@ -516,7 +517,49 @@ void Menu::Render() {
       UI::EndCard();
 
       ImGui::Columns(1);
-    } else if (s_currentTab == 2) { // ─── MISC
+    } else if (s_currentTab == 1) { // ─── SKINS
+      if (UI::BeginCard("Skin Changer")) {
+        UI::SettingToggle("Enable Skinchanger", &Config::Settings.skinchanger.enabled);
+        if (Config::Settings.skinchanger.enabled) {
+          ImGui::Spacing();
+          UI::SettingToggle("Auto Apply Skins", &Config::Settings.skinchanger.autoApply);
+          ImGui::Spacing();
+          ImGui::Separator();
+          ImGui::Spacing();
+          
+          // Knife settings
+          UI::SettingToggle("Enable Knife Skin", &Config::Settings.skinchanger.knifeEnabled);
+          if (Config::Settings.skinchanger.knifeEnabled) {
+            ImGui::SliderInt("Knife Paint Kit", &Config::Settings.skinchanger.knifeSkin.paintKit, 0, 1000);
+            ImGui::SliderInt("Knife Seed", &Config::Settings.skinchanger.knifeSkin.seed, 0, 255);
+            ImGui::SliderFloat("Knife Wear", &Config::Settings.skinchanger.knifeSkin.wear, 0.0f, 1.0f, "%.4f");
+            ImGui::SliderInt("Knife StatTrak", &Config::Settings.skinchanger.knifeSkin.statTrak, -1, 10000);
+          }
+          
+          ImGui::Spacing();
+          ImGui::Separator();
+          ImGui::Spacing();
+          
+          // Gloves settings
+          UI::SettingToggle("Enable Gloves Skin", &Config::Settings.skinchanger.glovesEnabled);
+          if (Config::Settings.skinchanger.glovesEnabled) {
+            ImGui::SliderInt("Gloves Paint Kit", &Config::Settings.skinchanger.glovesSkin.paintKit, 0, 10000);
+            ImGui::SliderInt("Gloves Seed", &Config::Settings.skinchanger.glovesSkin.seed, 0, 255);
+            ImGui::SliderFloat("Gloves Wear", &Config::Settings.skinchanger.glovesSkin.wear, 0.0f, 1.0f, "%.4f");
+          }
+          
+          ImGui::Spacing();
+          ImGui::Separator();
+          ImGui::Spacing();
+          
+          // Apply button
+          if (ImGui::Button("Apply Skins Now", ImVec2(ImGui::GetContentRegionAvail().x, 30))) {
+            Config::Settings.skinchanger.applySkins = true;
+          }
+        }
+      }
+      UI::EndCard();
+    } else if (s_currentTab == 3) { // ─── MISC
       if (UI::BeginCard("Miscellaneous")) {
         UI::SettingToggle("AWP Crosshair", &Config::Settings.misc.awpCrosshair);
         UI::SettingColor("##awp_cross_color", Config::Settings.misc.crosshairColor);
@@ -530,7 +573,7 @@ void Menu::Render() {
         }
       }
       UI::EndCard();
-    } else if (s_currentTab == 3) { // ─── SETTINGS
+    } else if (s_currentTab == 4) { // ─── SETTINGS
       ImGui::Columns(2, "SetCols", false);
 
       if (UI::BeginCard("Configuration")) {

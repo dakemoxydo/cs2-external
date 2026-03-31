@@ -7,6 +7,7 @@
 #include "../features/radar/radar_config.h"
 #include "../features/triggerbot/triggerbot_config.h"
 #include "../features/rcs/rcs_config.h"
+#include "../features/skinchanger/skinchanger_config.h"
 #include "settings.h"
 #include <filesystem>
 #include <fstream>
@@ -125,6 +126,7 @@ static std::vector<ConfigEntry> BuildRegistry() {
   auto &P = Settings.performance;
   auto &D = Settings.debug;
   auto &RCS = Settings.rcs;
+  auto &S = Settings.skinchanger;
 
   return {
       // ESP
@@ -196,6 +198,11 @@ static std::vector<ConfigEntry> BuildRegistry() {
       // Debug
       {"debug_enabled", ConfigEntry::BOOL, &D.enabled},
       {"debug_devMode", ConfigEntry::BOOL, &D.devMode},
+      // Skinchanger
+      {"skin_enabled", ConfigEntry::BOOL, &S.enabled},
+      {"skin_autoApply", ConfigEntry::BOOL, &S.autoApply},
+      {"skin_knifeEnabled", ConfigEntry::BOOL, &S.knifeEnabled},
+      {"skin_glovesEnabled", ConfigEntry::BOOL, &S.glovesEnabled},
   };
 }
 
@@ -270,6 +277,8 @@ void ConfigManager::ApplySettings() {
       f->SetEnabled(Settings.radar.enabled);
     else if (n == "DebugOverlay")
       f->SetEnabled(Settings.debug.enabled);
+    else if (n == "Skinchanger")
+      f->SetEnabled(Settings.skinchanger.enabled);
   }
 }
 

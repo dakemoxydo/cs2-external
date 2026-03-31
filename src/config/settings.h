@@ -7,6 +7,7 @@
 #include "features/radar/radar_config.h"
 #include "features/triggerbot/triggerbot_config.h"
 #include "features/rcs/rcs_config.h"
+#include "features/skinchanger/skinchanger_config.h"
 
 namespace Config {
 
@@ -25,6 +26,7 @@ struct GlobalSettings {
   Features::BombConfig bomb;
   Features::DebugConfig debug;
   Features::RCSConfig rcs;
+  Features::SkinchangerConfig skinchanger;
 
   PerformanceConfig performance; // Added performance settings
   bool menuIsOpen = false;

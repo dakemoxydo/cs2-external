@@ -7,6 +7,7 @@
 #include "radar/radar.h"
 #include "triggerbot/triggerbot.h"
 #include "rcs/rcs.h"
+#include "skinchanger/skinchanger.h"
 #include "feature_base.h"
 #include <memory>
 #include <string>
@@ -30,6 +31,7 @@ void FeatureManager::RegisterAll() {
   add(std::make_unique<Radar>());
   add(std::make_unique<DebugOverlay>());
   add(std::make_unique<RCSSystem>());
+  add(std::make_unique<Skinchanger>());
 }
 
 void FeatureManager::UpdateAll() {
