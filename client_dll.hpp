@@ -1,5 +1,7 @@
+// WARNING: This is an auto-generated file. Do not edit manually.
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-03-04 23:22:00.942727700 UTC
+// Generation date: 2026-03-04 23:22:00.942727700 UTC
+// Any changes made to this file will be lost when it is regenerated.
 
 #pragma once
 
