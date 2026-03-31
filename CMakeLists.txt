@@ -5,7 +5,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(IMGUI_DIR "external/imgui")
-file(GLOB IMGUI_SOURCES
+# NOTE: If you add or remove ImGui files, re-run CMake configuration.
+set(IMGUI_SOURCES
     "${IMGUI_DIR}/imgui.cpp"
     "${IMGUI_DIR}/imgui_demo.cpp"
     "${IMGUI_DIR}/imgui_draw.cpp"
@@ -15,7 +16,11 @@ file(GLOB IMGUI_SOURCES
     "${IMGUI_DIR}/backends/imgui_impl_dx11.cpp"
 )
 
-file(GLOB_RECURSE SOURCES "src/*.cpp")
+# NOTE: If you add or remove source files in src/, re-run CMake configuration.
+file(GLOB_RECURSE SOURCES
+    "src/*.cpp"
+)
+
 add_executable(cs2overlay ${SOURCES} ${IMGUI_SOURCES})
 
 target_include_directories(cs2overlay PRIVATE 
@@ -29,11 +34,15 @@ target_link_libraries(cs2overlay PRIVATE user32 d3d11 dxgi dwmapi wininet ntdll)
 
 # ── Post-build: mutate EXE signature so each build has a unique SHA256 ──
 set(MUTATE_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/mutate_signature.ps1")
-add_custom_command(
-  TARGET cs2overlay POST_BUILD
-  COMMAND powershell -ExecutionPolicy Bypass -NonInteractive
-          -File "${MUTATE_SCRIPT}"
-          -ExePath "$<TARGET_FILE:cs2overlay>"
-  COMMENT "Mutating EXE signature..."
-  VERBATIM
-)
+if(EXISTS "${MUTATE_SCRIPT}")
+  add_custom_command(
+    TARGET cs2overlay POST_BUILD
+    COMMAND powershell -ExecutionPolicy Bypass -NonInteractive
+            -File "${MUTATE_SCRIPT}"
+            -ExePath "$<TARGET_FILE:cs2overlay>"
+    COMMENT "Mutating EXE signature..."
+    VERBATIM
+  )
+else()
+  message(STATUS "mutate_signature.ps1 not found, skipping post-build signature mutation")
+endif()
