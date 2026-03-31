@@ -2,6 +2,7 @@
 #include "config/settings.h"
 #include "core/game/game_manager.h"
 #include "core/sdk/offsets.h"
+#include "render/overlay/overlay.h"
 #include <chrono>
 #include <imgui.h>
 #include <sstream>
@@ -65,10 +66,11 @@ void DebugOverlay::Render(Render::DrawList & /*drawList*/) {
   ImGui::SameLine(60);
   ImGui::TextColored(white, "%zu", players.size());
 
-  ImGuiIO &disp = ImGui::GetIO();
+  int gameW = Render::Overlay::GetGameWidth();
+  int gameH = Render::Overlay::GetGameHeight();
   ImGui::TextColored(yellow, "Screen");
   ImGui::SameLine(60);
-  ImGui::TextColored(grey, "%.0fx%.0f", disp.DisplaySize.x, disp.DisplaySize.y);
+  ImGui::TextColored(grey, "%dx%d", gameW, gameH);
 
   // в”Ђв”Ђ Developer mode (extra data) в”Ђв”Ђ
   if (Config::Settings.debug.devMode) {

@@ -5,6 +5,7 @@
 #include "core/sdk/offsets.h"
 #include "misc_config.h"
 #include "render/draw/draw_list.h"
+#include "render/overlay/overlay.h"
 #include <imgui.h>
 #include <windows.h>
 
@@ -29,9 +30,12 @@ void Misc::Render(Render::DrawList &drawList) {
     return;
   }
 
-  ImGuiIO &io = ImGui::GetIO();
-  float cx = io.DisplaySize.x / 2.0f;
-  float cy = io.DisplaySize.y / 2.0f;
+  int gameW = Render::Overlay::GetGameWidth();
+  int gameH = Render::Overlay::GetGameHeight();
+  if (gameW <= 0 || gameH <= 0) return;
+
+  float cx = gameW / 2.0f;
+  float cy = gameH / 2.0f;
   float sz = Config::Settings.misc.crosshairSize;
   float th = Config::Settings.misc.crosshairThickness;
   float gap = Config::Settings.misc.crosshairGap ? sz * 0.4f : 0.0f;

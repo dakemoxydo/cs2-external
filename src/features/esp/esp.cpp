@@ -5,14 +5,18 @@
 #include "core/sdk/entity.h"
 #include "esp_config.h"
 #include "render/draw/draw_list.h"
+#include "render/overlay/overlay.h"
 #include <imgui.h>
 #include <string>
 
 namespace Features {
 
-// в”Ђв”Ђв”Ђ Bone connections defined in entity.h (uses real BoneIndex enum)
-// в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// Bone connections defined in entity.h (uses real BoneIndex enum)
 // ::s_boneConnections is the inline constexpr array from entity.h
+
+// NOTE: Render-side smoothing has been REMOVED.
+// GameManager already interpolates positions with s_interpolationFactor.
+// Double smoothing caused ESP "floating" / lag behind enemy models.
 
 void Esp::Update() {
   // Lightweight вЂ” main work done in GameManager::Update()
@@ -26,17 +30,21 @@ void Esp::Update() {
 // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
 void Esp::Render(Render::DrawList &drawList) {
-  const bool anyActive =
-      Config::Settings.esp.showBox || Config::Settings.esp.showHealth ||
-      Config::Settings.esp.showName || Config::Settings.esp.showWeapon ||
-      Config::Settings.esp.showDistance || Config::Settings.esp.showBones ||
-      Config::Settings.esp.showSnapLines;
-  if (!anyActive)
-    return;
+ if (!Config::Settings.esp.enabled)
+   return;
 
-  const ImGuiIO &io = ImGui::GetIO();
-  const int screenWidth = static_cast<int>(io.DisplaySize.x);
-  const int screenHeight = static_cast<int>(io.DisplaySize.y);
+ const bool anyActive =
+     Config::Settings.esp.showBox || Config::Settings.esp.showHealth ||
+     Config::Settings.esp.showName || Config::Settings.esp.showWeapon ||
+     Config::Settings.esp.showDistance || Config::Settings.esp.showBones ||
+     Config::Settings.esp.showSnapLines;
+ if (!anyActive)
+   return;
+
+  const int screenWidth = Render::Overlay::GetGameWidth();
+  const int screenHeight = Render::Overlay::GetGameHeight();
+  if (screenWidth <= 0 || screenHeight <= 0)
+    return;
   const SDK::Matrix4x4 viewMatrix = Core::GameManager::GetViewMatrix();
 
   const auto players = Core::GameManager::GetRenderPlayers();
@@ -55,9 +63,8 @@ void Esp::Render(Render::DrawList &drawList) {
     float drawColor[4] = {currentBoxColor[0], currentBoxColor[1],
                           currentBoxColor[2], currentBoxColor[3]};
 
-    // в”Ђв”Ђв”Ђ World-to-screen
-    // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-    SDK::Vector3 feetPos = player.position;
+    // World-to-screen (use interpolated renderPosition for smoother movement)
+    SDK::Vector3 feetPos = player.renderPosition;
     SDK::Vector3 headPos = feetPos;
     headPos.z += 72.0f;
 
@@ -211,32 +218,34 @@ void Esp::Render(Render::DrawList &drawList) {
         if (idxA >= (int)player.bonePositions.size() ||
             idxB >= (int)player.bonePositions.size())
           continue;
-        SDK::Vector2 scrA, scrB;
+        SDK::Vector2 rawA, rawB;
         bool okA =
-            Core::Math::WorldToScreen(player.bonePositions[idxA], scrA,
+            Core::Math::WorldToScreen(player.bonePositions[idxA], rawA,
                                       viewMatrix, screenWidth, screenHeight);
         bool okB =
-            Core::Math::WorldToScreen(player.bonePositions[idxB], scrB,
+            Core::Math::WorldToScreen(player.bonePositions[idxB], rawB,
                                       viewMatrix, screenWidth, screenHeight);
         if (okA && okB) {
+          // Use raw screen positions — no extra smoothing
           if (Config::Settings.esp.skeletonOutline)
-            drawList.DrawLine(scrA.x, scrA.y, scrB.x, scrB.y, shadowC, 2.8f);
-          drawList.DrawLine(scrA.x, scrA.y, scrB.x, scrB.y, boneCol, 1.2f);
+            drawList.DrawLine(rawA.x, rawA.y, rawB.x, rawB.y, shadowC, 2.8f);
+          drawList.DrawLine(rawA.x, rawA.y, rawB.x, rawB.y, boneCol, 1.2f);
         }
       }
 
       // Draw Head Circle as part of skeleton
       if ((int)player.bonePositions.size() > BONE_HEAD) {
-        SDK::Vector2 boneHead;
-        if (Core::Math::WorldToScreen(player.bonePositions[BONE_HEAD], boneHead,
+        SDK::Vector2 screenBoneHead;
+        if (Core::Math::WorldToScreen(player.bonePositions[BONE_HEAD], screenBoneHead,
                                       viewMatrix, screenWidth, screenHeight)) {
+          // Use raw screen position — no extra smoothing
           // Make head circle size halfway between old (0.22f) and the very
           // small (0.12f)
           const float headRadius = width * 0.18f;
           if (Config::Settings.esp.skeletonOutline)
-            drawList.DrawCircle(boneHead.x, boneHead.y, headRadius + 1.0f,
+            drawList.DrawCircle(screenBoneHead.x, screenBoneHead.y, headRadius + 1.0f,
                                 shadowC, 28, 2.5f);
-          drawList.DrawCircle(boneHead.x, boneHead.y, headRadius, boneCol, 28,
+          drawList.DrawCircle(screenBoneHead.x, screenBoneHead.y, headRadius, boneCol, 28,
                               1.2f);
         }
       }

@@ -1,4 +1,5 @@
 @echo off
+setlocal
 chcp 65001 >nul
 echo [BUILD] Starting CS2 External build...
 
@@ -29,7 +30,7 @@ if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliar
     set VS_YEAR=2022
     goto vs_found
 )
-if exist "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" (
+if exist "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" (
     set GENERATOR=-G "Visual Studio 17 2022"
     set VS_YEAR=2022
     goto vs_found
@@ -67,6 +68,11 @@ cd build
 
 echo [BUILD] Configuring CMake...
 cmake %GENERATOR% -A x64 ..
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] CMake configuration failed!
+    pause
+    exit /b 1
+)
 
 echo [BUILD] Building (Release)...
 cmake --build . --config Release

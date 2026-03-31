@@ -13,6 +13,7 @@
 #include <string>
 #include <imgui.h>
 #include "../../render/draw/draw_list.h"
+#include "../../render/overlay/overlay.h"
 
 namespace Features {
 
@@ -199,12 +200,15 @@ void Aimbot::Render(Render::DrawList &drawList) {
   if (!Config::Settings.aimbot.enabled || !Config::Settings.aimbot.showFov)
     return;
 
-  ImGuiIO &io = ImGui::GetIO();
-  float cx = io.DisplaySize.x * 0.5f;
-  float cy = io.DisplaySize.y * 0.5f;
+  int gameW = Render::Overlay::GetGameWidth();
+  int gameH = Render::Overlay::GetGameHeight();
+  if (gameW <= 0 || gameH <= 0) return;
+
+  float cx = gameW * 0.5f;
+  float cy = gameH * 0.5f;
 
   constexpr float CS2_HFOV = 106.0f;
-  float radiusPx = (Config::Settings.aimbot.fov / CS2_HFOV) * io.DisplaySize.x;
+  float radiusPx = (Config::Settings.aimbot.fov / CS2_HFOV) * gameW;
 
   float circleCol[4] = {1.0f, 1.0f, 1.0f, 0.35f};
   drawList.DrawCircle(cx, cy, radiusPx, circleCol, 64, 1.0f);

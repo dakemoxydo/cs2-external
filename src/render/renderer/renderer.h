@@ -15,10 +15,14 @@ public:
   static ID3D11Device *GetDevice();
   static ID3D11DeviceContext *GetContext();
 
+  static void SetVSync(bool enabled);
+  static bool IsVSyncEnabled();
+
 private:
   static ID3D11Device *pDevice;
   static ID3D11DeviceContext *pContext;
   static IDXGISwapChain *pSwapChain;
   static ID3D11RenderTargetView *pRenderTargetView;
+  static bool s_vsyncEnabled;
 };
 } // namespace Render

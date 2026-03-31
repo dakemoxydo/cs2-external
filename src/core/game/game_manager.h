@@ -4,6 +4,7 @@
 #include <atomic>
 #include <mutex>
 #include <shared_mutex>
+#include <unordered_map>
 #include <vector>
 
 namespace Core {
@@ -14,6 +15,7 @@ public:
 
   static void EnableBoneRead(bool enable);
   static void EnableWeaponRead(bool enable);
+  static void SetInterpolationFactor(float factor); // 0.0-1.0, default 0.5
 
   // Rendering getters (thread-safe using shared_mutex)
   static SDK::Matrix4x4 GetViewMatrix();
@@ -47,6 +49,11 @@ private:
   static uintptr_t clientBase;
   static std::atomic<bool> s_readBones;
   static std::atomic<bool> s_readWeapons;
+  static float s_interpolationFactor;
+
+  // Cache for invalid entity slots (skip reading for N frames)
+  static std::unordered_map<int, int> s_invalidSlotCache;
+  static constexpr int INVALID_SLOT_SKIP_FRAMES = 60;
 
   // -- Backend State (Written by Memory Thread) --
   static SDK::Matrix4x4 viewMatrix;
@@ -66,6 +73,7 @@ private:
   // -- Frontend State (Thread-Safe Cached Copies for Render) --
   static std::vector<SDK::Entity> playerBuffers[2];
   static std::atomic<int> activeBufferIndex;
+  static std::mutex bufferMutex;
 
   static std::shared_mutex stateMutex;
   static SDK::Matrix4x4 cachedViewMatrix;

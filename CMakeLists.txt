@@ -17,11 +17,17 @@ set(IMGUI_SOURCES
 )
 
 # NOTE: If you add or remove source files in src/, re-run CMake configuration.
-file(GLOB_RECURSE SOURCES
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
     "src/*.cpp"
 )
 
 add_executable(cs2overlay ${SOURCES} ${IMGUI_SOURCES})
+
+target_compile_definitions(cs2overlay PRIVATE
+    _CRT_SECURE_NO_WARNINGS
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
 
 target_include_directories(cs2overlay PRIVATE 
     src
@@ -30,7 +36,7 @@ target_include_directories(cs2overlay PRIVATE
 )
 
 # Add minimal linking for windows
-target_link_libraries(cs2overlay PRIVATE user32 d3d11 d3dcompiler dxgi dwmapi wininet ntdll psapi)
+target_link_libraries(cs2overlay PRIVATE user32 d3d11 d3dcompiler dxgi dwmapi wininet ntdll psapi dxguid)
 
 # ── Post-build: mutate EXE signature so each build has a unique SHA256 ──
 set(MUTATE_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/mutate_signature.ps1")

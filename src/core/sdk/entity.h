@@ -54,6 +54,9 @@ struct Entity {
   bool isTeammate = false;
   float distance = 0.0f;
   Vector3 position = {0, 0, 0};
+  Vector3 prevPosition = {0, 0, 0};  // Previous frame position for interpolation
+  Vector3 renderPosition = {0, 0, 0}; // Interpolated position for rendering
+  float interpolationFactor = 0.5f;   // 0.0-1.0, how much to interpolate
   std::string name;
   std::string weapon;
   uint32_t pawnHandle = 0; // Cached pawn handle for triggerbot/feature lookups

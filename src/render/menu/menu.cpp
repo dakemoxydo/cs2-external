@@ -2,10 +2,12 @@
 #include "../overlay/overlay.h"
 #include "config/config_manager.h"
 #include "config/settings.h"
+#include "core/sdk/updater.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <string>
 #include <vector>
+#include <future>
 
 #include "ui_components.h"
 
@@ -14,142 +16,239 @@ static void ApplyTheme(int theme) {
   ImGuiStyle *style = &ImGui::GetStyle();
   ImVec4 *colors = style->Colors;
 
-  style->WindowRounding = 12.0f;
-  style->ChildRounding = 8.0f;
-  style->FrameRounding = 6.0f;
-  style->PopupRounding = 8.0f;
-  style->ScrollbarRounding = 6.0f;
-  style->GrabRounding = 6.0f;
-  style->TabRounding = 6.0f;
+  // Улучшенная стилизация — более крупные скругления, отступы, современный вид
+  style->WindowRounding = 16.0f;
+  style->ChildRounding = 12.0f;
+  style->FrameRounding = 8.0f;
+  style->PopupRounding = 12.0f;
+  style->ScrollbarRounding = 8.0f;
+  style->GrabRounding = 8.0f;
+  style->TabRounding = 8.0f;
 
-  style->WindowBorderSize = 1.0f;
-  style->ChildBorderSize = 0.0f; // Cleaner look
+  style->WindowBorderSize = 0.0f; // Убираем рамку для чистого вида
+  style->ChildBorderSize = 0.0f;
   style->FrameBorderSize = 0.0f;
-  style->PopupBorderSize = 1.0f;
+  style->PopupBorderSize = 0.0f;
 
-  style->FramePadding = ImVec2(8.0f, 6.0f);
-  style->ItemSpacing = ImVec2(10.0f, 10.0f);
-  style->ItemInnerSpacing = ImVec2(8.0f, 6.0f);
+  style->FramePadding = ImVec2(10.0f, 8.0f);
+  style->ItemSpacing = ImVec2(12.0f, 12.0f);
+  style->ItemInnerSpacing = ImVec2(10.0f, 8.0f);
+  style->IndentSpacing = 16.0f;
+  style->ScrollbarSize = 8.0f;
 
-  if (theme == 0) { // Midnight
-    colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.06f, 0.07f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
-    colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
-    colors[ImGuiCol_Border] = ImVec4(0.15f, 0.15f, 0.17f, 1.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.14f, 0.14f, 0.16f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.18f, 0.18f, 0.20f, 1.00f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.20f, 0.22f, 1.00f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.06f, 0.06f, 0.07f, 1.00f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.40f, 0.35f, 0.80f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.45f, 0.40f, 0.85f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.35f, 0.30f, 0.70f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.40f, 0.35f, 0.80f, 0.50f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.45f, 0.40f, 0.85f, 0.60f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.45f, 0.40f, 0.85f, 0.80f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.50f, 0.45f, 0.90f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.60f, 0.55f, 0.95f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.50f, 0.45f, 0.90f, 1.00f);
-    colors[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.92f, 1.00f);
-  } else if (theme == 1) { // Blood
-    colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.05f, 0.05f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.12f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_Border] = ImVec4(0.25f, 0.10f, 0.10f, 1.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.20f, 0.10f, 0.10f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.25f, 0.12f, 0.12f, 1.00f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.30f, 0.15f, 0.15f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.70f, 0.20f, 0.20f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.80f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.60f, 0.15f, 0.15f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.70f, 0.20f, 0.20f, 0.50f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.80f, 0.30f, 0.30f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.90f, 0.40f, 0.40f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.90f, 0.30f, 0.30f, 1.00f);
-    colors[ImGuiCol_Text] = ImVec4(0.95f, 0.85f, 0.85f, 1.00f);
-  } else if (theme == 2) { // Cyber
-    colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.08f, 0.12f, 0.12f, 1.00f);
-    colors[ImGuiCol_Border] = ImVec4(0.10f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.20f, 0.20f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.12f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.15f, 0.30f, 0.30f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.10f, 0.60f, 0.60f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.15f, 0.70f, 0.70f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.05f, 0.50f, 0.50f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.10f, 0.60f, 0.60f, 0.50f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.15f, 0.30f, 0.30f, 0.80f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.20f, 0.80f, 0.80f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.30f, 0.90f, 0.90f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.20f, 0.90f, 0.90f, 1.00f);
-    colors[ImGuiCol_Text] = ImVec4(0.85f, 0.95f, 0.95f, 1.00f);
-  } else if (theme == 3) { // Lavender
-    colors[ImGuiCol_WindowBg] = ImVec4(0.09f, 0.08f, 0.12f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.12f, 0.11f, 0.15f, 1.00f);
-    colors[ImGuiCol_Border] = ImVec4(0.18f, 0.16f, 0.22f, 1.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.15f, 0.13f, 0.18f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.20f, 0.18f, 0.25f, 1.00f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.25f, 0.22f, 0.30f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.55f, 0.45f, 0.85f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.65f, 0.55f, 0.90f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.45f, 0.35f, 0.75f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.55f, 0.45f, 0.85f, 0.50f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.65f, 0.55f, 0.90f, 0.60f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.65f, 0.55f, 0.90f, 0.80f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.65f, 0.55f, 0.95f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.75f, 0.65f, 0.95f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.65f, 0.55f, 0.95f, 1.00f);
-    colors[ImGuiCol_Text] = ImVec4(0.92f, 0.90f, 0.95f, 1.00f);
-  } else if (theme == 4) { // Gold/Luxury
-    colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.05f, 0.05f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_Border] = ImVec4(0.20f, 0.16f, 0.10f, 1.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.18f, 0.16f, 0.14f, 1.00f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.18f, 0.15f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.75f, 0.60f, 0.20f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.85f, 0.70f, 0.30f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.65f, 0.50f, 0.15f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.75f, 0.60f, 0.20f, 0.50f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.85f, 0.70f, 0.30f, 0.60f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.85f, 0.70f, 0.30f, 0.80f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.85f, 0.75f, 0.35f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.95f, 0.85f, 0.45f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.85f, 0.75f, 0.35f, 1.00f);
-    colors[ImGuiCol_Text] = ImVec4(0.95f, 0.90f, 0.85f, 1.00f);
-  } else if (theme == 5) { // Monochrome
-    colors[ImGuiCol_WindowBg] = ImVec4(0.02f, 0.02f, 0.02f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.05f, 0.05f, 0.05f, 1.00f);
-    colors[ImGuiCol_Border] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.80f, 0.80f, 0.80f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.40f, 0.40f, 0.40f, 0.50f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.60f, 0.60f, 0.60f, 0.60f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.60f, 0.60f, 0.60f, 0.80f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.80f, 0.80f, 0.80f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.80f, 0.80f, 0.80f, 1.00f);
-    colors[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
-  } else if (theme == 6) { // Toxic
-    colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.05f, 0.05f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.08f, 0.09f, 0.08f, 1.00f);
-    colors[ImGuiCol_Border] = ImVec4(0.20f, 0.30f, 0.20f, 1.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.12f, 0.15f, 0.12f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.18f, 0.25f, 0.18f, 1.00f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.35f, 0.22f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.40f, 0.80f, 0.10f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.50f, 0.90f, 0.20f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.30f, 0.70f, 0.05f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.40f, 0.80f, 0.10f, 0.50f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.50f, 0.90f, 0.20f, 0.60f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.50f, 0.90f, 0.20f, 0.80f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.50f, 0.90f, 0.20f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.60f, 1.00f, 0.30f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.50f, 0.90f, 0.20f, 1.00f);
+  if (theme == 0) { // Midnight — улучшенная
+    colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.05f, 0.06f, 0.98f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.08f, 0.08f, 0.10f, 1.00f);
+    colors[ImGuiCol_PopupBg] = ImVec4(0.06f, 0.06f, 0.07f, 0.96f);
+    colors[ImGuiCol_Border] = ImVec4(0.12f, 0.12f, 0.14f, 0.50f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.12f, 0.12f, 0.14f, 0.80f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.16f, 0.16f, 0.18f, 0.90f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.18f, 0.18f, 0.20f, 1.00f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.05f, 0.05f, 0.06f, 1.00f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.06f, 0.06f, 0.07f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.35f, 0.30f, 0.75f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.42f, 0.37f, 0.82f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.28f, 0.24f, 0.65f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.35f, 0.30f, 0.75f, 0.35f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.42f, 0.37f, 0.82f, 0.45f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.42f, 0.37f, 0.82f, 0.65f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.45f, 0.40f, 0.85f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.55f, 0.50f, 0.95f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.45f, 0.40f, 0.85f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.92f, 0.92f, 0.94f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.45f, 0.45f, 0.50f, 1.00f);
+    colors[ImGuiCol_Separator] = ImVec4(0.15f, 0.15f, 0.17f, 0.60f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.35f, 0.30f, 0.75f, 0.70f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.06f, 0.06f, 0.07f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.20f, 0.20f, 0.22f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.30f, 0.30f, 0.35f, 0.90f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.35f, 0.30f, 0.75f, 1.00f);
+    colors[ImGuiCol_Tab] = ImVec4(0.10f, 0.10f, 0.12f, 0.80f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.35f, 0.30f, 0.75f, 0.60f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.15f, 0.15f, 0.18f, 1.00f);
+    colors[ImGuiCol_PlotHistogram] = ImVec4(0.45f, 0.40f, 0.85f, 1.00f);
+    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.55f, 0.50f, 0.95f, 1.00f);
+    colors[ImGuiCol_NavHighlight] = ImVec4(0.45f, 0.40f, 0.85f, 0.80f);
+  } else if (theme == 1) { // Blood — улучшенная
+    colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.04f, 0.04f, 0.98f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.10f, 0.06f, 0.06f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.20f, 0.08f, 0.08f, 0.50f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.16f, 0.08f, 0.08f, 0.80f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.22f, 0.10f, 0.10f, 0.90f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.28f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.65f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.75f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.55f, 0.10f, 0.10f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.65f, 0.15f, 0.15f, 0.35f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.75f, 0.20f, 0.20f, 0.45f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.75f, 0.20f, 0.20f, 0.65f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.75f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.85f, 0.35f, 0.35f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.85f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.95f, 0.88f, 0.88f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.40f, 0.40f, 1.00f);
+    colors[ImGuiCol_Separator] = ImVec4(0.20f, 0.08f, 0.08f, 0.60f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.65f, 0.15f, 0.15f, 0.70f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.06f, 0.04f, 0.04f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.18f, 0.10f, 0.10f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.30f, 0.15f, 0.15f, 0.90f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.65f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_Tab] = ImVec4(0.08f, 0.06f, 0.06f, 0.80f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.65f, 0.15f, 0.15f, 0.60f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.12f, 0.08f, 0.08f, 1.00f);
+    colors[ImGuiCol_PlotHistogram] = ImVec4(0.75f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.85f, 0.35f, 0.35f, 1.00f);
+    colors[ImGuiCol_NavHighlight] = ImVec4(0.75f, 0.20f, 0.20f, 0.80f);
+  } else if (theme == 2) { // Cyber — улучшенная
+    colors[ImGuiCol_WindowBg] = ImVec4(0.04f, 0.06f, 0.06f, 0.98f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.06f, 0.10f, 0.10f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.08f, 0.20f, 0.20f, 0.50f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.08f, 0.16f, 0.16f, 0.80f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.10f, 0.22f, 0.22f, 0.90f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.12f, 0.28f, 0.28f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.08f, 0.55f, 0.55f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.12f, 0.65f, 0.65f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.04f, 0.45f, 0.45f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.08f, 0.55f, 0.55f, 0.35f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.12f, 0.65f, 0.65f, 0.45f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.12f, 0.65f, 0.65f, 0.65f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.15f, 0.75f, 0.75f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.25f, 0.85f, 0.85f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.15f, 0.85f, 0.85f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.88f, 0.95f, 0.95f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.40f, 0.50f, 0.50f, 1.00f);
+    colors[ImGuiCol_Separator] = ImVec4(0.08f, 0.20f, 0.20f, 0.60f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.08f, 0.55f, 0.55f, 0.70f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.04f, 0.06f, 0.06f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.10f, 0.18f, 0.18f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.15f, 0.30f, 0.30f, 0.90f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.08f, 0.55f, 0.55f, 1.00f);
+    colors[ImGuiCol_Tab] = ImVec4(0.06f, 0.08f, 0.08f, 0.80f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.08f, 0.55f, 0.55f, 0.60f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.08f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_PlotHistogram] = ImVec4(0.15f, 0.75f, 0.75f, 1.00f);
+    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.25f, 0.85f, 0.85f, 1.00f);
+    colors[ImGuiCol_NavHighlight] = ImVec4(0.12f, 0.65f, 0.65f, 0.80f);
+  } else if (theme == 3) { // Lavender — улучшенная
+    colors[ImGuiCol_WindowBg] = ImVec4(0.07f, 0.06f, 0.10f, 0.98f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.10f, 0.09f, 0.13f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.15f, 0.13f, 0.18f, 0.50f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.12f, 0.11f, 0.15f, 0.80f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.17f, 0.15f, 0.22f, 0.90f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.19f, 0.28f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.50f, 0.40f, 0.80f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.60f, 0.50f, 0.88f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.40f, 0.30f, 0.70f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.50f, 0.40f, 0.80f, 0.35f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.60f, 0.50f, 0.88f, 0.45f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.60f, 0.50f, 0.88f, 0.65f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.60f, 0.50f, 0.90f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.70f, 0.60f, 0.95f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.60f, 0.50f, 0.90f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.94f, 0.92f, 0.96f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.45f, 0.42f, 0.50f, 1.00f);
+    colors[ImGuiCol_Separator] = ImVec4(0.15f, 0.13f, 0.18f, 0.60f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.50f, 0.40f, 0.80f, 0.70f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.07f, 0.06f, 0.10f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.18f, 0.16f, 0.22f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.28f, 0.25f, 0.35f, 0.90f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.50f, 0.40f, 0.80f, 1.00f);
+    colors[ImGuiCol_Tab] = ImVec4(0.08f, 0.07f, 0.11f, 0.80f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.50f, 0.40f, 0.80f, 0.60f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.12f, 0.11f, 0.15f, 1.00f);
+    colors[ImGuiCol_PlotHistogram] = ImVec4(0.60f, 0.50f, 0.90f, 1.00f);
+    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.70f, 0.60f, 0.95f, 1.00f);
+    colors[ImGuiCol_NavHighlight] = ImVec4(0.60f, 0.50f, 0.88f, 0.80f);
+  } else if (theme == 4) { // Gold/Luxury — улучшенная
+    colors[ImGuiCol_WindowBg] = ImVec4(0.04f, 0.04f, 0.04f, 0.98f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.06f, 0.06f, 0.06f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.18f, 0.14f, 0.08f, 0.50f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.10f, 0.10f, 0.80f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.15f, 0.13f, 0.11f, 0.90f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.16f, 0.13f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.70f, 0.55f, 0.15f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.80f, 0.65f, 0.25f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.60f, 0.45f, 0.10f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.70f, 0.55f, 0.15f, 0.35f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.80f, 0.65f, 0.25f, 0.45f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.80f, 0.65f, 0.25f, 0.65f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.80f, 0.70f, 0.30f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.90f, 0.80f, 0.40f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.80f, 0.70f, 0.30f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.95f, 0.92f, 0.88f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.48f, 0.45f, 1.00f);
+    colors[ImGuiCol_Separator] = ImVec4(0.18f, 0.14f, 0.08f, 0.60f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.70f, 0.55f, 0.15f, 0.70f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.04f, 0.04f, 0.04f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.15f, 0.15f, 0.15f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.25f, 0.22f, 0.18f, 0.90f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.70f, 0.55f, 0.15f, 1.00f);
+    colors[ImGuiCol_Tab] = ImVec4(0.06f, 0.06f, 0.06f, 0.80f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.70f, 0.55f, 0.15f, 0.60f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
+    colors[ImGuiCol_PlotHistogram] = ImVec4(0.80f, 0.70f, 0.30f, 1.00f);
+    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.90f, 0.80f, 0.40f, 1.00f);
+    colors[ImGuiCol_NavHighlight] = ImVec4(0.80f, 0.65f, 0.25f, 0.80f);
+  } else if (theme == 5) { // Monochrome — улучшенная
+    colors[ImGuiCol_WindowBg] = ImVec4(0.02f, 0.02f, 0.02f, 0.98f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.04f, 0.04f, 0.04f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.18f, 0.18f, 0.18f, 0.50f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.08f, 0.08f, 0.08f, 0.80f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.13f, 0.13f, 0.13f, 0.90f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.18f, 0.18f, 0.18f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.55f, 0.55f, 0.55f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.75f, 0.75f, 0.75f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.35f, 0.35f, 0.35f, 0.35f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.55f, 0.55f, 0.55f, 0.45f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.55f, 0.55f, 0.55f, 0.65f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.75f, 0.75f, 0.75f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.95f, 0.95f, 0.95f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.75f, 0.75f, 0.75f, 1.00f);
+    colors[ImGuiCol_Text] = ImVec4(0.92f, 0.92f, 0.92f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.45f, 0.45f, 0.45f, 1.00f);
+    colors[ImGuiCol_Separator] = ImVec4(0.18f, 0.18f, 0.18f, 0.60f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.55f, 0.55f, 0.55f, 0.70f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.02f, 0.02f, 0.02f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.15f, 0.15f, 0.15f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.25f, 0.25f, 0.25f, 0.90f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.55f, 0.55f, 0.55f, 1.00f);
+    colors[ImGuiCol_Tab] = ImVec4(0.04f, 0.04f, 0.04f, 0.80f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.55f, 0.55f, 0.55f, 0.60f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.06f, 0.06f, 0.06f, 1.00f);
+    colors[ImGuiCol_PlotHistogram] = ImVec4(0.75f, 0.75f, 0.75f, 1.00f);
+    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.95f, 0.95f, 0.95f, 1.00f);
+    colors[ImGuiCol_NavHighlight] = ImVec4(0.55f, 0.55f, 0.55f, 0.80f);
+  } else if (theme == 6) { // Toxic — улучшенная
+    colors[ImGuiCol_WindowBg] = ImVec4(0.04f, 0.04f, 0.04f, 0.98f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.06f, 0.07f, 0.06f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.18f, 0.28f, 0.18f, 0.50f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.13f, 0.10f, 0.80f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.15f, 0.22f, 0.15f, 0.90f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.32f, 0.20f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.35f, 0.75f, 0.08f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.45f, 0.85f, 0.15f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.25f, 0.65f, 0.04f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.35f, 0.75f, 0.08f, 0.35f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.45f, 0.85f, 0.15f, 0.45f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.45f, 0.85f, 0.15f, 0.65f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.45f, 0.85f, 0.15f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.55f, 0.95f, 0.25f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.45f, 0.85f, 0.15f, 1.00f);
     colors[ImGuiCol_Text] = ImVec4(0.95f, 0.95f, 0.95f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.45f, 0.50f, 0.45f, 1.00f);
+    colors[ImGuiCol_Separator] = ImVec4(0.18f, 0.28f, 0.18f, 0.60f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.35f, 0.75f, 0.08f, 0.70f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.04f, 0.04f, 0.04f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.12f, 0.18f, 0.12f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.20f, 0.30f, 0.20f, 0.90f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.35f, 0.75f, 0.08f, 1.00f);
+    colors[ImGuiCol_Tab] = ImVec4(0.05f, 0.06f, 0.05f, 0.80f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.35f, 0.75f, 0.08f, 0.60f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.08f, 0.10f, 0.08f, 1.00f);
+    colors[ImGuiCol_PlotHistogram] = ImVec4(0.45f, 0.85f, 0.15f, 1.00f);
+    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.55f, 0.95f, 0.25f, 1.00f);
+    colors[ImGuiCol_NavHighlight] = ImVec4(0.45f, 0.85f, 0.15f, 0.80f);
   }
 }
 
@@ -161,6 +260,12 @@ static std::vector<std::string> s_configList;
 static int s_configSelected = 0;
 static bool s_configDirty = false;
 static int s_currentTab = 0; // 0=Legit, 1=Visuals, 2=Misc, 3=Settings
+
+// ─── Offset update state
+static bool s_offsetUpdatePending = false;
+static bool s_offsetUpdateSuccess = false;
+static std::string s_offsetUpdateMessage = "";
+static std::future<bool> s_offsetUpdateFuture;
 
 namespace Render {
 bool Menu::isOpen = false;
@@ -177,33 +282,96 @@ void Menu::Render() {
 
   ApplyTheme(Config::Settings.misc.menuTheme);
 
-  ImGui::SetNextWindowSize(ImVec2(850, 620), ImGuiCond_FirstUseEver);
+  ImGuiStyle &style = ImGui::GetStyle();
+  ImVec4 accent = style.Colors[ImGuiCol_Button];
+  ImVec4 accentHover = style.Colors[ImGuiCol_ButtonHovered];
+
+  ImGui::SetNextWindowSize(ImVec2(900, 650), ImGuiCond_FirstUseEver);
 
   char title[64];
   snprintf(title, sizeof(title), "CS2 External%s###MainWindow",
            s_configDirty ? " *" : "");
 
+  // Улучшенное окно — без стандартного заголовка, с кастомным оформлением
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-  if (ImGui::Begin(title, &isOpen, ImGuiWindowFlags_NoCollapse)) {
-    ImGui::PopStyleVar();
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+  if (ImGui::Begin(title, &isOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar)) {
+    ImGui::PopStyleVar(2);
 
-    // ─── VERTICAL LAYOUT ───
-    ImGui::BeginChild("Sidebar", ImVec2(160, 0), true);
+    // ─── КАСТОМНЫЙ ЗАГОЛОВОК ───
+    ImGui::BeginChild("Header", ImVec2(0, 48), false, ImGuiWindowFlags_NoScrollbar);
+    {
+      ImGuiStyle &headerStyle = ImGui::GetStyle();
+      ImVec2 headerPos = ImGui::GetCursorScreenPos();
+      ImGuiWindow *window = ImGui::GetCurrentWindow();
+
+      // Фоновая полоса заголовка с акцентным градиентом
+      window->DrawList->AddRectFilled(
+          headerPos,
+          ImVec2(headerPos.x + ImGui::GetWindowWidth(), headerPos.y + 48),
+          ImGui::GetColorU32(ImVec4(
+              style.Colors[ImGuiCol_ChildBg].x * 0.85f + accent.x * 0.08f,
+              style.Colors[ImGuiCol_ChildBg].y * 0.85f + accent.y * 0.08f,
+              style.Colors[ImGuiCol_ChildBg].z * 0.85f + accent.z * 0.08f,
+              1.0f)),
+          0.0f);
+
+      // Акцентная линия снизу
+      window->DrawList->AddLine(
+          ImVec2(headerPos.x, headerPos.y + 47),
+          ImVec2(headerPos.x + ImGui::GetWindowWidth(), headerPos.y + 47),
+          ImGui::GetColorU32(accent), 2.0f);
+
+      // Логотип/название
+      ImGui::SetCursorPos(ImVec2(16, 12));
+      ImGui::TextColored(accentHover, "CS2");
+      ImGui::SameLine(0, 2);
+      ImGui::TextColored(style.Colors[ImGuiCol_Text], "External");
+
+      // Кнопка закрытия
+      ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth() - 40, 10));
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.15f, 0.15f, 0.8f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+      ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+      if (ImGui::Button("X", ImVec2(28, 28))) {
+        isOpen = false;
+        Config::Settings.menuIsOpen = false;
+        long ex2 = GetWindowLong(Render::Overlay::GetWindowHandle(), GWL_EXSTYLE);
+        SetWindowLong(Render::Overlay::GetWindowHandle(), GWL_EXSTYLE, ex2 | WS_EX_TRANSPARENT);
+      }
+      ImGui::PopStyleVar();
+      ImGui::PopStyleColor(2);
+    }
+    ImGui::EndChild();
+
+    // ─── ОСНОВНОЙ LAYOUT ───
+    // ─── SIDEBAR ───
+    ImGui::BeginChild("Sidebar", ImVec2(180, 0), true);
 
     ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.5f, 0.5f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 10));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 8));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f);
 
-    ImGui::Dummy(ImVec2(0, 10)); // Top padding
-    if (ImGui::Selectable("LEGIT", s_currentTab == 0, 0, ImVec2(0, 35)))
-      s_currentTab = 0;
-    if (ImGui::Selectable("VISUALS", s_currentTab == 1, 0, ImVec2(0, 35)))
-      s_currentTab = 1;
-    if (ImGui::Selectable("MISC", s_currentTab == 2, 0, ImVec2(0, 35)))
-      s_currentTab = 2;
-    if (ImGui::Selectable("SETTINGS", s_currentTab == 3, 0, ImVec2(0, 35)))
-      s_currentTab = 3;
+    ImGui::Dummy(ImVec2(0, 12)); // Top padding
 
-    ImGui::PopStyleVar(2);
+    // Навигационные элементы
+    const char *tabNames[] = {"LEGIT", "VISUALS", "MISC", "SETTINGS"};
+    for (int i = 0; i < 4; i++) {
+      bool isSelected = (s_currentTab == i);
+      if (isSelected) {
+        ImGui::PushStyleColor(ImGuiCol_Button, accent);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, accentHover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+      }
+      if (ImGui::Selectable(tabNames[i], isSelected, 0, ImVec2(0, 40)))
+        s_currentTab = i;
+      if (isSelected) {
+        ImGui::PopStyleColor(4);
+      }
+    }
+
+    ImGui::PopStyleVar(3);
 
     ImGui::EndChild();
 
@@ -373,6 +541,38 @@ void Menu::Render() {
         }
 
         ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // ─── Offset Update Section ────────────────────────────────────────────
+        ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_Text], "Offsets Management");
+        ImGui::Spacing();
+
+        if (ImGui::Button("Update Offsets from GitHub", ImVec2(ImGui::GetContentRegionAvail().x, 30))) {
+          s_offsetUpdatePending = true;
+          s_offsetUpdateSuccess = false;
+          s_offsetUpdateMessage = "Updating...";
+          s_offsetUpdateFuture = SDK::Updater::ForceUpdateOffsets();
+        }
+
+        if (s_offsetUpdatePending && s_offsetUpdateFuture.valid() && 
+            s_offsetUpdateFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+          s_offsetUpdateSuccess = s_offsetUpdateFuture.get();
+          s_offsetUpdateMessage = s_offsetUpdateSuccess ? "Offsets updated successfully!" : "Failed to update offsets.";
+        }
+
+        if (!s_offsetUpdateMessage.empty()) {
+          ImGui::Spacing();
+          ImVec4 msgColor = s_offsetUpdateSuccess
+                                ? ImVec4(0.2f, 0.8f, 0.2f, 1.0f)
+                                : ImVec4(0.8f, 0.2f, 0.2f, 1.0f);
+          ImGui::TextColored(msgColor, "%s", s_offsetUpdateMessage.c_str());
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
         ImGui::InputText("Name", s_configName, sizeof(s_configName));
         if (ImGui::Button("Save Config", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
           Config::ConfigManager::Save(s_configName);
@@ -402,12 +602,19 @@ void Menu::Render() {
       ImGui::NextColumn();
 
       if (UI::BeginCard("Performance & Debug")) {
+        UI::SettingToggle("Enable VSync", &Config::Settings.performance.vsyncEnabled);
         ImGui::SliderInt("FPS Limit", &Config::Settings.performance.fpsLimit, 10, 500, "%d FPS");
         ImGui::SliderInt("UPS Limit (Max)", &Config::Settings.performance.upsLimit, 10, 500, "%d UPS");
 
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
+
+        // Show current FPS/UPS when VSync is active
+        if (Config::Settings.performance.vsyncEnabled) {
+          ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "VSync Active - FPS/UPS synced to display");
+          ImGui::Spacing();
+        }
 
         UI::SettingToggle("Enable Debug Overlay", &Config::Settings.debug.enabled);
         UI::SettingToggle("Developer Mode", &Config::Settings.debug.devMode);
@@ -429,7 +636,7 @@ void Menu::Render() {
 
     ImGui::EndChild(); // Content
   } else {
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
   }
   ImGui::End();
 }

@@ -11,8 +11,9 @@
 namespace Config {
 
 struct PerformanceConfig {
-  int fpsLimit = 144;
-  int upsLimit = 144; // Updates per second for memory reading
+  int fpsLimit = 240;
+  int upsLimit = 240; // Updates per second for memory reading
+  bool vsyncEnabled = false;
 };
 
 struct GlobalSettings {

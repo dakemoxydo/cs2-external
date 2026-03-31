@@ -33,7 +33,8 @@ static std::string FetchHTTP(const std::string &url, int timeoutSeconds = 10) {
 
   HINTERNET hUrl =
       InternetOpenUrlA(hInt, url.c_str(), nullptr, 0,
-                       INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE, 0);
+                       INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE,
+                       0);
   if (!hUrl) {
     InternetCloseHandle(hInt);
     return {};
@@ -119,8 +120,8 @@ static void ApplyOffsets(const std::string &offsetsJson,
   // Aimbot / Triggerbot
   Offsets::m_angEyeAngles = ParseOffset(clientJson, "m_angEyeAngles");
   Offsets::m_aimPunchAngle = ParseOffset(clientJson, "m_aimPunchAngle");
-  Offsets::m_iCrosshairEntityHandle =
-      ParseOffset(clientJson, "m_iCrosshairEntityHandle");
+  Offsets::m_iIDEntIndex =
+      ParseOffset(clientJson, "m_iIDEntIndex");
   Offsets::m_bIsScoped = ParseOffset(clientJson, "m_bIsScoped");
   Offsets::m_iShotsFired = ParseOffset(clientJson, "m_iShotsFired");
 
@@ -137,47 +138,90 @@ static void ApplyOffsets(const std::string &offsetsJson,
 // ─── Background fetch thread ─────────────────────────────────────────────────
 static std::atomic<bool> s_fetchDone{false};
 
-static void FetchThreadProc() {
+// ─── Cache-first with auto-fetch from GitHub ─────────────────────────────────
+static void LoadFromCache() {
   // Obfuscated GitHub URL - split to avoid static detection
   std::string part1 = "https://raw.";
   std::string part2 = "github.";
   std::string part3 = "com/a2x/cs2-dumper/main/output/";
   const std::string BASE = part1 + part2 + part3;
-  
-  // First try to load from local cache
+
+  // Try cache first
   std::string offsetsJson = ReadFileToString(CACHE_FILE);
   std::string clientJson = ReadFileToString(CLIENT_CACHE_FILE);
-  
-  bool useCache = !offsetsJson.empty() && !clientJson.empty();
-  
-  // If cache is missing or invalid, try to fetch from network
-  if (!useCache || ParseOffset(offsetsJson, "dwEntityList") == 0) {
-    offsetsJson = FetchHTTP(BASE + "offsets.json");
-    clientJson = FetchHTTP(BASE + "client_dll.json");
 
-    if (offsetsJson.empty() || clientJson.empty()) {
-      s_fetchDone = true;
-      return;
-    }
+  bool cacheValid = !offsetsJson.empty() && !clientJson.empty() &&
+                    ParseOffset(offsetsJson, "dwEntityList") != 0;
 
-    if (ParseOffset(offsetsJson, "dwEntityList") == 0) {
-      s_fetchDone = true;
-      return;
+  if (cacheValid) {
+    ApplyOffsets(offsetsJson, clientJson);
+    std::cout << "[+] Offsets loaded from cache." << std::endl;
+  } else {
+    // Cache empty/invalid - fetch from GitHub
+    std::cout << "[+] Cache invalid, fetching offsets from GitHub..." << std::endl;
+
+    std::string freshOffsets = FetchHTTP(BASE + "offsets.json");
+    std::string freshClient = FetchHTTP(BASE + "client_dll.json");
+
+    if (!freshOffsets.empty() && !freshClient.empty() &&
+        ParseOffset(freshOffsets, "dwEntityList") != 0) {
+      ApplyOffsets(freshOffsets, freshClient);
+      // Save to cache
+      WriteStringToFile(CACHE_FILE, freshOffsets);
+      WriteStringToFile(CLIENT_CACHE_FILE, freshClient);
+      std::cout << "[+] Offsets updated from GitHub!" << std::endl;
+    } else {
+      // GitHub failed - try old cache as fallback
+      if (!offsetsJson.empty() && !clientJson.empty()) {
+        ApplyOffsets(offsetsJson, clientJson);
+        std::cout << "[!] Using stale cache (GitHub unavailable)" << std::endl;
+      } else {
+        std::cout << "[!] Failed to load offsets from any source!" << std::endl;
+      }
     }
-    
-    // Save to cache for future use
-    WriteStringToFile(CACHE_FILE, offsetsJson);
-    WriteStringToFile(CLIENT_CACHE_FILE, clientJson);
   }
-
-  ApplyOffsets(offsetsJson, clientJson);
   s_fetchDone = true;
 }
 
-// ─── Public: kick off async update, returns immediately ──────────────────────
-bool Updater::UpdateOffsets() {
-  std::thread(FetchThreadProc).detach();
-  return true; // Main thread continues with default/last offsets immediately
+// ─── Force update from GitHub ────────────────────────────────────────────────
+static void ForceUpdateFromGitHub() {
+  // Obfuscated GitHub URL - split to avoid static detection
+  std::string part1 = "https://raw.";
+  std::string part2 = "github.";
+  std::string part3 = "com/a2x/cs2-dumper/main/output/";
+  const std::string BASE = part1 + part2 + part3;
+
+  std::cout << "[+] Fetching offsets from GitHub..." << std::endl;
+
+  std::string offsetsJson = FetchHTTP(BASE + "offsets.json");
+  std::string clientJson = FetchHTTP(BASE + "client_dll.json");
+
+  if (offsetsJson.empty() || clientJson.empty()) {
+    std::cout << "[!] Failed to fetch offsets from GitHub." << std::endl;
+    return;
+  }
+
+  ApplyOffsets(offsetsJson, clientJson);
+  WriteStringToFile(CACHE_FILE, offsetsJson);
+  WriteStringToFile(CLIENT_CACHE_FILE, clientJson);
+  std::cout << "[+] Offsets updated from GitHub!" << std::endl;
+}
+
+// ─── Public: kick off async update, returns future for synchronization ───────
+// Note: If the returned future is discarded (as in main.cpp), the thread runs
+// detached-style (fire-and-forget). To wait for completion, call .wait()/.get().
+std::future<bool> Updater::UpdateOffsets() {
+  return std::async(std::launch::async, []() {
+    LoadFromCache();
+    return true;
+  });
+}
+
+std::future<bool> Updater::ForceUpdateOffsets() {
+  return std::async(std::launch::async, []() {
+    ForceUpdateFromGitHub();
+    return true;
+  });
 }
 
 } // namespace SDK

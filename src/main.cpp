@@ -4,6 +4,7 @@
 #include "core/process/module.h"
 #include "core/process/process.h"
 #include "core/process/stealth.h"
+#include "core/sdk/offsets.h"
 #include "features/feature_manager.h"
 #include "input/input_manager.h"
 #include "render/draw/draw_list.h"
@@ -12,24 +13,25 @@
 #include "render/renderer/imgui_manager.h"
 #include "render/renderer/renderer.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <iostream>
 #include <thread>
 
 #include "core/sdk/updater.h"
-#include "license/license.h"
+
+// Shared frame time for VSync UPS sync
+static std::atomic<float> g_overlayFrameTimeMs{4.17f};
 
 int main() {
-  if (!License::validate()) {
-      return 0;
-  }
   // ── Anti-detection: spoof PEB process name before anything else ──
   Core::Stealth::Apply();
   std::cout << "[+] Stealth module applied (PEB spoofed)." << std::endl;
 
   std::cout << "[+] Updating Offsets..." << std::endl;
-  SDK::Updater::UpdateOffsets();
+  auto offsetsFuture = SDK::Updater::UpdateOffsets();
+  offsetsFuture.wait();
 
   std::cout << "[+] Attempting to attach to cs2.exe..." << std::endl;
   Core::Process::Attach(L"cs2.exe");
@@ -37,11 +39,9 @@ int main() {
     std::cout << "[+] Hooked cs2.exe (PID: " << Core::Process::GetProcessId() << ")." << std::endl;
   }
 
-  // Silent overlay creation — read actual desktop resolution
-  const int screenW = GetSystemMetrics(SM_CXSCREEN);
-  const int screenH = GetSystemMetrics(SM_CYSCREEN);
-  std::cout << "[+] Creating hardware overlay (" << screenW << "x" << screenH << ")..." << std::endl;
-  if (!Render::Overlay::Create(screenW, screenH)) {
+  // Silent overlay creation — auto-detects CS2 window size and position
+  std::cout << "[+] Creating hardware overlay (auto-detect CS2 window)..." << std::endl;
+  if (!Render::Overlay::Create()) {
     return 1;
   }
 
@@ -81,9 +81,16 @@ int main() {
 
       Core::GameManager::Update();
 
-      int ups = Config::Settings.performance.upsLimit;
-      if (ups <= 0)
-        ups = 64; // Fallback
+      // ── UPS: fixed or VSync-synced ──
+      int ups;
+      if (Config::Settings.performance.vsyncEnabled) {
+        // Sync UPS with overlay FPS (measured via frame timing)
+        float frameTimeMs = g_overlayFrameTimeMs.load();
+        ups = frameTimeMs > 0 ? std::min(256, (int)(1000.0f / frameTimeMs)) : 64;
+      } else {
+        ups = Config::Settings.performance.upsLimit;
+        if (ups <= 0) ups = 240;
+      }
 
       auto frameTimeTarget = std::chrono::milliseconds(1000 / ups);
       auto timeTaken = std::chrono::steady_clock::now() - frameStart;
@@ -136,6 +143,9 @@ int main() {
     // UpdateAll содержит GetAsyncKeyState/SendInput — только из render-треда
     Features::FeatureManager::UpdateAll();
 
+    // Update overlay position if CS2 window moved/resized
+    Render::Overlay::UpdatePosition();
+
     Render::Renderer::BeginFrame();
     Render::ImGuiManager::NewFrame();
 
@@ -147,16 +157,26 @@ int main() {
     Render::ImGuiManager::Render();
     Render::Renderer::EndFrame();
 
-    int fps = Config::Settings.performance.fpsLimit;
-    if (fps <= 0)
-      fps = 144; // Fallback
+    // ── Frame timing for VSync UPS sync ──
+    auto frameEnd = std::chrono::steady_clock::now();
+    float frameTimeMs = std::chrono::duration<float, std::milli>(frameEnd - frameStart).count();
+    g_overlayFrameTimeMs.store(frameTimeMs);
 
-    auto frameTimeTarget = std::chrono::milliseconds(1000 / fps);
-    auto timeTaken = std::chrono::steady_clock::now() - frameStart;
-    if (timeTaken < frameTimeTarget) {
-      std::this_thread::sleep_for(frameTimeTarget - timeTaken);
-    } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // Apply VSync setting
+    Render::Renderer::SetVSync(Config::Settings.performance.vsyncEnabled);
+
+    if (!Config::Settings.performance.vsyncEnabled) {
+      int fps = Config::Settings.performance.fpsLimit;
+      if (fps <= 0)
+        fps = 240; // Fallback
+
+      auto frameTimeTarget = std::chrono::milliseconds(1000 / fps);
+      auto timeTaken = std::chrono::steady_clock::now() - frameStart;
+      if (timeTaken < frameTimeTarget) {
+        std::this_thread::sleep_for(frameTimeTarget - timeTaken);
+      } else {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
     }
   }
 

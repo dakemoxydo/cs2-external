@@ -5,6 +5,7 @@
 #include "core/memory/memory_manager.h"
 #include "core/sdk/offsets.h"
 #include "render/draw/draw_list.h"
+#include "render/overlay/overlay.h"
 #include <chrono>
 #include <cmath>
 #include <imgui.h>
@@ -50,10 +51,11 @@ void Bomb::Render(Render::DrawList & /*drawList*/) {
   float progress = s_timeLeft / BOMB_TIME;
   const char *site = (s_site == 1) ? "B" : "A";
 
-  ImGuiIO &io = ImGui::GetIO();
+  int gameW = Render::Overlay::GetGameWidth();
+  if (gameW <= 0) return;
   const float winW = 240.0f;
   ImGui::SetNextWindowPos(
-      ImVec2((io.DisplaySize.x - winW) * 0.5f, io.DisplaySize.y - 80.0f),
+      ImVec2((gameW - winW) * 0.5f, Render::Overlay::GetGameHeight() - 80.0f),
       ImGuiCond_Always);
   ImGui::SetNextWindowSize(ImVec2(winW, 62.0f), ImGuiCond_Always);
   ImGui::SetNextWindowBgAlpha(0.82f);

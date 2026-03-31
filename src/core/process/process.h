@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <windows.h>
+#include <winternl.h>
 
 
 namespace Core {
@@ -19,7 +20,8 @@ public:
   static DWORD GetProcessId();
 
   /// Direct NtReadVirtualMemory call (replaces ReadProcessMemory).
-  static bool NtRead(void *address, void *buffer, size_t size);
+  /// Returns NTSTATUS: 0 (STATUS_SUCCESS) on success, error code on failure.
+  static NTSTATUS NtRead(void *address, void *buffer, size_t size);
 
 private:
   static HANDLE hProcess;

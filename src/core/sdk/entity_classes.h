@@ -53,7 +53,7 @@ public:
   }
 
   uint32_t GetCrosshairEntityHandle() const {
-    return Core::MemoryManager::Read<uint32_t>(address + Offsets::m_iCrosshairEntityHandle);
+    return Core::MemoryManager::Read<uint32_t>(address + Offsets::m_iIDEntIndex);
   }
 
   int GetShotsFired() const {

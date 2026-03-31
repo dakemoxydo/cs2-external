@@ -26,4 +26,4 @@ offsets_cache.json
 client_cache.json
 
 # Reference repository (if not intended to be a submodule)
-git cs2/
+cs2/

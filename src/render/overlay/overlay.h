@@ -7,13 +7,20 @@
 namespace Render {
 class Overlay {
 public:
-  static bool Create(int width, int height);
+  static bool Create();
   static void Destroy();
   static HWND GetWindowHandle();
+  static void UpdatePosition();
+  static int GetGameWidth();
+  static int GetGameHeight();
 
 private:
   static HWND hwnd;
+  static HWND hwndCS2;
+  static int gameWidth;
+  static int gameHeight;
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam,
                                   LPARAM lParam);
+  static bool FindCS2Window();
 };
 } // namespace Render

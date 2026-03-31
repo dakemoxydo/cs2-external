@@ -17,7 +17,8 @@ std::vector<std::unique_ptr<IFeature>> FeatureManager::features;
 
 void FeatureManager::RegisterAll() {
   auto add = [](std::unique_ptr<IFeature> f) {
-    f->SetEnabled(true);
+    // Do NOT force-enable features here — let config defaults control state
+    f->SetEnabled(false);
     features.push_back(std::move(f));
   };
 

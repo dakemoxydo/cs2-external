@@ -40,12 +40,15 @@ void Process::ResolveNtFunctions() {
 }
 
 // ─── NtRead ─────────────────────────────────────────────────────────────────
-bool Process::NtRead(void *address, void *buffer, size_t size) {
+NTSTATUS Process::NtRead(void *address, void *buffer, size_t size) {
   if (!s_ntRvm || !hProcess)
-    return false;
+    return (NTSTATUS)0xC000000DL; // STATUS_INVALID_HANDLE
   SIZE_T read = 0;
-  return s_ntRvm(hProcess, address, buffer, (SIZE_T)size, &read) == 0 &&
-         read == size;
+  NTSTATUS status = s_ntRvm(hProcess, address, buffer, (SIZE_T)size, &read);
+  if (status != 0 || read != size) {
+    // Read failed — expected behavior for invalid entity pointers
+  }
+  return status;
 }
 
 // ─── TryStealHandle ─────────────────────────────────────────────────────────

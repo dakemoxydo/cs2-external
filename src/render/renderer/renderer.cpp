@@ -8,11 +8,12 @@ ID3D11Device *Renderer::pDevice = nullptr;
 ID3D11DeviceContext *Renderer::pContext = nullptr;
 IDXGISwapChain *Renderer::pSwapChain = nullptr;
 ID3D11RenderTargetView *Renderer::pRenderTargetView = nullptr;
+bool Renderer::s_vsyncEnabled = false;
 
 bool Renderer::Init(HWND hwnd) {
   DXGI_SWAP_CHAIN_DESC sd;
   ZeroMemory(&sd, sizeof(sd));
-  sd.BufferCount = 2;
+  sd.BufferCount = 1;
   sd.BufferDesc.Width = 0;
   sd.BufferDesc.Height = 0;
   sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -72,9 +73,19 @@ void Renderer::BeginFrame() {
   pContext->ClearRenderTargetView(pRenderTargetView, clear_color_with_alpha);
 }
 
-void Renderer::EndFrame() { pSwapChain->Present(1, 0); }
+void Renderer::EndFrame() {
+  pSwapChain->Present(s_vsyncEnabled ? 1 : 0, 0);
+}
 
 ID3D11Device *Renderer::GetDevice() { return pDevice; }
 
 ID3D11DeviceContext *Renderer::GetContext() { return pContext; }
+
+void Renderer::SetVSync(bool enabled) {
+  s_vsyncEnabled = enabled;
+}
+
+bool Renderer::IsVSyncEnabled() {
+  return s_vsyncEnabled;
+}
 } // namespace Render

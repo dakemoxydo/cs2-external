@@ -1,44 +1,45 @@
 // offsets.h — все оффсеты проекта (включая внутренние поля entity-системы)
+// Merged: declarations + definitions in single header using inline variables
 #pragma once
 #include <cstdint>
 
 namespace SDK {
 namespace Offsets {
 // ── Engine-level pointers (offsets.json) ──────────────────────────────────
-extern ptrdiff_t dwEntityList;
-extern ptrdiff_t dwLocalPlayerPawn;
-extern ptrdiff_t dwViewMatrix;
-extern ptrdiff_t dwPlantedC4;
+inline ptrdiff_t dwEntityList = 0;
+inline ptrdiff_t dwLocalPlayerPawn = 0;
+inline ptrdiff_t dwViewMatrix = 0;
+inline ptrdiff_t dwPlantedC4 = 0;
 
 // ── Member offsets (client_dll.json) ──────────────────────────────────────
-extern ptrdiff_t m_iHealth;
-extern ptrdiff_t m_iTeamNum;
-extern ptrdiff_t m_vOldOrigin;
-extern ptrdiff_t m_pGameSceneNode;
-extern ptrdiff_t m_modelState;
-extern ptrdiff_t m_hPlayerPawn;
-extern ptrdiff_t m_iszPlayerName;
-extern ptrdiff_t m_pClippingWeapon;
-extern ptrdiff_t m_vecViewOffset;
+inline ptrdiff_t m_iHealth = 0;
+inline ptrdiff_t m_iTeamNum = 0;
+inline ptrdiff_t m_vOldOrigin = 0;
+inline ptrdiff_t m_pGameSceneNode = 0;
+inline ptrdiff_t m_modelState = 0;
+inline ptrdiff_t m_hPlayerPawn = 0;
+inline ptrdiff_t m_iszPlayerName = 0;
+inline ptrdiff_t m_pClippingWeapon = 0x3DC0;
+inline ptrdiff_t m_vecViewOffset = 0xC58;
 
 // ── Aimbot / Triggerbot
-extern ptrdiff_t m_angEyeAngles;           // src: cs2-dumper, client_dll
-extern ptrdiff_t m_aimPunchAngle;
-extern ptrdiff_t m_iCrosshairEntityHandle; // src: cs2-dumper, client_dll
-extern ptrdiff_t m_bIsScoped;              // src: cs2-dumper, client_dll
-extern ptrdiff_t m_iShotsFired;            // src: cs2-dumper, client_dll
+inline ptrdiff_t m_angEyeAngles = 0x3DD0;           // src: cs2-dumper, client_dll
+inline ptrdiff_t m_aimPunchAngle = 0x1774;
+inline ptrdiff_t m_iIDEntIndex = 0x13D8;            // src: cs2-dumper, client_dll (C_CSPlayerPawn)
+inline ptrdiff_t m_bIsScoped = 0x1404;              // src: cs2-dumper, client_dll
+inline ptrdiff_t m_iShotsFired = 0x270C;            // src: cs2-dumper, client_dll
 
 // ── Bomb ──────────────────────────────────────────────────────────────────
-extern ptrdiff_t m_nBombSite;     // src: cs2-dumper, client_dll
-extern ptrdiff_t m_bBombTicking;  // src: cs2-dumper, client_dll
-extern ptrdiff_t m_flTimerLength; // src: cs2-dumper, client_dll
+inline ptrdiff_t m_nBombSite = 0x119C;     // src: cs2-dumper, client_dll
+inline ptrdiff_t m_bBombTicking = 0x120C;  // src: cs2-dumper, client_dll
+inline ptrdiff_t m_flTimerLength = 0x1210; // src: cs2-dumper, client_dll
 
 // ── Entity system internals (не экспортируются cs2-dumper напрямую) ───────
-extern ptrdiff_t m_hPawn;                    // CPlayerController::m_hPawn
-extern ptrdiff_t m_bIsLocalPlayerController; // CPlayerController, bool
-extern ptrdiff_t m_entitySpottedState;   // C_CSPlayerPawn spotted state base
-extern ptrdiff_t m_bSpottedByMaskOffset; // +0xC от m_entitySpottedState
-extern ptrdiff_t m_boneArrayOffset;      // CGameSceneNode → bone array ptr
+inline ptrdiff_t m_hPawn = 0x6C4;                    // CPlayerController::m_hPawn
+inline ptrdiff_t m_bIsLocalPlayerController = 0x788; // CPlayerController::m_bIsLocalPlayerController
+inline ptrdiff_t m_entitySpottedState = 0x26E0;      // C_CSPlayerPawn spotted state base
+inline ptrdiff_t m_bSpottedByMaskOffset = 0x00C;     // +0xC от m_entitySpottedState
+inline ptrdiff_t m_boneArrayOffset = 0x1E0;          // CGameSceneNode → bone array ptr offset (0x160 + 0x80)
 
 } // namespace Offsets
 } // namespace SDK
