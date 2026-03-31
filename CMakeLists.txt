@@ -30,7 +30,7 @@ target_include_directories(cs2overlay PRIVATE
 )
 
 # Add minimal linking for windows
-target_link_libraries(cs2overlay PRIVATE user32 d3d11 dxgi dwmapi wininet ntdll)
+target_link_libraries(cs2overlay PRIVATE user32 d3d11 d3dcompiler dxgi dwmapi wininet ntdll psapi)
 
 # ── Post-build: mutate EXE signature so each build has a unique SHA256 ──
 set(MUTATE_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/mutate_signature.ps1")
