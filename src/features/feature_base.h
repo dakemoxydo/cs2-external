@@ -17,6 +17,9 @@ public:
   virtual void OnEnable() {}
   virtual void OnDisable() {}
 
+  // Метод для UI в меню
+  virtual void RenderUI() {}
+
   bool IsEnabled() const { return enabled; }
   void SetEnabled(bool state) {
     if (enabled != state) {

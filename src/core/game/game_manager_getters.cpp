@@ -13,8 +13,8 @@ SDK::Matrix4x4 GameManager::GetViewMatrix() {
 }
 
 std::vector<SDK::Entity> GameManager::GetRenderPlayers() {
-  int readIdx = activeBufferIndex.load(std::memory_order_acquire);
   std::lock_guard<std::mutex> lock(bufferMutex);
+  int readIdx = activeBufferIndex.load(std::memory_order_acquire);
   return playerBuffers[readIdx];
 }
 

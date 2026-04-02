@@ -1,8 +1,10 @@
 #include "overlay.h"
+#include <windows.h>
 #include <dwmapi.h>
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
-
-#pragma comment(lib, "dwmapi.lib")
+#include <random>
 
 #include <imgui.h>
 
@@ -33,8 +35,10 @@ bool Overlay::FindCS2Window() {
             if (GetWindowRect(hwndCS2, &rc)) {
                 gameWidth = rc.right - rc.left;
                 gameHeight = rc.bottom - rc.top;
-                std::cout << "[+] CS2 window found: " << gameWidth << "x" << gameHeight
-                          << " at (" << rc.left << "," << rc.top << ")" << std::endl;
+                char msg[256];
+                 snprintf(msg, sizeof(msg), "[+] CS2 window found: %dx%d at (%d,%d)\n",
+                          gameWidth, gameHeight, rc.left, rc.top);
+                 std::cout << msg;
                 return true;
             }
         }
@@ -65,12 +69,14 @@ bool Overlay::FindCS2Window() {
         hwndCS2 = data.hwnd;
         gameWidth = data.rc.right - data.rc.left;
         gameHeight = data.rc.bottom - data.rc.top;
-        std::cout << "[+] CS2 window found (partial match): " << gameWidth << "x" << gameHeight
-                  << " at (" << data.rc.left << "," << data.rc.top << ")" << std::endl;
+        char msg[256];
+         snprintf(msg, sizeof(msg), "[+] CS2 window found (partial match): %dx%d at (%d,%d)\n",
+                  gameWidth, gameHeight, data.rc.left, data.rc.top);
+         std::cout << msg;
         return true;
     }
     
-    std::cerr << "[-] CS2 window not found!" << std::endl;
+     std::cout << "[-] CS2 window not found!\n";
     return false;
 }
 
@@ -79,7 +85,7 @@ bool Overlay::Create() {
 
     // Find CS2 window first
     if (!FindCS2Window()) {
-        std::cerr << "[-] Cannot create overlay: CS2 window not found!" << std::endl;
+        std::cout << "[-] Cannot create overlay: CS2 window not found!\n";
         return false;
     }
 
@@ -87,9 +93,10 @@ bool Overlay::Create() {
     static const char* windowNames[] = {"CEF-OSC-Widget", "Discord", "NVIDIA GeForce Overlay", "Steam"};
     
     if (!s_currentClassName) {
-        srand(GetTickCount());
-        int randIdx = rand() % 4;
-        s_currentClassName = classNames[randIdx];
+        static std::random_device rd;
+        static std::mt19937 gen(rd());
+        static std::uniform_int_distribution<> dist(0, 3);
+        s_currentClassName = classNames[dist(gen)];
     }
 
     WNDCLASSEXA wc = {
@@ -140,8 +147,10 @@ bool Overlay::Create() {
     ShowWindow(hwnd, SW_SHOWDEFAULT);
     UpdateWindow(hwnd);
 
-    std::cout << "[+] Overlay created at (" << overlayX << "," << overlayY 
-              << ") with size " << overlayW << "x" << overlayH << std::endl;
+    char msg[256];
+     snprintf(msg, sizeof(msg), "[+] Overlay created at (%d,%d) with size %dx%d\n",
+              overlayX, overlayY, overlayW, overlayH);
+     std::cout << msg;
 
     return true;
 }
@@ -204,7 +213,7 @@ HWND Overlay::GetWindowHandle() { return hwnd; }
 LRESULT CALLBACK Overlay::WndProc(HWND hwnd, UINT msg, WPARAM wParam,
                                   LPARAM lParam) {
   if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam))
-    return true;
+    return 0;
 
   if (msg == WM_DESTROY) {
     PostQuitMessage(0);

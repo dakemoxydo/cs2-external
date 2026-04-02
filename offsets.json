@@ -1,6 +1,6 @@
 {
   "client.dll": {
-    "dwCSGOInput": 36811488,
+    "dwInput": 36811488,
     "dwEntityList": 38470232,
     "dwGameEntitySystem": 38470232,
     "dwGameEntitySystem_highestEntityIndex": 8352,

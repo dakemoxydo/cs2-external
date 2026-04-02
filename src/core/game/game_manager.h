@@ -53,7 +53,7 @@ private:
 
   // Cache for invalid entity slots (skip reading for N frames)
   static std::unordered_map<int, int> s_invalidSlotCache;
-  static constexpr int INVALID_SLOT_SKIP_FRAMES = 60;
+  static constexpr int INVALID_SLOT_SKIP_FRAMES = 15;
 
   // -- Backend State (Written by Memory Thread) --
   static SDK::Matrix4x4 viewMatrix;

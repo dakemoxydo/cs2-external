@@ -4,137 +4,174 @@
 
 ## 📁 Структура проекта
 
-Проект разделен на три основных логических слоя (Core, Features, Render), строго следующих правилу односторонних зависимостей.
+Проект разделён на логические слои (Application, Core, Features, Render, Config), строго следующих правилу односторонних зависимостей.
+
+### 0. `src/main.cpp` — Точка входа
+Минимальный файл (10 строк) — создаёт и запускает `Application`.
 
 ### 1. `src/core/` — Ядро чита
-Код, отвечающийся за взаимодействие с операционной системой и памятью игры.
 
-*   **`memory/`**: Базовый уровень работы с памятью. Содержит `MemoryManager`, который оборачивает системные вызовы `NtReadVirtualMemory` (не `ReadProcessMemory`).
+#### `application/` — Управление жизненным циклом
+*   `application.h/cpp`: Главный класс `Application` — инициализация, главный цикл (Run), завершение (Shutdown).
+*   `app_state.h`: Состояние приложения (running, menuOpen, shouldClose) с атомарными флагами.
+*   `app_config.h`: Конфигурация приложения (fpsLimit, upsLimit, vsyncEnabled).
+
+#### `memory/` — Работа с памятью
+*   `memory_manager.h`: Обёртка над `NtReadVirtualMemory`.
     *   `Read<T>()` — игнорирует ошибки, возвращает 0 при неудаче
-    *   `ReadOptional<T>()` — возвращает `std::optional<T>`, используйте для проверки
-    *   `ReadBatch()` — для чтения непрерывных блоков памяти (оптимизация)
-    *   `ReadChain<T>()` — хелпер для глубоких цепочек указателей
-*   **`process/`**: Управление процессом игры.
-    *   `process.h/cpp`: Поиск окна, аттач к `cs2.exe`, получение PID и хендла.
-    *   `module.h/cpp`: Поиск базовых адресов модулей (например, `client.dll`).
-    *   `stealth.h/cpp`: Методы анти-детекта.
-*   **`game/`**: Абстракции игровых сущностей.
-    *   `game_manager.h/cpp`: Центральный узел, который собирает данные о местном игроке, списке противников и состоянии матча.
-    *   `game_manager_getters.cpp`: Вынесенные геттеры из game_manager.cpp для лучшей организации кода.
-    *   `entity_list.h`: Логика обхода списка объектов в памяти CS2.
-    *   `local_player.h`: Структура для доступа к данным своего персонажа.
-*   **`sdk/`**: Техническая информация о CS2.
-    *   `offsets.h`: Все используемые смещения (оффсеты) памяти. Использует `inline` переменные (C++17) — **НЕ создавать offsets.cpp снова**.
-    *   `updater.h/cpp`: Автоматический загрузчик актуальных оффсетов из сети.
-    *   `entity.h` / `entity_classes.h`: Определения классов игроков, костей (bones) и других объектов.
-    *   `player.h`, `structs.h`: Дополнительные структуры и определения.
-*   **`math/`**: Математические утилиты — работа с векторами, углами, матрицами.
+    *   `ReadOptional<T>()` — возвращает `std::optional<T>`
+    *   `ReadBatch()` — пакетное чтение непрерывных блоков
+    *   `ReadChain<T>()` — хелпер для цепочек указателей
+
+#### `process/` — Управление процессом
+*   `process.h/cpp`: Поиск окна, аттач к `cs2.exe`, PID, хендл.
+*   `module.h/cpp`: Базовые адреса модулей (`client.dll`).
+*   `stealth.h/cpp`: Анти-детект (PEB spoofing).
+
+#### `game/` — Игровые сущности
+*   `game_manager.h/cpp`: Центральный узел — данные игрока, противники, матч.
+*   `game_manager_getters.cpp`: Вынесенные геттеры.
+*   `entity_list.h`: Обход списка объектов.
+*   `local_player.h`: Доступ к данным своего персонажа.
+
+#### `sdk/` — Техническая информация
+*   `offsets.h`: Смещения памяти (inline переменные C++17).
+*   `offset_loader.h/cpp`: Загрузка оффсетов из кэша/GitHub (OOP класс).
+*   `updater.h/cpp`: Backward compatibility wrapper для `OffsetLoader`.
+*   `entity.h` / `entity_classes.h`: Классы игроков, костей, объектов.
+*   `player.h`, `structs.h`: Дополнительные структуры.
+
+#### `math/` — Математика
+*   `math.h/cpp`: Векторы, углы, матрицы.
+
+#### `input/` — Ввод
+*   `input_manager.h/cpp`: Обработка мыши/клавиатуры.
+*   `keybinds.h`: Горячие клавиши.
 
 ### 2. `src/features/` — Игровой функционал
-Логика каждой конкретной функции чита. Все фичи наследуются от базового интерфейса `IFeature` (`feature_base.h`).
 
-*   **`esp/`**: Extra Sensory Perception (Wallhack). Отображение боксов, здоровья и информации об игроках.
-*   **`aimbot/`**: Автоматическое наведение на противника.
-*   **`triggerbot/`**: Автоматический выстрел при наведении на врага.
-*   **`rcs/`**: Recoil Control System — компенсация отдачи (контроль спрея).
-*   **`misc/`**: Вспомогательные функции (например, BunnyHop).
-*   **`bomb/`**: Отображение информации о бомбе (C4) — таймер, носитель, позиция.
-*   **`radar/`**: 2D-радар с позициями игроков.
-*   **`debug_overlay/`**: Отладочная визуализация для разработки и отладки.
-*   **`feature_manager.h/cpp`**: Координирует все активные фичи, вызывая их обновление и рендер.
+Все фичи наследуются от `IFeature` (`feature_base.h`) с методами:
+*   `Update()` — логика (вызывается из render thread)
+*   `Render(DrawList&)` — отрисовка в оверлее
+*   `RenderUI()` — отрисовка настроек в меню
+*   `GetName()` — имя фичи
+*   `OnEnable()` / `OnDisable()` — хуки включения/выключения
+
+#### Фичи:
+| Фича | Файлы | Описание |
+|------|-------|----------|
+| **Aimbot** | `aimbot.h/cpp`, `aimbot_config.h`, `aimbot_ui.h` | Автонаведение, FOV, smooth, target bone |
+| **ESP** | `esp.h/cpp`, `esp_config.h`, `esp_ui.h` | Box, health bar, name, weapon, skeleton, snaplines |
+| **Triggerbot** | `triggerbot.h/cpp`, `triggerbot_config.h`, `triggerbot_ui.h` | Автовыстрел при наведении |
+| **RCS** | `rcs.h/cpp`, `rcs_config.h`, `rcs_ui.h` | Компенсация отдачи (standalone) |
+| **Misc** | `misc.h/cpp`, `misc_config.h`, `misc_ui.h` | AWP crosshair и другое |
+| **Bomb** | `bomb.h/cpp`, `bomb_config.h`, `bomb_ui.h` | Таймер бомбы, носитель |
+| **Radar** | `radar.h/cpp`, `radar_config.h`, `radar_ui.h` | 2D-радар с позициями |
+| **Debug** | `debug_overlay.h/cpp`, `debug_overlay_config.h`, `debug_overlay_ui.h` | Отладочная визуализация |
+
+#### Менеджер фич:
+*   `feature_base.h`: Интерфейс `IFeature`
+*   `feature_manager.h/cpp`: Регистрация, UpdateAll(), RenderAll()
 
 ### 3. `src/render/` — Визуализация и интерфейс
-Все, что касается отрисовки поверх игры.
 
-*   **`overlay/`**: Создание прозрачного окна Windows, которое располагается точно над окном игры.
-*   **`renderer/`**: Инициализация графического движка (DirectX 11) и ImGui (`imgui_manager.h/cpp`, `renderer.h/cpp`).
-*   **`menu/`**: Дизайн и логика главного меню (настройка функций), включая UI-компоненты (`ui_components.h/cpp`).
-*   **`draw/`**: `DrawList` — промежуточный слой для удобного рисования линий, текста и фигур. Включает `world_to_screen.h` для преобразования 3D-координат в 2D.
+#### `overlay/` — Окно оверлея
+*   `overlay.h/cpp`: Прозрачное окно поверх CS2, UpdatePosition().
 
-### 4. Дополнительные модули
-*   **`config/`**: Умный конфиг-менеджер (`Config Registry`). Работает на принципе reflection-lite — все переменные заносятся в единый массив `BuildRegistry`, что полностью избавляет код от дублирования при парсинге JSON.
-*   **`input/`**: Обработка нажатий клавиш (`keybinds.h`) и централизованная генерация движений мыши (`InputManager::SendMouseDelta`).
-*   **`utils/`**: Вспомогательные утилиты — логгер (`logger.h`), математика (`math.h`), таймер (`timer.h`).
-*   **`external/`**: Сторонние библиотеки (ImGui и её бэкенды).
+#### `renderer/` — Графический движок
+*   `renderer.h/cpp`: DirectX 11 инициализация, BeginFrame/EndFrame.
+*   `imgui_manager.h/cpp`: ImGui инициализация, NewFrame, Render, Shutdown.
+
+#### `draw/` — Рисование
+*   `draw_list.h/cpp`: Линии, текст, фигуры, боксы.
+*   `world_to_screen.h`: Преобразование 3D → 2D.
+
+#### `menu/` — Главное меню (модульное)
+| Файл | Описание |
+|------|----------|
+| `menu.h/cpp` | Каркас: header, sidebar, tab switcher (~140 строк) |
+| `menu_theme.h/cpp` | 7 тем: Midnight, Blood, Cyber, Lavender, Gold, Monochrome, Toxic |
+| `tab_legit.h/cpp` | Вкладка LEGIT: Aimbot + Triggerbot |
+| `tab_visuals.h/cpp` | Вкладка VISUALS: ESP + Radar + Bomb |
+| `tab_misc.h/cpp` | Вкладка MISC: Crosshair |
+| `tab_settings.h/cpp` | Вкладка SETTINGS: Configs, Themes, Performance |
+| `ui_components.h/cpp` | UI-виджеты: SettingToggle, SettingHotkey, SettingColor, BeginCard |
+
+### 4. `src/config/` — Конфигурация
+*   `config_manager.h/cpp`: Config Registry — авто-сериализация через `BuildRegistry()`.
+*   `settings.h`: Глобальная структура `GlobalSettings` со всеми конфигами.
+
+### 5. `src/utils/` — Утилиты
+*   `logger.h/cpp`: Расширенный логгер с уровнями (Debug/Info/Warn/Error), вывод в консоль и файл.
+*   `string_utils.h`: Утилиты для строк (ToLower, ToUpper, StartsWith, EndsWith, Trim).
+*   `math.h`: Математические хелперы.
+*   `timer.h`: Таймер для замеров времени.
+
+### 6. `external/` — Сторонние библиотеки
+*   `imgui/`: ImGui с бэкендами Win32 + DirectX 11.
 
 ---
 
 ## ⚙️ Принципы работы
 
 ### Многопоточная архитектура
-Чит разделяет логику на два параллельных потока для максимальной производительности:
+Чит разделяет логику на два параллельных потока:
 
 1.  **Memory Thread (Поток памяти)**:
-    *   Работает в бесконечном цикле (частота ~64-128 FPS).
-    *   Постоянно читает данные из памяти CS2 (позиции игроков, здоровье и т.д.).
-    *   Обновляет кэшированные данные в `GameManager`. Это позволяет рендеру не ждать медленных операций чтения памяти.
+    *   Работает в бесконечном цикле (частота ~64-240 UPS).
+    *   Читает данные из памяти CS2, обновляет `GameManager`.
+    *   Инкапсулирован в `Application::MemoryThreadLoop()`.
 
 2.  **Render Thread (Основной поток)**:
-    *   Отвечает за отрисовку Overlay и обработку Windows сообщений.
-    *   Выполняет логику фич (например, расчет углов для аимбота).
-    *   Рисует ESP на основе данных, уже считанных первым потоком.
-
-### Чтение памяти (RPM)
-Поскольку это External чит, мы не можем обращаться к переменным игры напрямую по указателям. Каждый раз, когда нам нужно узнать здоровье игрока, мы вызываем `NtReadVirtualMemory`, передавая хендл процесса `cs2.exe` и нужный адрес (База клиента + Смещение).
-
-### Оверлей (Overlay)
-Визуально чит кажется частью игры, но на самом деле это прозрачное окно с атрибутами `WS_EX_TOPMOST` и `WS_EX_LAYERED`, которое "прилипает" к окну CS2. Все визуальные эффекты рисуются именно в этом окне.
+    *   Обработка Windows сообщений, отрисовка Overlay.
+    *   Логика фич (aimbot angles, triggerbot).
+    *   Рисует ESP на основе данных из Memory Thread.
+    *   Инкапсулирован в `Application::RenderLoop()`.
 
 ### Иерархия управления
-*   `main.cpp` инициализирует все системы.
-*   `GameManager` предоставляет актуальные данные, используя двойную буферизацию (Double-buffering) для lock-free передачи структуры игроков в рендер-тред.
-*   `FeatureManager` управляет жизненным циклом фич.
-*   `Menu` позволяет пользователю менять `Settings` в реальном времени.
+*   `main.cpp` → `Application::Initialize()` → `Application::Run()`
+*   `Application` управляет Memory Thread и Render Loop
+*   `GameManager` предоставляет данные через double-buffering
+*   `FeatureManager` координирует фичи
+*   `Menu` делегирует UI фичам через `RenderUI()`
 
-### Парадигмы нового кода (Важно для ИИ)
-1. **Config Registry (Авто-сериализация)**: Любые новые параметры конфигурации (булы, инты, цвета) больше **не парсятся вручную**. Они просто добавляются в `BuildRegistry()` внутри `config_manager.cpp`. Цикл сохранения и загрузки сам пройдет по массиву и выполнит нужные действия. Это убирает рутину и предотвращает баги.
-2. **Инкапсуляция UI в модули (Open-Closed Principle)**: Главное меню в `menu.cpp` стремится к независимости. Отрисовка конкретных настроек (слайдеров, тогглов) для фич инкапсулируется в саму фичу (например, через виртуальный метод `RenderUI()` в интерфейсе `IFeature` или с помощью UI-билдера на основе Registry). Архитектура слоев требует, чтобы "тупой" слой отрисовки не хардкодил логику бизнес-фич.
-3. **Ленивое чтение (Lazy Reads + ReadChain)**: Ядро никогда не читает из памяти больше, чем требует пользовательский Config. А длинные прыжки по памяти реализуются элегантно: `MemoryManager::ReadChain<T>(base, { 0x10, 0x20, 0x30 })`.
+### Парадигмы кода (Важно для ИИ)
+1. **Config Registry (Авто-сериализация)**: Параметры добавляются в `BuildRegistry()` — цикл Save/Load проходит по массиву автоматически.
+2. **Feature UI (Open-Closed Principle)**: Каждая фича рендерит свой UI через `RenderUI()`. Menu.cpp делегирует, не хардкодит.
+3. **Application Layer**: Вся логика инициализации в классе `Application`, main.cpp — тонкая обёртка.
 
 ---
 
-## ⚠️ Важные подсказки и правила (Important Hints)
+## ⚠️ Важные подсказки и правила
 
-### Окно CS2 и позиционирование оверлея
-- Оверлей автоматически находит окно CS2 через `FindWindowA(nullptr, "Counter-Strike 2")`
-- Если не найдено — используется `EnumWindows` fallback
-- Оверлей создаётся ТОЧНО поверх окна CS2 с теми же координатами и размером
-- `UpdatePosition()` вызывается КАЖДЫЙ КАДР в render loop для отслеживания перемещения/ресайза окна
-- **ВАЖНО:** Не менять логику поиска окна без проверки всех fallback-механизмов
-- **ВАЖНО:** WorldToScreen использует `Overlay::GetGameWidth/Height()`, а не `GetSystemMetrics`
+### Окно CS2 и оверлей
+- Оверлей находит окно CS2 через `FindWindowA(nullptr, "Counter-Strike 2")`
+- Fallback через `EnumWindows` если не найдено
+- `UpdatePosition()` вызывается КАЖДЫЙ КАДР
+- **ВАЖНО:** WorldToScreen использует `Overlay::GetGameWidth/Height()`
 
 ### Система оффсетов
-- Оффсеты загружаются из КЭША при запуске (без HTTP-запросов)
-- Кнопка "Update Offsets from GitHub" в Settings → принудительное обновление
-- Кэш хранится в `build/Release/offsets_cache.json` и `client_cache.json`
-- `offsets.h` использует `inline` переменные (C++17) — НЕ создавать offsets.cpp снова
-- `m_iIDEntIndex` — это аналог crosshair entity handle (переименован из m_iCrosshairEntityHandle)
+- Оффсеты загружаются из КЭША (`offsets_cache.json`, `client_cache.json`)
+- Кнопка "Update Offsets from GitHub" → принудительное обновление
+- `offsets.h` использует `inline` переменные (C++17) — НЕ создавать offsets.cpp
+- `OffsetLoader` — OOP класс для загрузки, `Updater` — backward compatibility
 
 ### Чтение памяти
-- `MemoryManager::Read<T>()` — игнорирует ошибки, возвращает 0 при неудаче
-- `MemoryManager::ReadOptional<T>()` — возвращает `std::optional<T>`, используйте для проверки
-- `MemoryManager::ReadBatch()` — для чтения непрерывных блоков памяти (оптимизация)
-- Невалидные entity-слоты кэшируются и пропускаются 60 кадров (`s_invalidSlotCache`)
-- **ВАЖНО:** Не добавлять verbose-логирование в NtRead — это спамит консоль
-
-### Многопоточность
-- Memory Thread: читает память, пишет в playerBuffers (double-buffering)
-- Render Thread: читает из playerBuffers через `GetRenderPlayers()` (thread-safe)
-- `bufferMutex` защищает playerBuffers, `stateMutex` (shared_mutex) защищает кэшированные данные
-- **ВАЖНО:** `GetRenderPlayers()` захватывает мьютекс ПЕРЕД чтением индекса
-- **ВАЖНО:** `GetLocalWeaponName()` делает live RPM — вызывать ТОЛЬКО из memory thread
+- `MemoryManager::Read<T>()` — игнорирует ошибки
+- `MemoryManager::ReadOptional<T>()` — возвращает `std::optional<T>`
+- `MemoryManager::ReadBatch()` — пакетное чтение
+- **ВАЖНО:** Не добавлять verbose-логирование в NtRead
 
 ### Конфигурация
-- Config Registry: все параметры добавляются в `BuildRegistry()` в `config_manager.cpp`
-- Не парсить JSON вручную — registry делает это автоматически
-- `Settings` — глобальная структура, доступная из любого места
+- Config Registry: параметры в `BuildRegistry()` → авто-сериализация
+- `Settings` — глобальная структура
 
 ### Feature Manager
-- Все фичи регистрируются через `FeatureManager::RegisterAll()`
-- `UpdateAll()` содержит GetAsyncKeyState/SendInput — вызывать ТОЛЬКО из render thread
+- `RegisterAll()` — регистрация фич
+- `UpdateAll()` — ТОЛЬКО из render thread (содержит GetAsyncKeyState/SendInput)
 - `RenderAll(drawList)` — отрисовка через DrawList
 
 ### Сборка
-- `build.bat` — основной скрипт сборки
-- CMakeLists.txt: НЕ добавлять удалённые файлы (license, offsets.cpp)
+- `build.bat` — основной скрипт
+- CMakeLists.txt: `GLOB_RECURSE CONFIGURE_DEPENDS` — новые файлы подхватываются автоматически
 - `dxguid` добавлен в target_link_libraries

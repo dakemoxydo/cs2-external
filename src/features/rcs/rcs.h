@@ -10,6 +10,7 @@ public:
   void Update() override;
   void Render(Render::DrawList &drawList) override;
   const char *GetName() override { return "RCSSystem"; }
+  void RenderUI() override;
 
   static bool IsWeaponSupported(const std::string& weaponName);
 };

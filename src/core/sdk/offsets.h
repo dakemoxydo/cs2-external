@@ -8,6 +8,7 @@ namespace Offsets {
 // ── Engine-level pointers (offsets.json) ──────────────────────────────────
 inline ptrdiff_t dwEntityList = 0;
 inline ptrdiff_t dwLocalPlayerPawn = 0;
+inline ptrdiff_t dwLocalPlayerController = 0; // src: cs2-dumper, client_dll
 inline ptrdiff_t dwViewMatrix = 0;
 inline ptrdiff_t dwPlantedC4 = 0;
 
@@ -19,12 +20,12 @@ inline ptrdiff_t m_pGameSceneNode = 0;
 inline ptrdiff_t m_modelState = 0;
 inline ptrdiff_t m_hPlayerPawn = 0;
 inline ptrdiff_t m_iszPlayerName = 0;
-inline ptrdiff_t m_pClippingWeapon = 0x3DC0;
-inline ptrdiff_t m_vecViewOffset = 0xC58;
+inline ptrdiff_t m_pClippingWeapon = 0x3DC0;    // src: cs2-dumper, client_dll (C_CSPlayerPawn)
+inline ptrdiff_t m_vecViewOffset = 0xC58;       // src: cs2-dumper, client_dll (C_BaseModelEntity)
 
 // ── Aimbot / Triggerbot
 inline ptrdiff_t m_angEyeAngles = 0x3DD0;           // src: cs2-dumper, client_dll
-inline ptrdiff_t m_aimPunchAngle = 0x1774;
+inline ptrdiff_t m_aimPunchAngle = 0x1774;            // src: cs2-dumper, client_dll (C_CSPlayerPawn)            // src: cs2-dumper, client_dll (C_CSPlayerPawn)
 inline ptrdiff_t m_iIDEntIndex = 0x13D8;            // src: cs2-dumper, client_dll (C_CSPlayerPawn)
 inline ptrdiff_t m_bIsScoped = 0x1404;              // src: cs2-dumper, client_dll
 inline ptrdiff_t m_iShotsFired = 0x270C;            // src: cs2-dumper, client_dll

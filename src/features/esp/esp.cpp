@@ -19,15 +19,15 @@ namespace Features {
 // Double smoothing caused ESP "floating" / lag behind enemy models.
 
 void Esp::Update() {
-  // Lightweight вЂ” main work done in GameManager::Update()
+  // Lightweight - main work done in GameManager::Update()
 }
 
-// в”Ђв”Ђв”Ђ Helpers
-// в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// --- Helpers
+// ---------------------------------------------------------------
 
 
-// в”Ђв”Ђв”Ђ Render
-// в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// --- Render
+// ---------------------------------------------------------------
 
 void Esp::Render(Render::DrawList &drawList) {
  if (!Config::Settings.esp.enabled)
@@ -55,8 +55,8 @@ void Esp::Render(Render::DrawList &drawList) {
     if (player.isTeammate && !Config::Settings.esp.showTeammates)
       continue;
 
-    // в”Ђв”Ђв”Ђ Pick color palette
-    // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // --- Pick color palette
+    // ---------------------------------------------------------------
     const float *currentBoxColor = player.isTeammate
                                        ? Config::Settings.esp.teamColor
                                        : Config::Settings.esp.boxColor;
@@ -82,8 +82,8 @@ void Esp::Render(Render::DrawList &drawList) {
     const float x = screenFeet.x - width / 2.0f;
     const float y = screenHead.y;
 
-    // в”Ђв”Ђв”Ђ Snap Lines
-    // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // --- Snap Lines
+    // ---------------------------------------------------------------
     if (Config::Settings.esp.showSnapLines) {
       float sc[4] = {Config::Settings.esp.snapLineColor[0],
                      Config::Settings.esp.snapLineColor[1],
@@ -94,8 +94,8 @@ void Esp::Render(Render::DrawList &drawList) {
                         screenFeet.y, sc, 1.0f);
     }
 
-    // в”Ђв”Ђв”Ђ Box
-    // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // --- Box
+    // ---------------------------------------------------------------
     if (Config::Settings.esp.showBox) {
       float outlineColor[4] = {0.0f, 0.0f, 0.0f, 0.85f};
 
@@ -127,8 +127,8 @@ void Esp::Render(Render::DrawList &drawList) {
       }
     }
 
-    // в”Ђв”Ђв”Ђ Health Bar
-    // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // --- Health Bar
+    // ---------------------------------------------------------------
     if (Config::Settings.esp.showHealth) {
       float hpPercent = static_cast<float>(player.health) / 100.0f;
       if (hpPercent > 1.0f)
@@ -164,8 +164,8 @@ void Esp::Render(Render::DrawList &drawList) {
       }
     }
 
-    // в”Ђв”Ђв”Ђ Name
-    // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // --- Name
+    // ---------------------------------------------------------------
     if (Config::Settings.esp.showName) {
       float nCol[4] = {
           Config::Settings.esp.nameColor[0], Config::Settings.esp.nameColor[1],
@@ -175,8 +175,8 @@ void Esp::Render(Render::DrawList &drawList) {
                        nCol);
     }
 
-    // в”Ђв”Ђв”Ђ Weapon
-    // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // --- Weapon
+    // ---------------------------------------------------------------
     if (Config::Settings.esp.showWeapon && !player.weapon.empty()) {
       float wCol[4] = {Config::Settings.esp.weaponColor[0],
                        Config::Settings.esp.weaponColor[1],
@@ -186,8 +186,8 @@ void Esp::Render(Render::DrawList &drawList) {
                        player.weapon.c_str(), wCol);
     }
 
-    // в”Ђв”Ђв”Ђ Distance
-    // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // --- Distance
+    // ---------------------------------------------------------------
     if (Config::Settings.esp.showDistance && player.distance > 0.0f) {
       float dCol[4] = {
           Config::Settings.esp.distColor[0], Config::Settings.esp.distColor[1],
@@ -198,8 +198,8 @@ void Esp::Render(Render::DrawList &drawList) {
                        dCol);
     }
 
-    // в”Ђв”Ђв”Ђ Skeleton & Head Circle
-    // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // --- Skeleton & Head Circle
+    // ---------------------------------------------------------------
     if (Config::Settings.esp.showBones && !player.bonePositions.empty() &&
         (Config::Settings.esp.skeletonMaxDistance <= 0.0f ||
          player.distance <= Config::Settings.esp.skeletonMaxDistance)) {

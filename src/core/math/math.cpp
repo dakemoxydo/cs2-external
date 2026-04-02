@@ -46,11 +46,7 @@ float Math::DeltaAngle(float a, float b) {
 
 // Clamp angle to [-180, 180]
 float Math::ClampAngle(float a) {
-  while (a > 180.0f)
-    a -= 360.0f;
-  while (a < -180.0f)
-    a += 360.0f;
-  return a;
+    return fmodf(a + 180.0f, 360.0f) - 180.0f;
 }
 
 float Math::Lerp(float a, float b, float t) { return a + (b - a) * t; }

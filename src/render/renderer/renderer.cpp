@@ -1,7 +1,4 @@
 #include "renderer.h"
-#include <iostream>
-
-#pragma comment(lib, "d3d11.lib")
 
 namespace Render {
 ID3D11Device *Renderer::pDevice = nullptr;
@@ -40,9 +37,13 @@ bool Renderer::Init(HWND hwnd) {
                                     &pDevice, &featureLevel, &pContext) != S_OK)
     return false;
 
-  ID3D11Texture2D *pBackBuffer;
-  pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
-  pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &pRenderTargetView);
+  ID3D11Texture2D *pBackBuffer = nullptr;
+  if (pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer)) != S_OK)
+    return false;
+  if (pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &pRenderTargetView) != S_OK) {
+    pBackBuffer->Release();
+    return false;
+  }
   pBackBuffer->Release();
 
   return true;
@@ -68,12 +69,14 @@ void Renderer::Shutdown() {
 }
 
 void Renderer::BeginFrame() {
+  if (!pContext || !pRenderTargetView) return;
   const float clear_color_with_alpha[4] = {0.f, 0.f, 0.f, 0.f};
   pContext->OMSetRenderTargets(1, &pRenderTargetView, nullptr);
   pContext->ClearRenderTargetView(pRenderTargetView, clear_color_with_alpha);
 }
 
 void Renderer::EndFrame() {
+  if (!pSwapChain) return;
   pSwapChain->Present(s_vsyncEnabled ? 1 : 0, 0);
 }
 

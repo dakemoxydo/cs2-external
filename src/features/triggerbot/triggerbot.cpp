@@ -7,35 +7,22 @@
 #include "input/input_manager.h"
 #include "triggerbot_config.h"
 #include <chrono>
-#include <cstdlib>
-#include <ctime>
+#include <random>
 #include <windows.h>
 
 namespace Features {
 
-// ── srand once
-// ────────────────────────────────────────────────────────────────
-static void EnsureRandSeeded() {
-  static bool seeded = false;
-  if (!seeded) {
-    srand(static_cast<unsigned int>(time(nullptr)));
-    seeded = true;
-  }
+static std::mt19937& GetRng() {
+  static std::mt19937 rng(static_cast<unsigned int>(
+      std::chrono::steady_clock::now().time_since_epoch().count()));
+  return rng;
 }
 
-// ── State machine
-// ─────────────────────────────────────────────────────────────
-enum class TBState { IDLE, TARGET_FOUND, WAITING, SHOOTING, COOLDOWN };
-static TBState s_state = TBState::IDLE;
-static std::chrono::steady_clock::time_point s_timer;
-static int s_delayMs = 0;
-
-// ── Helpers
-// ───────────────────────────────────────────────────────────────────
 static int RandRange(int lo, int hi) {
   if (lo >= hi)
     return lo;
-  return lo + rand() % (hi - lo + 1);
+  std::uniform_int_distribution<int> dist(lo, hi);
+  return dist(GetRng());
 }
 
 static auto NowMs() { return std::chrono::steady_clock::now(); }
@@ -44,11 +31,12 @@ static long long ElapsedMs(std::chrono::steady_clock::time_point t) {
       .count();
 }
 
-// ── Update
-// ────────────────────────────────────────────────────────────────────
-void Triggerbot::Update() {
-  EnsureRandSeeded();
+enum class TBState { IDLE, TARGET_FOUND, WAITING, SHOOTING, COOLDOWN };
+static TBState s_state = TBState::IDLE;
+static std::chrono::steady_clock::time_point s_timer;
+static int s_delayMs = 0;
 
+void Triggerbot::Update() {
   if (!Config::Settings.triggerbot.enabled) {
     s_state = TBState::IDLE;
     return;
@@ -61,12 +49,8 @@ void Triggerbot::Update() {
     return;
   }
 
-  // Read crosshair entity handle from GameManager directly
   uint32_t crossHairHandle = Core::GameManager::GetLocalCrosshairEntityHandle();
 
-  // Check if the handle points to a valid enemy in our player list.
-  // We rely entirely on GameManager's already-built player list — no duplicate
-  // RPM.
   bool onEnemy = false;
   if (crossHairHandle != 0 && crossHairHandle != 0xFFFFFFFF) {
     for (const auto &p : Core::GameManager::GetRenderPlayers()) {
@@ -75,7 +59,6 @@ void Triggerbot::Update() {
       if (Config::Settings.triggerbot.teamCheck && p.isTeammate)
         continue;
 
-      // Match: compare cached pawnHandle to crossHairHandle
       if (p.pawnHandle == crossHairHandle) {
         onEnemy = true;
         break;
@@ -83,7 +66,6 @@ void Triggerbot::Update() {
     }
   }
 
-  // ── State machine ─────────────────────────────────────────────────────────
   switch (s_state) {
   case TBState::IDLE:
     if (onEnemy) {
@@ -115,7 +97,7 @@ void Triggerbot::Update() {
     break;
 
   case TBState::SHOOTING:
-    if (ElapsedMs(s_timer) >= 25) { // hold click for ~25ms
+    if (ElapsedMs(s_timer) >= 25) {
       Input::InputManager::SendMouseClick(false);
       s_timer = NowMs();
       s_state = TBState::COOLDOWN;
@@ -131,7 +113,6 @@ void Triggerbot::Update() {
 }
 
 void Triggerbot::Render(Render::DrawList &) {
-  // No visual rendering
 }
 
 } // namespace Features

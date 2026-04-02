@@ -107,19 +107,24 @@ bool SettingToggle(const char *label, bool *v) {
   }
 
   float t = *v ? 1.0f : 0.0f;
-  float *t_anim = (float *)ImGui::GetStateStorage()->GetVoidPtr(id);
-  if (!t_anim) {
-    t_anim = (float *)ImGui::MemAlloc(sizeof(float));
-    *t_anim = t;
-    ImGui::GetStateStorage()->SetVoidPtr(id, t_anim);
+  float t_anim;
+  ImGuiStorage* storage = ImGui::GetStateStorage();
+  bool found;
+  t_anim = storage->GetFloat(id, t);
+  found = storage->GetInt(id, 0) != 0;
+  if (!found) {
+    t_anim = t;
+    storage->SetFloat(id, t_anim);
+    storage->SetInt(id, 1);
   }
 
   // Более плавная анимация
   float ANIM_SPEED = g.IO.DeltaTime * 10.0f;
-  if (*t_anim != t) {
-    *t_anim += (*v ? 1.0f : -1.0f) * ANIM_SPEED;
-    if (*t_anim < 0.0f) *t_anim = 0.0f;
-    if (*t_anim > 1.0f) *t_anim = 1.0f;
+  if (t_anim != t) {
+    t_anim += (*v ? 1.0f : -1.0f) * ANIM_SPEED;
+    if (t_anim < 0.0f) t_anim = 0.0f;
+    if (t_anim > 1.0f) t_anim = 1.0f;
+    storage->SetFloat(id, t_anim);
   }
 
   ImVec4 col_off = style.Colors[ImGuiCol_FrameBg];
@@ -130,7 +135,7 @@ bool SettingToggle(const char *label, bool *v) {
   }
 
   // Фон с тенью
-  ImU32 bg_color = ImGui::GetColorU32(ImLerp(col_off, col_on, *t_anim));
+  ImU32 bg_color = ImGui::GetColorU32(ImLerp(col_off, col_on, t_anim));
   window->DrawList->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height), bg_color, height * 0.5f);
 
   // Обводка при наведении
@@ -140,7 +145,7 @@ bool SettingToggle(const char *label, bool *v) {
   }
 
   // Круглый переключатель с тенью
-  float circle_x = pos.x + radius + (*t_anim) * (width - radius * 2.0f);
+  float circle_x = pos.x + radius + t_anim * (width - radius * 2.0f);
   float circle_y = pos.y + radius;
   float circle_radius = radius - 2.0f;
 

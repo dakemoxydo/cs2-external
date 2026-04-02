@@ -4,8 +4,9 @@
 #include "../sdk/offsets.h"
 #include "../sdk/entity_classes.h"
 #include <cmath>
-#include <iostream>
 #include <unordered_map>
+#include <iostream>
+#include <chrono>
 
 namespace Core {
 
@@ -98,6 +99,7 @@ void GameManager::Update() {
     s_lastFirstChunk = currentFirstChunk;
     memset(s_pawnListCache, 0, sizeof(s_pawnListCache));
     s_nameCache.clear();
+    s_prevPositions.clear();
   }
 
   SDK::CPlayerPawn localPlayer(MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwLocalPlayerPawn));
@@ -248,10 +250,12 @@ void GameManager::Update() {
     constexpr float maxDistSq = 5000.0f * 5000.0f;
     bool tooFar = distSq > maxDistSq;
     
-    // If entity is too far and we only need ESP data, skip expensive reads
-    if (tooFar && !s_readBones.load(std::memory_order_relaxed) && !s_readWeapons.load(std::memory_order_relaxed)) {
-      s_invalidSlotCache[slot] = INVALID_SLOT_SKIP_FRAMES;
-      continue;
+    // If entity is too far, skip expensive reads (bones/weapons)
+    // but still process the entity for basic ESP (box, health, name, distance)
+    if (tooFar) {
+      // Skip expensive bone/weapon reads for distant entities
+      // but don't add to invalid cache — we still need the entity for ESP
+      // Just skip the expensive reads below
     }
 
     // ── Build entity ──
@@ -283,6 +287,15 @@ void GameManager::Update() {
     // Update previous position for next frame
     s_prevPositions[p.address] = position;
 
+    // Ограничиваем размер кэша (макс 128 сущностей)
+    if (s_prevPositions.size() > 128) {
+      // Clear half of entries (unordered_map has no ordering, so we clear arbitrary entries)
+      size_t toRemove = s_prevPositions.size() / 2;
+      for (size_t i = 0; i < toRemove && !s_prevPositions.empty(); ++i) {
+        s_prevPositions.erase(s_prevPositions.begin());
+      }
+    }
+
     // Read spotted state
     uint32_t spottedMask = pawn.GetSpottedStateMask();
     p.isSpotted = (spottedMask & (1 << localSlot)) != 0;
@@ -296,13 +309,13 @@ void GameManager::Update() {
     // Distance (reuse dx, dy, dz computed earlier)
     p.distance = sqrtf(distSq) / 100.0f;
 
-    // Weapon
-    if (s_readWeapons.load(std::memory_order_relaxed)) {
+    // Weapon — skip for distant entities
+    if (!tooFar && s_readWeapons.load(std::memory_order_relaxed)) {
       p.weapon = pawn.GetWeaponName();
     }
 
-    // ── Skeleton bones (one batch ReadRaw) ──
-    if (s_readBones.load(std::memory_order_relaxed)) {
+    // ── Skeleton bones (one batch ReadRaw) — skip for distant entities ──
+    if (!tooFar && s_readBones.load(std::memory_order_relaxed)) {
       uintptr_t gameScene = pawn.GetGameSceneNode();
       if (gameScene > 0x10000) {
         uintptr_t boneArray = MemoryManager::Read<uintptr_t>(
@@ -344,6 +357,35 @@ void GameManager::Update() {
     cachedEntityList = entityList;
     cachedBombInfo = bombInfo;
   }
+
+  // Debug output every 5 seconds
+#ifdef DEBUG
+  static auto lastDebugTime = std::chrono::steady_clock::now();
+  auto now = std::chrono::steady_clock::now();
+  if (std::chrono::duration_cast<std::chrono::seconds>(now - lastDebugTime).count() >= 5) {
+    lastDebugTime = now;
+    
+    std::cout << "[DEBUG] Entity List: 0x" << std::hex << entityList << std::dec << "\n";
+    std::cout << "[DEBUG] Local Pawn: 0x" << std::hex << localPawn << std::dec << "\n";
+    std::cout << "[DEBUG] Client Base: 0x" << std::hex << clientBase << std::dec << "\n";
+    std::cout << "[DEBUG] Players found: " << players.size() << "\n";
+    std::cout << "[DEBUG] Local Team: " << localTeam << "\n";
+    std::cout << "[DEBUG] Local Pos: " << localPos.x << ", " << localPos.y << ", " << localPos.z << "\n";
+    
+    for (size_t i = 0; i < players.size(); i++) {
+      const auto& p = players[i];
+      std::cout << "  Player[" << i << "]: addr=0x" << std::hex << p.address 
+                << " hp=" << std::dec << p.health 
+                << " team=" << p.team 
+                << " dist=" << p.distance << "m"
+                << " name=" << p.name
+                << " weapon=" << p.weapon
+                << " spotted=" << p.isSpotted
+                << " bones=" << p.bonePositions.size() << "\n";
+    }
+    std::cout << std::endl;
+  }
+#endif
 }
 
 void GameManager::EnableBoneRead(bool enable) {

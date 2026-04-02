@@ -7,7 +7,7 @@
 #include "features/radar/radar_config.h"
 #include "features/triggerbot/triggerbot_config.h"
 #include "features/rcs/rcs_config.h"
-#include "features/skinchanger/skinchanger_config.h"
+#include <shared_mutex>
 
 namespace Config {
 
@@ -26,11 +26,11 @@ struct GlobalSettings {
   Features::BombConfig bomb;
   Features::DebugConfig debug;
   Features::RCSConfig rcs;
-  Features::SkinchangerConfig skinchanger;
 
   PerformanceConfig performance; // Added performance settings
   bool menuIsOpen = false;
 };
 
 extern GlobalSettings Settings;
+extern std::shared_mutex SettingsMutex;
 } // namespace Config

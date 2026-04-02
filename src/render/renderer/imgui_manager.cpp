@@ -5,7 +5,6 @@
 #include "backends/imgui_impl_win32.h"
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <iostream>
 
 
 namespace Render {

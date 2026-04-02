@@ -1,13 +1,20 @@
 #include "feature_manager.h"
 #include "aimbot/aimbot.h"
+#include "aimbot/aimbot_ui.h"
 #include "bomb/bomb.h"
+#include "bomb/bomb_ui.h"
 #include "debug_overlay/debug_overlay.h"
+#include "debug_overlay/debug_overlay_ui.h"
 #include "esp/esp.h"
+#include "esp/esp_ui.h"
 #include "misc/misc.h"
+#include "misc/misc_ui.h"
 #include "radar/radar.h"
+#include "radar/radar_ui.h"
 #include "triggerbot/triggerbot.h"
+#include "triggerbot/triggerbot_ui.h"
 #include "rcs/rcs.h"
-#include "skinchanger/skinchanger.h"
+#include "rcs/rcs_ui.h"
 #include "feature_base.h"
 #include <memory>
 #include <string>
@@ -31,7 +38,6 @@ void FeatureManager::RegisterAll() {
   add(std::make_unique<Radar>());
   add(std::make_unique<DebugOverlay>());
   add(std::make_unique<RCSSystem>());
-  add(std::make_unique<Skinchanger>());
 }
 
 void FeatureManager::UpdateAll() {

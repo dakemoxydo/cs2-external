@@ -2,6 +2,8 @@
 #include <string>
 #include <windows.h>
 #include <winternl.h>
+#include <atomic>
+#include <mutex>
 
 
 namespace Core {
@@ -24,8 +26,9 @@ public:
   static NTSTATUS NtRead(void *address, void *buffer, size_t size);
 
 private:
+  static std::mutex s_mutex;
   static HANDLE hProcess;
-  static DWORD processId;
+  static std::atomic<DWORD> processId;
   static NtReadVirtualMemoryFn s_ntRvm;
 
   /// Try to steal a handle to targetPid from trusted processes (Steam etc.)

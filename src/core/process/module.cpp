@@ -1,6 +1,5 @@
 #include "module.h"
 #include "process.h"
-#include <iostream>
 #include <tlhelp32.h>
 
 

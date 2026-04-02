@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <random>
 #include <imgui.h>
 #include "../../render/draw/draw_list.h"
 #include "../../render/overlay/overlay.h"
@@ -29,6 +30,11 @@ static const float s_jitterTable[] = {
 };
 static int s_jitterIdx = 0;
 
+// Thread-local RNG for human-like noise
+static thread_local std::mt19937 s_rng(std::random_device{}());
+static thread_local std::uniform_real_distribution<float> s_noiseDist(-0.5f, 0.5f);
+static thread_local std::uniform_int_distribution<int> s_microDelayDist(0, 9);
+
 // ── Mouse movement using mouse_event (less detectable than SendInput)
 static void SendMouse(float dpitch, float dyaw) {
   // COUNTS_PER_DEG depends on user's in-game sensitivity setting
@@ -42,8 +48,8 @@ static void SendMouse(float dpitch, float dyaw) {
   float totalMove = sqrtf(fx * fx + fy * fy);
   if (totalMove > 0.4f) {
       float noiseScale = fminf(1.0f, totalMove * 0.15f);
-      fx += ((rand() % 100 - 50) / 100.0f) * 0.25f * noiseScale;
-      fy += ((rand() % 100 - 50) / 100.0f) * 0.25f * noiseScale;
+      fx += s_noiseDist(s_rng) * 0.25f * noiseScale;
+      fy += s_noiseDist(s_rng) * 0.25f * noiseScale;
   }
 
   int dx = static_cast<int>(fx);
@@ -58,7 +64,7 @@ static void SendMouse(float dpitch, float dyaw) {
   }
 
   // Micro-delay to break timing patterns
-  if ((rand() % 10) == 0) {
+  if (s_microDelayDist(s_rng) == 0) {
     Core::Stealth::RandomizedSleep(0, 1);
   }
 }
@@ -94,6 +100,9 @@ void Aimbot::Update() {
   float bestAngleDelta = Config::Settings.aimbot.fov;
 
   bool retryWithoutLock = false;
+  int retryCount = 0;
+  constexpr int MAX_RETRIES = 2;
+
   do {
     retryWithoutLock = false;
 
@@ -134,8 +143,11 @@ void Aimbot::Update() {
 
     if (!bestTarget && Config::Settings.aimbot.targetLock && s_lastTarget != 0) {
       s_lastTarget = 0;
-      retryWithoutLock = true;
-      continue;
+      retryCount++;
+      if (retryCount <= MAX_RETRIES) {
+        retryWithoutLock = true;
+        continue;
+      }
     }
 
     if (!bestTarget) return;

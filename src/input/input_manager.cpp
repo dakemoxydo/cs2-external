@@ -4,11 +4,20 @@ namespace Input {
 bool InputManager::keyStates[256] = {};
 bool InputManager::prevKeyStates[256] = {};
 
-void InputManager::Poll() {}
+void InputManager::Poll() {
+  for (int i = 0; i < 256; i++) {
+    prevKeyStates[i] = keyStates[i];
+    keyStates[i] = (GetAsyncKeyState(i) & 0x8000) != 0;
+  }
+}
 
-bool InputManager::IsKeyDown(int virtualKey) { return false; }
+bool InputManager::IsKeyDown(int virtualKey) {
+  return keyStates[virtualKey];
+}
 
-bool InputManager::IsKeyPressed(int virtualKey) { return false; }
+bool InputManager::IsKeyPressed(int virtualKey) {
+  return keyStates[virtualKey] && !prevKeyStates[virtualKey];
+}
 
 void InputManager::SendMouseDelta(int dx, int dy) {
   INPUT inp = {};

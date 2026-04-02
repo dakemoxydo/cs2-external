@@ -1,5 +1,4 @@
 #include "process.h"
-#include <iostream>
 #include <tlhelp32.h>
 #include <vector>
 #include <winternl.h>
@@ -26,8 +25,9 @@ struct Cs2HandleInfo {
 
 namespace Core {
 
+std::mutex Process::s_mutex;
 HANDLE Process::hProcess = nullptr;
-DWORD Process::processId = 0;
+std::atomic<DWORD> Process::processId{0};
 NtReadVirtualMemoryFn Process::s_ntRvm = nullptr;
 
 // ─── ResolveNtFunctions ─────────────────────────────────────────────────────
@@ -41,10 +41,17 @@ void Process::ResolveNtFunctions() {
 
 // ─── NtRead ─────────────────────────────────────────────────────────────────
 NTSTATUS Process::NtRead(void *address, void *buffer, size_t size) {
-  if (!s_ntRvm || !hProcess)
-    return (NTSTATUS)0xC000000DL; // STATUS_INVALID_HANDLE
+  if (!s_ntRvm)
+    return (NTSTATUS)0xC000000DL;
+  HANDLE h;
+  {
+    std::lock_guard lock(s_mutex);
+    h = hProcess;
+  }
+  if (!h)
+    return (NTSTATUS)0xC000000DL;
   SIZE_T read = 0;
-  NTSTATUS status = s_ntRvm(hProcess, address, buffer, (SIZE_T)size, &read);
+  NTSTATUS status = s_ntRvm(h, address, buffer, (SIZE_T)size, &read);
   if (status != 0 || read != size) {
     // Read failed — expected behavior for invalid entity pointers
   }
@@ -143,12 +150,16 @@ bool Process::Attach(const std::wstring &processName) {
   if (hSnap == INVALID_HANDLE_VALUE)
     return false;
 
-  PROCESSENTRY32W entry{.dwSize = sizeof(entry)};
+  PROCESSENTRY32W entry{};
+  entry.dwSize = sizeof(PROCESSENTRY32W);
   bool found = false;
   if (Process32FirstW(hSnap, &entry)) {
     do {
       if (!_wcsicmp(entry.szExeFile, processName.c_str())) {
-        processId = entry.th32ProcessID;
+        {
+          std::lock_guard lock(s_mutex);
+          processId = entry.th32ProcessID;
+        }
         found = true;
         break;
       }
@@ -159,23 +170,32 @@ bool Process::Attach(const std::wstring &processName) {
     return false;
 
   // Try handle theft first (stealthier)
-  hProcess = TryStealHandle(processId);
+  HANDLE stolen = TryStealHandle(entry.th32ProcessID);
 
   // Fallback: regular OpenProcess
-  if (!hProcess) {
-    hProcess = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION,
-                           FALSE, processId);
+  if (!stolen) {
+    stolen = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION,
+                           FALSE, entry.th32ProcessID);
   }
 
-  if (!hProcess) {
-    processId = 0;
+  if (!stolen) {
+    {
+      std::lock_guard lock(s_mutex);
+      processId = 0;
+    }
     return false;
+  }
+
+  {
+    std::lock_guard lock(s_mutex);
+    hProcess = stolen;
   }
   return true;
 }
 
 // ─── Detach ─────────────────────────────────────────────────────────────────
 void Process::Detach() {
+  std::lock_guard lock(s_mutex);
   if (hProcess) {
     CloseHandle(hProcess);
     hProcess = nullptr;
@@ -183,7 +203,10 @@ void Process::Detach() {
   processId = 0;
 }
 
-HANDLE Process::GetHandle() { return hProcess; }
-DWORD Process::GetProcessId() { return processId; }
+HANDLE Process::GetHandle() {
+  std::lock_guard lock(s_mutex);
+  return hProcess;
+}
+DWORD Process::GetProcessId() { return processId.load(); }
 
 } // namespace Core

@@ -7,17 +7,21 @@
 #include "../features/radar/radar_config.h"
 #include "../features/triggerbot/triggerbot_config.h"
 #include "../features/rcs/rcs_config.h"
-#include "../features/skinchanger/skinchanger_config.h"
 #include "settings.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <shared_mutex>
 #include <sstream>
 #include <windows.h>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 // Define the central config state
 namespace Config {
 GlobalSettings Settings;
+std::shared_mutex SettingsMutex;
 }
 
 namespace fs = std::filesystem;
@@ -34,79 +38,6 @@ static fs::path ConfigDir() {
 
 static fs::path ConfigPath(const std::string &name) {
   return ConfigDir() / (name + ".json");
-}
-
-// ─── Tiny manual JSON helpers (no external library) ──────────────────────────
-static void WriteFloat(std::ostream &o, const char *k, float v) {
-  o << "  \"" << k << "\": " << v << ",\n";
-}
-static void WriteInt(std::ostream &o, const char *k, int v) {
-  o << "  \"" << k << "\": " << v << ",\n";
-}
-static void WriteBool(std::ostream &o, const char *k, bool v) {
-  o << "  \"" << k << "\": " << (v ? "true" : "false") << ",\n";
-}
-static void WriteFloatArray(std::ostream &o, const char *k, const float c[],
-                            int size) {
-  o << "  \"" << k << "\": [";
-  for (int i = 0; i < size; ++i) {
-    o << c[i];
-    if (i < size - 1)
-      o << ",";
-  }
-  o << "],\n";
-}
-static void WriteColor(std::ostream &o, const char *k, const float c[4]) {
-  WriteFloatArray(o, k, c, 4);
-}
-
-static float ReadF(const std::string &j, const char *k, float def) {
-  std::string p = std::string("\"") + k + "\": ";
-  auto pos = j.find(p);
-  if (pos == j.npos)
-    return def;
-  try {
-    return std::stof(j.substr(pos + p.size()));
-  } catch (...) {
-    return def;
-  }
-}
-static int ReadI(const std::string &j, const char *k, int def) {
-  std::string p = std::string("\"") + k + "\": ";
-  auto pos = j.find(p);
-  if (pos == j.npos)
-    return def;
-  try {
-    return std::stoi(j.substr(pos + p.size()));
-  } catch (...) {
-    return def;
-  }
-}
-static bool ReadB(const std::string &j, const char *k, bool def) {
-  std::string p = std::string("\"") + k + "\": ";
-  auto pos = j.find(p);
-  if (pos == j.npos)
-    return def;
-  return j.substr(pos + p.size(), 4) == "true";
-}
-static void ReadFloatArray(const std::string &j, const char *k, float c[],
-                           int size) {
-  std::string p = std::string("\"") + k + "\": [";
-  auto pos = j.find(p);
-  if (pos == j.npos)
-    return;
-  std::string s = j.substr(pos + p.size());
-  try {
-    size_t current_pos = 0;
-    for (int i = 0; i < size; ++i) {
-      c[i] = std::stof(s, &current_pos);
-      s = s.substr(current_pos + 1); // Move past the number and comma/bracket
-    }
-  } catch (...) {
-  }
-}
-static void ReadColor(const std::string &j, const char *k, float c[4]) {
-  ReadFloatArray(j, k, c, 4);
 }
 
 // ─── Reflection Registry ─────────────────────────────────────────────────────
@@ -126,7 +57,6 @@ static std::vector<ConfigEntry> BuildRegistry() {
   auto &P = Settings.performance;
   auto &D = Settings.debug;
   auto &RCS = Settings.rcs;
-  auto &S = Settings.skinchanger;
 
   return {
       // ESP
@@ -198,60 +128,82 @@ static std::vector<ConfigEntry> BuildRegistry() {
       // Debug
       {"debug_enabled", ConfigEntry::BOOL, &D.enabled},
       {"debug_devMode", ConfigEntry::BOOL, &D.devMode},
-      // Skinchanger
-      {"skin_enabled", ConfigEntry::BOOL, &S.enabled},
-      {"skin_autoApply", ConfigEntry::BOOL, &S.autoApply},
-      {"skin_knifeEnabled", ConfigEntry::BOOL, &S.knifeEnabled},
-      {"skin_glovesEnabled", ConfigEntry::BOOL, &S.glovesEnabled},
   };
 }
 
 // ─── Save ────────────────────────────────────────────────────────────────────
 bool ConfigManager::Save(const std::string &name) {
+  std::unique_lock<std::shared_mutex> lock(SettingsMutex);
+  
   fs::create_directories(ConfigDir());
+  
+  json j;
+  
+  // Основные настройки через registry
+  auto reg = BuildRegistry();
+  for (const auto &e : reg) {
+    if (e.type == ConfigEntry::BOOL)
+      j[e.key] = *reinterpret_cast<bool *>(e.ptr);
+    else if (e.type == ConfigEntry::INT)
+      j[e.key] = *reinterpret_cast<int *>(e.ptr);
+    else if (e.type == ConfigEntry::FLOAT)
+      j[e.key] = *reinterpret_cast<float *>(e.ptr);
+    else if (e.type == ConfigEntry::COLOR) {
+      const float* c = reinterpret_cast<float *>(e.ptr);
+      j[e.key] = {c[0], c[1], c[2], c[3]};
+    }
+  }
+  
   std::ofstream f(ConfigPath(name));
   if (!f) {
     LastError = "Cannot open file for writing: " + ConfigPath(name).string();
     return false;
   }
-
-  f << "{\n";
-  auto reg = BuildRegistry();
-  for (const auto &e : reg) {
-    if (e.type == ConfigEntry::BOOL)
-      WriteBool(f, e.key, *reinterpret_cast<bool *>(e.ptr));
-    else if (e.type == ConfigEntry::INT)
-      WriteInt(f, e.key, *reinterpret_cast<int *>(e.ptr));
-    else if (e.type == ConfigEntry::FLOAT)
-      WriteFloat(f, e.key, *reinterpret_cast<float *>(e.ptr));
-    else if (e.type == ConfigEntry::COLOR)
-      WriteColor(f, e.key, reinterpret_cast<float *>(e.ptr));
-  }
-  f << "  \"_end\": 0\n}\n";
-
+  
+  f << j.dump(2);
   return true;
 }
 
 // ─── Load ────────────────────────────────────────────────────────────────────
 bool ConfigManager::Load(const std::string &name) {
+  std::unique_lock<std::shared_mutex> lock(SettingsMutex);
+  
   std::ifstream f(ConfigPath(name));
   if (!f) {
     LastError = "Config not found: " + name;
     return false;
   }
-
-  std::string j((std::istreambuf_iterator<char>(f)), {});
-  auto reg = BuildRegistry();
-
-  for (const auto &e : reg) {
-    if (e.type == ConfigEntry::BOOL)
-      *reinterpret_cast<bool *>(e.ptr) = ReadB(j, e.key, *reinterpret_cast<bool *>(e.ptr));
-    else if (e.type == ConfigEntry::INT)
-      *reinterpret_cast<int *>(e.ptr) = ReadI(j, e.key, *reinterpret_cast<int *>(e.ptr));
-    else if (e.type == ConfigEntry::FLOAT)
-      *reinterpret_cast<float *>(e.ptr) = ReadF(j, e.key, *reinterpret_cast<float *>(e.ptr));
-    else if (e.type == ConfigEntry::COLOR)
-      ReadColor(j, e.key, reinterpret_cast<float *>(e.ptr));
+  
+  try {
+    json j = json::parse(f);
+    
+    // Основные настройки через registry
+    auto reg = BuildRegistry();
+    for (const auto &e : reg) {
+      if (j.contains(e.key)) {
+        if (e.type == ConfigEntry::BOOL)
+          *reinterpret_cast<bool *>(e.ptr) = j[e.key].get<bool>();
+        else if (e.type == ConfigEntry::INT)
+          *reinterpret_cast<int *>(e.ptr) = j[e.key].get<int>();
+        else if (e.type == ConfigEntry::FLOAT)
+          *reinterpret_cast<float *>(e.ptr) = j[e.key].get<float>();
+        else if (e.type == ConfigEntry::COLOR) {
+          float* c = reinterpret_cast<float *>(e.ptr);
+          auto arr = j[e.key].get<std::vector<float>>();
+          if (arr.size() >= 4) {
+            c[0] = arr[0]; c[1] = arr[1]; c[2] = arr[2]; c[3] = arr[3];
+          }
+        }
+      }
+    }
+  } catch (const json::parse_error &e) {
+    LastError = "JSON parse error: " + std::string(e.what());
+    std::cerr << "Config parse error: " << LastError << "\n";
+    return false;
+  } catch (const std::exception &e) {
+    LastError = "Error loading config: " + std::string(e.what());
+    std::cerr << "Config load error: " << LastError << "\n";
+    return false;
   }
 
   ApplySettings();
@@ -277,8 +229,8 @@ void ConfigManager::ApplySettings() {
       f->SetEnabled(Settings.radar.enabled);
     else if (n == "DebugOverlay")
       f->SetEnabled(Settings.debug.enabled);
-    else if (n == "Skinchanger")
-      f->SetEnabled(Settings.skinchanger.enabled);
+    else if (n == "RCSSystem")
+      f->SetEnabled(Settings.rcs.enabled);
   }
 }
 
@@ -294,7 +246,9 @@ std::vector<std::string> ConfigManager::ListConfigs() {
 }
 
 void ConfigManager::LoadDefault() {
-  // No-op: defaults are already set by struct constructors
+  std::unique_lock<std::shared_mutex> lock(SettingsMutex);
+  Settings = GlobalSettings{};
+  ApplySettings();
 }
 
 } // namespace Config
