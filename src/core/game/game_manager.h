@@ -1,4 +1,5 @@
 #pragma once
+#include "core/constants.h"
 #include "../sdk/entity.h"
 #include "../sdk/structs.h"
 #include <atomic>
@@ -8,6 +9,23 @@
 #include <vector>
 
 namespace Core {
+
+// Thread-safety model:
+//
+// Double-buffering for entity list (lock-free read path):
+//   - Memory Thread writes to playerBuffers[inactive], then atomically swaps activeBufferIndex
+//   - Render Thread reads from playerBuffers[active] via GetRenderPlayers()
+//   - bufferMutex protects the copy operation during swap (brief hold)
+//   - activeBufferIndex is std::atomic with acquire/release semantics
+//
+// Shared mutex for scalar state:
+//   - stateMutex protects all cached* variables (viewMatrix, localPos, etc.)
+//   - Memory Thread takes unique_lock to write all cached values at once
+//   - Render Thread getters take shared_lock for concurrent reads
+//
+// Atomic flags:
+//   - s_readBones, s_readWeapons — relaxed atomics, written by render thread, read by memory thread
+
 class GameManager {
 public:
   static bool Init();
@@ -16,6 +34,8 @@ public:
   static void EnableBoneRead(bool enable);
   static void EnableWeaponRead(bool enable);
   static void SetInterpolationFactor(float factor); // 0.0-1.0, default 0.5
+  static void SetScreenSize(int width, int height);
+  static bool IsOnScreen(const SDK::Vector3& worldPos);
 
   // Rendering getters (thread-safe using shared_mutex)
   static SDK::Matrix4x4 GetViewMatrix();
@@ -50,10 +70,13 @@ private:
   static std::atomic<bool> s_readBones;
   static std::atomic<bool> s_readWeapons;
   static float s_interpolationFactor;
+  static int s_screenWidth;
+  static int s_screenHeight;
+  static constexpr float FRUSTUM_MARGIN = 50.0f;
 
   // Cache for invalid entity slots (skip reading for N frames)
   static std::unordered_map<int, int> s_invalidSlotCache;
-  static constexpr int INVALID_SLOT_SKIP_FRAMES = 15;
+  static constexpr int INVALID_SLOT_SKIP_FRAMES = Constants::INVALID_SLOT_SKIP_FRAMES;
 
   // -- Backend State (Written by Memory Thread) --
   static SDK::Matrix4x4 viewMatrix;
@@ -70,11 +93,16 @@ private:
   static uintptr_t entityList;
   static SDK::BombInfo bombInfo;
 
-  // -- Frontend State (Thread-Safe Cached Copies for Render) --
+  // -- Double-buffered entity list (Memory Thread writes, Render Thread reads) --
+  // Write to inactive buffer, atomic swap index, read from active buffer.
+  // bufferMutex protects the vector copy during swap (brief hold).
   static std::vector<SDK::Entity> playerBuffers[2];
-  static std::atomic<int> activeBufferIndex;
+  static std::atomic<int> activeBufferIndex; // acquire/release for cross-thread visibility
   static std::mutex bufferMutex;
 
+  // -- Cached scalar state (protected by stateMutex) --
+  // Memory Thread: unique_lock to write all at end of Update()
+  // Render Thread: shared_lock for concurrent reads via getters
   static std::shared_mutex stateMutex;
   static SDK::Matrix4x4 cachedViewMatrix;
   static SDK::Vector3 cachedLocalPos;

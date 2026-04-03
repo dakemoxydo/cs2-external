@@ -10,6 +10,39 @@
 
 namespace SDK {
 
+static std::filesystem::path GetExeDirectory() {
+    char path[MAX_PATH];
+    GetModuleFileNameA(nullptr, path, MAX_PATH);
+    return std::filesystem::path(path).parent_path();
+}
+
+static std::string ReadFileFromExeDir(const std::string& relativePath) {
+    auto exeDir = GetExeDirectory();
+    auto fullPath = exeDir / relativePath;
+    std::ifstream file(fullPath.string());
+    if (!file.is_open()) return "";
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    return content;
+}
+
+static std::string ReadFileFromProjectRoot(const std::string& relativePath) {
+    auto exeDir = GetExeDirectory();
+    // Try: exe dir, then parent (build/), then parent's parent (project root)
+    std::filesystem::path paths[] = {
+        exeDir / relativePath,
+        exeDir.parent_path() / relativePath,
+        exeDir.parent_path().parent_path() / relativePath
+    };
+    for (const auto& p : paths) {
+        std::ifstream file(p.string());
+        if (file.is_open()) {
+            std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            return content;
+        }
+    }
+    return "";
+}
+
 std::string OffsetLoader::FetchHTTP(const std::string& url, int timeoutSeconds) {
     HINTERNET hInt = InternetOpenA("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
     if (!hInt) return {};
@@ -122,6 +155,9 @@ void OffsetLoader::ApplyOffsetsFromJson(const nlohmann::json& offsetsJson, const
         Offsets::dwPlantedC4 = getVal(client, "dwPlantedC4");
     }
 
+    Offsets::m_fFlags = FindFieldInClientJson(clientJson, "m_fFlags");
+    Offsets::m_vecVelocity = FindFieldInClientJson(clientJson, "m_vecVelocity");
+
     Offsets::m_iHealth = FindFieldInClientJson(clientJson, "m_iHealth");
     Offsets::m_iTeamNum = FindFieldInClientJson(clientJson, "m_iTeamNum");
     Offsets::m_vOldOrigin = FindFieldInClientJson(clientJson, "m_vOldOrigin");
@@ -193,7 +229,15 @@ void OffsetLoader::LoadFromCache() {
                 ApplyOffsets(offsetsJson, clientJson);
                 std::cout << "[!] Using stale cache (GitHub unavailable)\n";
             } else {
-                std::cout << "[!] Failed to load offsets from any source!\n";
+                // Fallback to bundled offsets.json
+                std::string bundledOffsets = ReadFileFromProjectRoot("offsets.json");
+                std::string bundledClient = ReadFileFromProjectRoot("data/client_dll.json");
+                if (!bundledOffsets.empty() && !bundledClient.empty()) {
+                    ApplyOffsets(bundledOffsets, bundledClient);
+                    std::cout << "[+] Offsets loaded from bundled files.\n";
+                } else {
+                    std::cout << "[!] Failed to load offsets from any source!\n";
+                }
             }
         }
     }

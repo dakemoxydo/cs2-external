@@ -1,3 +1,4 @@
+#include "core/constants.h"
 #include "game_manager.h"
 #include "../memory/memory_manager.h"
 #include "../sdk/offsets.h"
@@ -89,28 +90,28 @@ uintptr_t GameManager::GetEntityFromHandle(uint32_t handle) {
     return 0;
 
   uintptr_t listEntry = MemoryManager::Read<uintptr_t>(
-      list + 0x10 + 0x8 * ((handle & 0x7FFF) >> 9));
+      list + Constants::ENTITY_LIST_HEADER_OFFSET + 0x8 * ((handle & 0x7FFF) >> 9));
   if (!listEntry)
     return 0;
 
   uintptr_t entity =
-      MemoryManager::Read<uintptr_t>(listEntry + 0x70 * (handle & 0x1FF));
+      MemoryManager::Read<uintptr_t>(listEntry + Constants::ENTITY_IDENTITY_ENTRY_SIZE * (handle & 0x1FF));
   return entity;
 }
 
 std::string GameManager::GetLocalWeaponName() {
   uintptr_t pawn = GetLocalPlayerPawn();
-  if (!pawn || pawn <= 0x10000)
+  if (!pawn || pawn <= Constants::MIN_VALID_ADDRESS)
     return "";
   uintptr_t cw =
       MemoryManager::Read<uintptr_t>(pawn + SDK::Offsets::m_pClippingWeapon);
-  if (cw <= 0x10000)
+  if (cw <= Constants::MIN_VALID_ADDRESS)
     return "";
   uintptr_t wPtr = MemoryManager::Read<uintptr_t>(cw + 0x10);
-  if (wPtr <= 0x10000)
+  if (wPtr <= Constants::MIN_VALID_ADDRESS)
     return "";
   uintptr_t nPtr = MemoryManager::Read<uintptr_t>(wPtr + 0x20);
-  if (nPtr <= 0x10000)
+  if (nPtr <= Constants::MIN_VALID_ADDRESS)
     return "";
   char wb[64] = {};
   MemoryManager::ReadRaw(nPtr, wb, sizeof(wb) - 1);

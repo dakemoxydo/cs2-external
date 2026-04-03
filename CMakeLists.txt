@@ -46,10 +46,6 @@ if(MSVC)
   target_compile_options(cs2overlay PRIVATE /W4)
 endif()
 
-if(MSVC)
-  target_compile_options(cs2overlay PRIVATE /W4)
-endif()
-
 target_include_directories(cs2overlay PRIVATE
     src
     ${IMGUI_DIR}

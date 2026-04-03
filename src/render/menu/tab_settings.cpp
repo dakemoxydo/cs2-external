@@ -106,6 +106,7 @@ void RenderTabSettings() {
 
         UI::SettingToggle("Enable Debug Overlay", &Config::Settings.debug.enabled);
         UI::SettingToggle("Developer Mode", &Config::Settings.debug.devMode);
+        UI::SettingToggle("Frustum Culling", &Config::Settings.esp.frustumCullingEnabled);
 
         ImGui::Spacing();
         ImGui::Separator();

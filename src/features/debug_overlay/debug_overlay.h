@@ -11,7 +11,7 @@ extern DebugConfig debugConfig;
 
 class DebugOverlay : public IFeature {
 public:
-  const char *GetName() override { return "DebugOverlay"; }
+  std::string_view GetName() override { return "DebugOverlay"; }
 
   void Update() override;
   void Render(Render::DrawList &drawList) override;

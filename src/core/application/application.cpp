@@ -4,6 +4,7 @@
 #include "application.h"
 #include "config/config_manager.h"
 #include "config/settings.h"
+#include "core/constants.h"
 #include "core/game/game_manager.h"
 #include "core/process/process.h"
 #include "core/process/stealth.h"
@@ -20,6 +21,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <exception>
 #include <iostream>
 
 namespace Core {
@@ -37,12 +39,16 @@ bool Application::Initialize() {
     Stealth::Apply();
     Utils::Logger::Info("Stealth module applied (PEB spoofed)");
 
-    // Offsets
+    // Offsets — with timeout to avoid infinite blocking
     std::cout << "[App] Updating offsets...\n";
     Utils::Logger::Info("Updating offsets...");
     auto offsetsFuture = SDK::Updater::UpdateOffsets();
-    offsetsFuture.wait();
-    std::cout << "[App] Offsets updated\n";
+    if (offsetsFuture.wait_for(std::chrono::seconds(15)) == std::future_status::timeout) {
+        Utils::Logger::Warn("Offset loading timed out (15s), continuing anyway");
+        std::cout << "[App] Offset loading timed out, continuing...\n";
+    } else {
+        std::cout << "[App] Offsets updated\n";
+    }
 
     // Process
     std::cout << "[App] Attaching to cs2.exe...\n";
@@ -89,13 +95,8 @@ bool Application::Initialize() {
 }
 
 void Application::Run() {
-    // Запускаем Memory Thread
     memoryThread_ = std::thread(&Application::MemoryThreadLoop, this);
-
-    // Render Loop в основном потоке
     RenderLoop();
-
-    // Ждём завершения Memory Thread
     if (memoryThread_.joinable()) {
         memoryThread_.join();
     }
@@ -114,103 +115,35 @@ void Application::Shutdown() {
 }
 
 void Application::MemoryThreadLoop() {
-    while (state_.running) {
-        auto frameStart = std::chrono::steady_clock::now();
+    try {
+        while (state_.running) {
+            auto frameStart = std::chrono::steady_clock::now();
 
-        // Auto-attach logic
-        if (Process::GetProcessId() == 0) {
-            static auto lastAttach = std::chrono::steady_clock::now();
-            if (std::chrono::duration_cast<std::chrono::seconds>(
-                    std::chrono::steady_clock::now() - lastAttach).count() >= 5) {
-                Utils::Logger::Info("Waiting for cs2.exe...");
-                Process::Attach(L"cs2.exe");
-                if (Process::GetProcessId() != 0) {
-                    Utils::Logger::Info("Hooked cs2.exe (PID: %d)", Process::GetProcessId());
+            if (Process::GetProcessId() == 0) {
+                static auto lastAttach = std::chrono::steady_clock::now();
+                if (std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::steady_clock::now() - lastAttach).count() >= Constants::AUTO_ATTACH_INTERVAL_SEC) {
+                    Utils::Logger::Info("Waiting for cs2.exe...");
+                    Process::Attach(L"cs2.exe");
+                    if (Process::GetProcessId() != 0) {
+                        Utils::Logger::Info("Hooked cs2.exe (PID: %d)", Process::GetProcessId());
+                    }
+                    lastAttach = std::chrono::steady_clock::now();
                 }
-                lastAttach = std::chrono::steady_clock::now();
             }
-        }
 
-        GameManager::Update();
+            GameManager::Update();
 
-        // UPS limiting
-        int ups;
-        if (Config::Settings.performance.vsyncEnabled) {
-            // Sync UPS with overlay FPS (measured via frame timing)
-            float frameTimeMS = overlayFrameTimeMs_.load();
-            ups = frameTimeMS > 0 ? std::min(256, (int)(1000.0f / frameTimeMS)) : 64;
-        } else {
-            ups = Config::Settings.performance.upsLimit;
-            if (ups <= 0) ups = 240;
-        }
-
-        auto frameTimeTarget = std::chrono::milliseconds(1000 / ups);
-        auto timeTaken = std::chrono::steady_clock::now() - frameStart;
-        if (timeTaken < frameTimeTarget) {
-            std::this_thread::sleep_for(frameTimeTarget - timeTaken);
-        } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    }
-}
-
-void Application::RenderLoop() {
-    while (state_.running) {
-        auto frameStart = std::chrono::steady_clock::now();
-
-        MSG msg;
-        while (PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-            if (msg.message == WM_QUIT) {
-                state_.running = false;
+            int ups;
+            if (Config::Settings.performance.vsyncEnabled) {
+                float frameTimeMS = overlayFrameTimeMs_.load();
+                ups = frameTimeMS > 0 ? std::min(256, (int)(1000.0f / frameTimeMS)) : 64;
+            } else {
+                ups = Config::Settings.performance.upsLimit;
+                if (ups <= 0) ups = Constants::DEFAULT_UPS_LIMIT;
             }
-        }
 
-        if (!state_.running) break;
-        if ((GetAsyncKeyState(VK_END) & 0x8000) || Render::Menu::ShouldClose()) {
-            state_.running = false;
-            break;
-        }
-
-        ProcessInput();
-
-        // Update GameManager Read Flags
-        bool readBones = Config::Settings.esp.showBones || Config::Settings.aimbot.enabled;
-        bool readWeapons = Config::Settings.esp.showWeapon;
-        GameManager::EnableBoneRead(readBones);
-        GameManager::EnableWeaponRead(readWeapons);
-
-        // UpdateAll — только из render thread
-        Features::FeatureManager::UpdateAll();
-
-        // Update overlay position
-        Render::Overlay::UpdatePosition();
-
-        // Render
-        Render::Renderer::BeginFrame();
-        Render::ImGuiManager::NewFrame();
-        Render::Menu::Render();
-
-        Render::DrawList drawList;
-        Features::FeatureManager::RenderAll(drawList);
-
-        Render::ImGuiManager::Render();
-        Render::Renderer::EndFrame();
-
-        // Frame timing for VSync UPS sync
-        auto frameEnd = std::chrono::steady_clock::now();
-        float frameTimeMs = std::chrono::duration<float, std::milli>(frameEnd - frameStart).count();
-        overlayFrameTimeMs_.store(frameTimeMs);
-
-        // FPS limiting
-        Render::Renderer::SetVSync(Config::Settings.performance.vsyncEnabled);
-
-        if (!Config::Settings.performance.vsyncEnabled) {
-            int fps = Config::Settings.performance.fpsLimit;
-            if (fps <= 0) fps = 240;
-
-            auto frameTimeTarget = std::chrono::milliseconds(1000 / fps);
+            auto frameTimeTarget = std::chrono::milliseconds(1000 / ups);
             auto timeTaken = std::chrono::steady_clock::now() - frameStart;
             if (timeTaken < frameTimeTarget) {
                 std::this_thread::sleep_for(frameTimeTarget - timeTaken);
@@ -218,6 +151,77 @@ void Application::RenderLoop() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
+    } catch (const std::exception& e) {
+        Utils::Logger::Error("MemoryThreadLoop exception: %s", e.what());
+    } catch (...) {
+        Utils::Logger::Error("MemoryThreadLoop unknown exception");
+    }
+}
+
+void Application::RenderLoop() {
+    try {
+        while (state_.running) {
+            auto frameStart = std::chrono::steady_clock::now();
+
+            MSG msg;
+            while (PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+                if (msg.message == WM_QUIT) {
+                    state_.running = false;
+                }
+            }
+
+            if (!state_.running) break;
+            if (Input::InputManager::IsKeyDown(VK_END) || Render::Menu::ShouldClose()) {
+                state_.running = false;
+                break;
+            }
+
+            ProcessInput();
+
+            bool readBones = Config::Settings.esp.showBones || Config::Settings.aimbot.enabled;
+            bool readWeapons = Config::Settings.esp.showWeapon;
+            GameManager::EnableBoneRead(readBones);
+            GameManager::EnableWeaponRead(readWeapons);
+
+            Features::FeatureManager::UpdateAll();
+
+            Render::Overlay::UpdatePosition();
+
+            Render::Renderer::BeginFrame();
+            Render::ImGuiManager::NewFrame();
+            Render::Menu::Render();
+
+            Render::DrawList drawList;
+            Features::FeatureManager::RenderAll(drawList);
+
+            Render::ImGuiManager::Render();
+            Render::Renderer::EndFrame();
+
+            auto frameEnd = std::chrono::steady_clock::now();
+            float frameTimeMs = std::chrono::duration<float, std::milli>(frameEnd - frameStart).count();
+            overlayFrameTimeMs_.store(frameTimeMs);
+
+            Render::Renderer::SetVSync(Config::Settings.performance.vsyncEnabled);
+
+            if (!Config::Settings.performance.vsyncEnabled) {
+                int fps = Config::Settings.performance.fpsLimit;
+                if (fps <= 0) fps = Constants::DEFAULT_FPS_LIMIT;
+
+                auto frameTimeTarget = std::chrono::milliseconds(1000 / fps);
+                auto timeTaken = std::chrono::steady_clock::now() - frameStart;
+                if (timeTaken < frameTimeTarget) {
+                    std::this_thread::sleep_for(frameTimeTarget - timeTaken);
+                } else {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        Utils::Logger::Error("RenderLoop exception: %s", e.what());
+    } catch (...) {
+        Utils::Logger::Error("RenderLoop unknown exception");
     }
 
     Shutdown();
@@ -226,19 +230,13 @@ void Application::RenderLoop() {
 void Application::ProcessInput() {
     Input::InputManager::Poll();
 
-    if (GetAsyncKeyState(VK_INSERT) & 0x8000) {
-        if (!insertPressed_) {
-            Render::Menu::Toggle();
-            state_.menuOpen = Render::Menu::IsOpen();
-            insertPressed_ = true;
-        }
-    } else {
-        insertPressed_ = false;
+    if (Input::InputManager::IsKeyPressed(VK_INSERT)) {
+        Render::Menu::Toggle();
+        state_.menuOpen = Render::Menu::IsOpen();
     }
 }
 
 void Application::CheckOffsetsUpdate() {
-    // Placeholder for future offset auto-update logic
 }
 
 } // namespace Core

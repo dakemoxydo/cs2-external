@@ -15,43 +15,78 @@
 #include "triggerbot/triggerbot_ui.h"
 #include "rcs/rcs.h"
 #include "rcs/rcs_ui.h"
+#include "footsteps_esp/footsteps_esp.h"
+#include "footsteps_esp/footsteps_esp_ui.h"
 #include "feature_base.h"
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace Features {
-std::vector<std::unique_ptr<IFeature>> FeatureManager::features;
+std::vector<FeatureManager::FeatureSlot> FeatureManager::featureSlots;
+
+void FeatureManager::RegisterFeature(std::string_view name, FeatureFactory factory) {
+  FeatureSlot slot(name, std::move(factory));
+  featureSlots.push_back(std::move(slot));
+}
 
 void FeatureManager::RegisterAll() {
-  auto add = [](std::unique_ptr<IFeature> f) {
-    // Do NOT force-enable features here — let config defaults control state
-    f->SetEnabled(false);
-    features.push_back(std::move(f));
-  };
-
-  add(std::make_unique<Esp>());
-  add(std::make_unique<Aimbot>());
-  add(std::make_unique<Triggerbot>());
-  add(std::make_unique<Misc>());
-  add(std::make_unique<Bomb>());
-  add(std::make_unique<Radar>());
-  add(std::make_unique<DebugOverlay>());
-  add(std::make_unique<RCSSystem>());
+  RegisterFeature("ESP", []() { return std::make_unique<Esp>(); });
+  RegisterFeature("Aimbot", []() { return std::make_unique<Aimbot>(); });
+  RegisterFeature("Triggerbot", []() { return std::make_unique<Triggerbot>(); });
+  RegisterFeature("Misc", []() { return std::make_unique<Misc>(); });
+  RegisterFeature("Bomb", []() { return std::make_unique<Bomb>(); });
+  RegisterFeature("Radar", []() { return std::make_unique<Radar>(); });
+  RegisterFeature("DebugOverlay", []() { return std::make_unique<DebugOverlay>(); });
+  RegisterFeature("RCSSystem", []() { return std::make_unique<RCSSystem>(); });
+  RegisterFeature("FootstepsEsp", []() { return std::make_unique<FootstepsEsp>(); });
 }
 
 void FeatureManager::UpdateAll() {
-  for (auto &feature : features) {
-    if (feature->IsEnabled())
-      feature->Update();
+  for (auto &slot : featureSlots) {
+    if (!slot.instance) continue;
+    if (slot.instance->IsEnabled())
+      slot.instance->Update();
   }
 }
 
 void FeatureManager::RenderAll(Render::DrawList &drawList) {
-  for (auto &feature : features) {
-    if (feature->IsEnabled())
-      feature->Render(drawList);
+  for (auto &slot : featureSlots) {
+    if (!slot.instance) continue;
+    if (slot.instance->IsEnabled())
+      slot.instance->Render(drawList);
   }
+}
+
+void FeatureManager::EnsureFeatureInitialized(std::string_view name) {
+  for (auto &slot : featureSlots) {
+    if (slot.name == name && !slot.instance) {
+      slot.instance = slot.factory();
+      slot.instance->SetEnabled(true);
+      return;
+    }
+    if (slot.name == name && slot.instance && !slot.instance->IsEnabled()) {
+      slot.instance->SetEnabled(true);
+      return;
+    }
+  }
+}
+
+void FeatureManager::EnsureAllInitialized() {
+  for (auto &slot : featureSlots) {
+    if (!slot.instance) {
+      slot.instance = slot.factory();
+    }
+  }
+}
+
+IFeature* FeatureManager::GetFeature(std::string_view name) {
+  for (auto &slot : featureSlots) {
+    if (slot.name == name && slot.instance) {
+      return slot.instance.get();
+    }
+  }
+  return nullptr;
 }
 
 } // namespace Features

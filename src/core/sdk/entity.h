@@ -66,6 +66,8 @@ struct Entity {
   bool isSpotted =
       false; // true = local player has line-of-sight (SpottedByMask)
 
+  bool onScreen = false; // true if entity is within screen bounds (+margin)
+
   bool IsValid() const { return address != 0; }
   bool IsAlive() const { return health > 0 && health <= 100; }
 };

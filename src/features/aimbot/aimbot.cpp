@@ -69,7 +69,7 @@ static void SendMouse(float dpitch, float dyaw) {
   }
 }
 
-const char *Aimbot::GetName() { return "Aimbot"; }
+std::string_view Aimbot::GetName() { return "Aimbot"; }
 
 void Aimbot::Update() {
   if (!Config::Settings.aimbot.enabled) {

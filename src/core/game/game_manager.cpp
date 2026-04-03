@@ -1,8 +1,10 @@
+#include "core/constants.h"
 #include "game_manager.h"
 #include "../memory/memory_manager.h"
 #include "../process/module.h"
 #include "../sdk/offsets.h"
 #include "../sdk/entity_classes.h"
+#include "config/settings.h"
 #include <cmath>
 #include <unordered_map>
 #include <iostream>
@@ -62,6 +64,8 @@ static std::unordered_map<uintptr_t, SDK::Vector3> s_prevPositions;
 
 // Invalid slot cache implementation
 std::unordered_map<int, int> GameManager::s_invalidSlotCache;
+int GameManager::s_screenWidth = 1920;
+int GameManager::s_screenHeight = 1080;
 
 bool GameManager::Init() {
   clientBase = Module::GetBaseAddress(L"client.dll");
@@ -133,9 +137,9 @@ void GameManager::Update() {
   if (SDK::Offsets::dwPlantedC4 != 0) {
     uintptr_t c4Ptr =
         MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwPlantedC4);
-    if (c4Ptr > 0x10000) {
+    if (c4Ptr > Constants::MIN_VALID_ADDRESS) {
       uintptr_t c4Addr = MemoryManager::Read<uintptr_t>(c4Ptr);
-      if (!c4Addr || c4Addr < 0x10000)
+      if (!c4Addr || c4Addr < Constants::MIN_VALID_ADDRESS)
         c4Addr = c4Ptr;
       
       SDK::CPlantedC4 c4(c4Addr);
@@ -148,18 +152,17 @@ void GameManager::Update() {
   }
 
   // ── Batch-read first chunk of controller pointers ──
-  uintptr_t listEntry = MemoryManager::Read<uintptr_t>(entityList + 0x10);
+  uintptr_t listEntry = MemoryManager::Read<uintptr_t>(entityList + Constants::ENTITY_LIST_HEADER_OFFSET);
   if (!listEntry)
     return;
 
-  constexpr int MAX_PLAYERS = 64;
-  // В CS2 каждая запись entity list chunk — CEntityIdentity (0x70 байт).
+  // В CS2 каждая запись entity list chunk — CEntityIdentity (Constants::ENTITY_IDENTITY_ENTRY_SIZE байт).
   // Указатель на entity лежит по +0x00 каждой записи.
-  // Контроллеры: индексы 1..64 (0 = world/null), шаг 0x70 байт.
-  uintptr_t controllerPointers[MAX_PLAYERS] = {};
-  for (int i = 0; i < MAX_PLAYERS; i++) {
+  // Контроллеры: индексы 1..Constants::MAX_PLAYERS (0 = world/null), шаг Constants::ENTITY_IDENTITY_ENTRY_SIZE байт.
+  uintptr_t controllerPointers[Constants::MAX_PLAYERS] = {};
+  for (int i = 0; i < Constants::MAX_PLAYERS; i++) {
     controllerPointers[i] =
-        MemoryManager::Read<uintptr_t>(listEntry + (i + 1) * 0x70);
+        MemoryManager::Read<uintptr_t>(listEntry + (i + 1) * Constants::ENTITY_IDENTITY_ENTRY_SIZE);
   }
 
   // ── Invalidate pawn list chunk cache each frame ──
@@ -167,7 +170,7 @@ void GameManager::Update() {
 
   // Find localSlot for SpottedByMask
   int localSlot = 0;
-  for (int i = 0; i < MAX_PLAYERS; i++) {
+  for (int i = 0; i < Constants::MAX_PLAYERS; i++) {
     SDK::CPlayerController controller(controllerPointers[i]);
     if (!controller.IsValid())
       continue;
@@ -190,7 +193,7 @@ void GameManager::Update() {
     }
   }
 
-  for (int i = 0; i < MAX_PLAYERS; i++) {
+  for (int i = 0; i < Constants::MAX_PLAYERS; i++) {
     SDK::CPlayerController controller(controllerPointers[i]);
     if (!controller.IsValid())
       continue;
@@ -247,7 +250,7 @@ void GameManager::Update() {
     float distSq = dx * dx + dy * dy + dz * dz;
     
     // ESP max distance check (5000 units = 50m, squared = 25,000,000)
-    constexpr float maxDistSq = 5000.0f * 5000.0f;
+    constexpr float maxDistSq = Constants::ESP_MAX_DISTANCE_UNITS * Constants::ESP_MAX_DISTANCE_UNITS;
     bool tooFar = distSq > maxDistSq;
     
     // If entity is too far, skip expensive reads (bones/weapons)
@@ -288,7 +291,7 @@ void GameManager::Update() {
     s_prevPositions[p.address] = position;
 
     // Ограничиваем размер кэша (макс 128 сущностей)
-    if (s_prevPositions.size() > 128) {
+    if (s_prevPositions.size() > Constants::MAX_POSITION_CACHE_SIZE) {
       // Clear half of entries (unordered_map has no ordering, so we clear arbitrary entries)
       size_t toRemove = s_prevPositions.size() / 2;
       for (size_t i = 0; i < toRemove && !s_prevPositions.empty(); ++i) {
@@ -317,10 +320,10 @@ void GameManager::Update() {
     // ── Skeleton bones (one batch ReadRaw) — skip for distant entities ──
     if (!tooFar && s_readBones.load(std::memory_order_relaxed)) {
       uintptr_t gameScene = pawn.GetGameSceneNode();
-      if (gameScene > 0x10000) {
+      if (gameScene > Constants::MIN_VALID_ADDRESS) {
         uintptr_t boneArray = MemoryManager::Read<uintptr_t>(
             gameScene + SDK::Offsets::m_boneArrayOffset);
-        if (boneArray > 0x10000) {
+        if (boneArray > Constants::MIN_VALID_ADDRESS) {
           BoneData rawBones[BONE_COUNT];
           if (MemoryManager::ReadRaw(boneArray, rawBones, sizeof(rawBones))) {
             p.bonePositions.resize(BONE_COUNT);
@@ -330,6 +333,9 @@ void GameManager::Update() {
         }
       }
     }
+
+    // Frustum culling: mark entity as on/off screen
+    p.onScreen = IsOnScreen(position);
 
     players.emplace_back(std::move(p));
   }
@@ -397,9 +403,24 @@ void GameManager::EnableWeaponRead(bool enable) {
 }
 
 void GameManager::SetInterpolationFactor(float factor) {
-  if (factor >= 0.0f && factor <= 1.0f) {
-    s_interpolationFactor = factor;
-  }
+  s_interpolationFactor = factor;
+}
+
+void GameManager::SetScreenSize(int width, int height) {
+  s_screenWidth = width;
+  s_screenHeight = height;
+}
+
+bool GameManager::IsOnScreen(const SDK::Vector3& worldPos) {
+  SDK::Matrix4x4 vm = viewMatrix;
+  float clipX = vm.m[0][0] * worldPos.x + vm.m[0][1] * worldPos.y + vm.m[0][2] * worldPos.z + vm.m[0][3];
+  float clipY = vm.m[1][0] * worldPos.x + vm.m[1][1] * worldPos.y + vm.m[1][2] * worldPos.z + vm.m[1][3];
+  float clipW = vm.m[3][0] * worldPos.x + vm.m[3][1] * worldPos.y + vm.m[3][2] * worldPos.z + vm.m[3][3];
+  if (clipW < 0.001f) return false;
+  float ndcX = clipX / clipW;
+  float ndcY = clipY / clipW;
+  return (ndcX >= -1.0f - FRUSTUM_MARGIN / s_screenWidth && ndcX <= 1.0f + FRUSTUM_MARGIN / s_screenWidth &&
+          ndcY >= -1.0f - FRUSTUM_MARGIN / s_screenHeight && ndcY <= 1.0f + FRUSTUM_MARGIN / s_screenHeight);
 }
 
 } // namespace Core

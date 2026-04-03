@@ -7,6 +7,7 @@
 #include "../features/radar/radar_config.h"
 #include "../features/triggerbot/triggerbot_config.h"
 #include "../features/rcs/rcs_config.h"
+#include "../features/footsteps_esp/footsteps_esp_config.h"
 #include "settings.h"
 #include <filesystem>
 #include <fstream>
@@ -57,6 +58,7 @@ static std::vector<ConfigEntry> BuildRegistry() {
   auto &P = Settings.performance;
   auto &D = Settings.debug;
   auto &RCS = Settings.rcs;
+  auto &FE = Settings.footstepsEsp;
 
   return {
       // ESP
@@ -74,6 +76,8 @@ static std::vector<ConfigEntry> BuildRegistry() {
       {"esp_boneColor", ConfigEntry::COLOR, E.boneColor},
       {"esp_boxColor", ConfigEntry::COLOR, E.boxColor},
       {"esp_teamColor", ConfigEntry::COLOR, E.teamColor},
+      {"esp_showOffscreen", ConfigEntry::BOOL, &E.showOffscreen},
+      {"esp_offscreenColor", ConfigEntry::COLOR, E.offscreenColor},
       // Aimbot
       {"aim_enabled", ConfigEntry::BOOL, &A.enabled},
       {"aim_hotkey", ConfigEntry::INT, &A.hotkey},
@@ -128,6 +132,19 @@ static std::vector<ConfigEntry> BuildRegistry() {
       // Debug
       {"debug_enabled", ConfigEntry::BOOL, &D.enabled},
       {"debug_devMode", ConfigEntry::BOOL, &D.devMode},
+      // Footsteps ESP
+      {"footstepsEsp_enabled", ConfigEntry::BOOL, &FE.enabled},
+      {"footstepsEsp_showTeammates", ConfigEntry::BOOL, &FE.showTeammates},
+      {"footstepsEsp_footstepColor", ConfigEntry::COLOR, FE.footstepColor},
+      {"footstepsEsp_jumpColor", ConfigEntry::COLOR, FE.jumpColor},
+      {"footstepsEsp_landColor", ConfigEntry::COLOR, FE.landColor},
+      {"footstepsEsp_footstepMaxRadius", ConfigEntry::FLOAT, &FE.footstepMaxRadius},
+      {"footstepsEsp_jumpMaxRadius", ConfigEntry::FLOAT, &FE.jumpMaxRadius},
+      {"footstepsEsp_landMaxRadius", ConfigEntry::FLOAT, &FE.landMaxRadius},
+      {"footstepsEsp_expandDuration", ConfigEntry::FLOAT, &FE.expandDuration},
+      {"footstepsEsp_fadeDuration", ConfigEntry::FLOAT, &FE.fadeDuration},
+      {"footstepsEsp_thickness", ConfigEntry::FLOAT, &FE.thickness},
+      {"footstepsEsp_segments", ConfigEntry::INT, &FE.segments},
   };
 }
 
@@ -213,24 +230,43 @@ bool ConfigManager::Load(const std::string &name) {
 
 // ─── ApplySettings ───────────────────────────────────────────────────────────
 void ConfigManager::ApplySettings() {
-  for (auto &f : Features::FeatureManager::features) {
-    std::string n = f->GetName();
-    if (n == "ESP")
-      f->SetEnabled(Settings.esp.enabled);
-    else if (n == "Aimbot")
-      f->SetEnabled(Settings.aimbot.enabled);
-    else if (n == "Triggerbot")
-      f->SetEnabled(Settings.triggerbot.enabled);
-    else if (n == "Misc")
-      f->SetEnabled(Settings.misc.awpCrosshair);
-    else if (n == "Bomb")
-      f->SetEnabled(Settings.bomb.enabled);
-    else if (n == "Radar")
-      f->SetEnabled(Settings.radar.enabled);
-    else if (n == "DebugOverlay")
-      f->SetEnabled(Settings.debug.enabled);
-    else if (n == "RCSSystem")
-      f->SetEnabled(Settings.rcs.enabled);
+  // Lazy-init features when their enabled state changes to true
+  if (Settings.esp.enabled)
+    Features::FeatureManager::EnsureFeatureInitialized("ESP");
+  if (Settings.aimbot.enabled)
+    Features::FeatureManager::EnsureFeatureInitialized("Aimbot");
+  if (Settings.triggerbot.enabled)
+    Features::FeatureManager::EnsureFeatureInitialized("Triggerbot");
+  if (Settings.misc.awpCrosshair)
+    Features::FeatureManager::EnsureFeatureInitialized("Misc");
+  if (Settings.bomb.enabled)
+    Features::FeatureManager::EnsureFeatureInitialized("Bomb");
+  if (Settings.radar.enabled)
+    Features::FeatureManager::EnsureFeatureInitialized("Radar");
+  if (Settings.debug.enabled)
+    Features::FeatureManager::EnsureFeatureInitialized("DebugOverlay");
+  if (Settings.rcs.enabled)
+    Features::FeatureManager::EnsureFeatureInitialized("RCSSystem");
+  if (Settings.footstepsEsp.enabled)
+    Features::FeatureManager::EnsureFeatureInitialized("FootstepsEsp");
+
+  // Also handle disabling for already-initialized features
+  for (auto &slot : Features::FeatureManager::featureSlots) {
+    if (!slot.instance) continue;
+    std::string n(slot.instance->GetName());
+    bool shouldBeEnabled = false;
+    if (n == "ESP") shouldBeEnabled = Settings.esp.enabled;
+    else if (n == "Aimbot") shouldBeEnabled = Settings.aimbot.enabled;
+    else if (n == "Triggerbot") shouldBeEnabled = Settings.triggerbot.enabled;
+    else if (n == "Misc") shouldBeEnabled = Settings.misc.awpCrosshair;
+    else if (n == "Bomb") shouldBeEnabled = Settings.bomb.enabled;
+    else if (n == "Radar") shouldBeEnabled = Settings.radar.enabled;
+    else if (n == "DebugOverlay") shouldBeEnabled = Settings.debug.enabled;
+    else if (n == "RCSSystem") shouldBeEnabled = Settings.rcs.enabled;
+    else if (n == "FootstepsEsp") shouldBeEnabled = Settings.footstepsEsp.enabled;
+
+    if (!shouldBeEnabled && slot.instance->IsEnabled())
+      slot.instance->SetEnabled(false);
   }
 }
 

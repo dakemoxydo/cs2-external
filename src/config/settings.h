@@ -7,6 +7,7 @@
 #include "features/radar/radar_config.h"
 #include "features/triggerbot/triggerbot_config.h"
 #include "features/rcs/rcs_config.h"
+#include "features/footsteps_esp/footsteps_esp_config.h"
 #include <shared_mutex>
 
 namespace Config {
@@ -26,6 +27,7 @@ struct GlobalSettings {
   Features::BombConfig bomb;
   Features::DebugConfig debug;
   Features::RCSConfig rcs;
+  Features::FootstepsEspConfig footstepsEsp;
 
   PerformanceConfig performance; // Added performance settings
   bool menuIsOpen = false;

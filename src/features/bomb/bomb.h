@@ -11,7 +11,7 @@ extern BombConfig bombConfig;
 
 class Bomb : public IFeature {
 public:
-  const char *GetName() override { return "BombTimer"; }
+  std::string_view GetName() override { return "BombTimer"; }
   void Update() override;
   void Render(Render::DrawList &drawList) override;
   void RenderUI() override;

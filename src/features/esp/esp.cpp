@@ -6,6 +6,8 @@
 #include "esp_config.h"
 #include "render/draw/draw_list.h"
 #include "render/overlay/overlay.h"
+#include <algorithm>
+#include <cmath>
 #include <imgui.h>
 #include <string>
 
@@ -25,6 +27,56 @@ void Esp::Update() {
 // --- Helpers
 // ---------------------------------------------------------------
 
+static void DrawOffscreenIndicator(Render::DrawList &drawList, const SDK::Entity &player,
+                                    const SDK::Matrix4x4 &viewMatrix, int screenWidth, int screenHeight) {
+  const SDK::Vector3 &pos = player.renderPosition;
+  float w = viewMatrix.m[3][0] * pos.x + viewMatrix.m[3][1] * pos.y + viewMatrix.m[3][2] * pos.z + viewMatrix.m[3][3];
+  if (w < 0.01f) return;
+
+  float x = viewMatrix.m[0][0] * pos.x + viewMatrix.m[0][1] * pos.y + viewMatrix.m[0][2] * pos.z + viewMatrix.m[0][3];
+  float y = viewMatrix.m[1][0] * pos.x + viewMatrix.m[1][1] * pos.y + viewMatrix.m[1][2] * pos.z + viewMatrix.m[1][3];
+
+  float screenX = (screenWidth / 2.0f) * (1.0f + x / w);
+  float screenY = (screenHeight / 2.0f) * (1.0f - y / w);
+
+  // Clamp to screen edge with padding
+  float pad = 40.0f;
+  float cx = std::clamp(screenX, pad, screenWidth - pad);
+  float cy = std::clamp(screenY, pad, screenHeight - pad);
+
+  float color[4];
+  if (player.isTeammate) {
+    color[0] = Config::Settings.esp.teamColor[0];
+    color[1] = Config::Settings.esp.teamColor[1];
+    color[2] = Config::Settings.esp.teamColor[2];
+    color[3] = Config::Settings.esp.teamColor[3] * 0.5f;
+  } else {
+    color[0] = Config::Settings.esp.offscreenColor[0];
+    color[1] = Config::Settings.esp.offscreenColor[1];
+    color[2] = Config::Settings.esp.offscreenColor[2];
+    color[3] = Config::Settings.esp.offscreenColor[3];
+  }
+
+  // Draw arrow pointing toward offscreen player
+  float angle = std::atan2(screenY - screenHeight / 2.0f, screenX - screenWidth / 2.0f);
+  float size = 12.0f;
+  float tipX = cx + std::cos(angle) * size;
+  float tipY = cy - std::sin(angle) * size;
+  float baseAngle1 = angle + 2.5f;
+  float baseAngle2 = angle - 2.5f;
+  float b1x = cx + std::cos(baseAngle1) * size;
+  float b1y = cy - std::sin(baseAngle1) * size;
+  float b2x = cx + std::cos(baseAngle2) * size;
+  float b2y = cy - std::sin(baseAngle2) * size;
+
+  drawList.DrawLine(b1x, b1y, tipX, tipY, color, 2.0f);
+  drawList.DrawLine(b2x, b2y, tipX, tipY, color, 2.0f);
+
+  // Draw distance text
+  char distBuf[16];
+  snprintf(distBuf, sizeof(distBuf), "%.0fm", player.distance);
+  drawList.AddText(cx - 10, cy + 16, distBuf, color);
+}
 
 // --- Render
 // ---------------------------------------------------------------
@@ -54,6 +106,15 @@ void Esp::Render(Render::DrawList &drawList) {
       continue;
     if (player.isTeammate && !Config::Settings.esp.showTeammates)
       continue;
+
+    // Frustum culling: skip off-screen entities unless showOffscreen is enabled
+    if (Config::Settings.esp.frustumCullingEnabled && !player.onScreen) {
+      if (Config::Settings.esp.showOffscreen) {
+        // Draw offscreen indicator at screen edge
+        DrawOffscreenIndicator(drawList, player, viewMatrix, screenWidth, screenHeight);
+      }
+      continue;
+    }
 
     // --- Pick color palette
     // ---------------------------------------------------------------

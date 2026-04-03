@@ -13,6 +13,8 @@ inline ptrdiff_t dwViewMatrix = 0;
 inline ptrdiff_t dwPlantedC4 = 0;
 
 // ── Member offsets (client_dll.json) ──────────────────────────────────────
+inline ptrdiff_t m_fFlags = 0;
+inline ptrdiff_t m_vecVelocity = 0;
 inline ptrdiff_t m_iHealth = 0;
 inline ptrdiff_t m_iTeamNum = 0;
 inline ptrdiff_t m_vOldOrigin = 0;

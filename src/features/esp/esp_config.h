@@ -51,6 +51,13 @@ struct EspConfig {
   // ── Snap Lines ───────────────────────────────────────────────────────
   bool showSnapLines = false;
   float snapLineColor[4] = {1.0f, 1.0f, 1.0f, 0.4f};
+
+  // ── Off-screen ───────────────────────────────────────────────────────
+  bool showOffscreen = false;
+  float offscreenColor[4] = {1.0f, 0.5f, 0.0f, 0.6f};
+
+  // ── Frustum Culling ──────────────────────────────────────────────────
+  bool frustumCullingEnabled = true;
 };
 
 } // namespace Features

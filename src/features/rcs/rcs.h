@@ -9,7 +9,7 @@ class RCSSystem : public IFeature {
 public:
   void Update() override;
   void Render(Render::DrawList &drawList) override;
-  const char *GetName() override { return "RCSSystem"; }
+  std::string_view GetName() override { return "RCSSystem"; }
   void RenderUI() override;
 
   static bool IsWeaponSupported(const std::string& weaponName);

@@ -27,7 +27,6 @@ private:
     AppState state_;
     AppConfig config_;
     std::thread memoryThread_;
-    bool insertPressed_ = false;
     std::atomic<float> overlayFrameTimeMs_{4.17f};
 };
 
