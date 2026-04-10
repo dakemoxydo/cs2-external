@@ -60,12 +60,15 @@ int main() {
     DebugLog("[+] Creating hardware overlay (auto-detect CS2 window)...\n");
     if (!Render::Overlay::Create()) {
         DebugLog("[-] Overlay creation failed!\n");
+        Core::Process::Detach();
         return 1;
     }
 
     // Silent renderer init
     if (!Render::Renderer::Init(Render::Overlay::GetWindowHandle())) {
         DebugLog("[-] Renderer init failed!\n");
+        Render::Overlay::Destroy();
+        Core::Process::Detach();
         return 1;
     }
 

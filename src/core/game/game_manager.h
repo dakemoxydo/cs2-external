@@ -132,5 +132,6 @@ private:
   static void DecrementInvalidSlotCache();
   static void RebuildPlayers(const FrameContext& context, int localSlot);
   static void PublishFrameState();
+  static void ClearFrameState(bool clearClientBase);
 };
 } // namespace Core

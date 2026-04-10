@@ -74,6 +74,32 @@ void EndCard() {
   ImGui::EndChild();
 }
 
+void SectionHeader(const char *title, const char *description) {
+  ImGuiStyle &style = ImGui::GetStyle();
+  ImVec4 accent = style.Colors[ImGuiCol_ButtonHovered];
+
+  ImGui::Spacing();
+  ImGui::TextColored(accent, "%s", title);
+  if (description && description[0] != '\0') {
+    ImGui::PushStyleColor(ImGuiCol_Text, style.Colors[ImGuiCol_TextDisabled]);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(description);
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+  }
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::Spacing();
+}
+
+void HelpText(const char *text) {
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+  ImGui::PushTextWrapPos(0.0f);
+  ImGui::TextUnformatted(text);
+  ImGui::PopTextWrapPos();
+  ImGui::PopStyleColor();
+}
+
 bool SettingToggle(const char *label, bool *v) {
   ImGuiWindow *window = ImGui::GetCurrentWindow();
   if (window->SkipItems) return false;

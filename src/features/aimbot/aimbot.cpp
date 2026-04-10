@@ -38,7 +38,7 @@ static thread_local std::uniform_int_distribution<int> s_microDelayDist(0, 9);
 // ── Mouse movement using mouse_event (less detectable than SendInput)
 static void SendMouse(float dpitch, float dyaw) {
   // COUNTS_PER_DEG depends on user's in-game sensitivity setting
-  const float sens = Config::Settings.aimbot.sensitivity;
+  const float sens = fmaxf(0.001f, Config::Settings.aimbot.sensitivity);
   const float countsPerDeg = 1.0f / (0.022f * sens);
 
   float fx = -dyaw * countsPerDeg + s_dxRemainder;

@@ -31,6 +31,10 @@ void FeatureManager::RegisterFeature(std::string_view name, FeatureFactory facto
 }
 
 void FeatureManager::RegisterAll() {
+  if (!featureSlots.empty()) {
+    return;
+  }
+
   RegisterFeature("ESP", []() { return std::make_unique<Esp>(); });
   RegisterFeature("Aimbot", []() { return std::make_unique<Aimbot>(); });
   RegisterFeature("Triggerbot", []() { return std::make_unique<Triggerbot>(); });

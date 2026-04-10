@@ -1,178 +1,184 @@
-# CS2 Overlay — Project Context
+# QWEN Project Guide For `cs2overlay`
 
-## Project Overview
+This file is a compact AI-oriented working guide for the current project state.
 
-**CS2 Overlay** is an external cheat/overlay software for the game Counter-Strike 2. It operates as a separate process without injecting DLLs into the game, which enhances safety and reduces detection risk.
+Primary source of truth:
+- `Structure.md`
 
-The project is written in **C++20** and uses **CMake** as its build system. It features a transparent DirectX 11 overlay rendered on top of the CS2 game window, powered by **ImGui** for UI rendering.
+If this file conflicts with `Structure.md`, update this file and follow `Structure.md`.
 
-### Key Technologies
-- **C++20** (standard)
-- **CMake 3.20+** (build system)
-- **DirectX 11** (rendering backend)
-- **ImGui** (UI framework, vendored in `external/imgui/`)
-- **Win32 API** (window management, process handling)
-- **nlohmann/json** (JSON parsing, fetched via FetchContent)
-- **WinHTTP/WinINet** (network operations for GitHub offset updates)
+## 1. What This Project Is
 
-### Architecture
+`cs2overlay` is a C++20 external CS2 overlay application with:
+- Win32 process management
+- DX11 transparent overlay rendering
+- ImGui menu
+- async offset loading
+- separate memory and render loops
 
-The codebase follows a strict **layered architecture** with unidirectional dependencies:
+The codebase contains two startup flows:
+- `src/main.cpp`
+- `src/core/application/application.cpp`
 
-```
-src/
-├── main.cpp              — Thin entry point (~10 lines)
-├── core/                 — Core engine layer
-│   ├── application/      — Application lifecycle (Application class, state, config)
-│   ├── memory/           — Memory reading (NtReadVirtualMemory wrappers)
-│   ├── process/          — Process attachment, module base addresses, stealth (PEB spoofing)
-│   ├── game/             — Game entities, GameManager (double-buffered entity list)
-│   ├── sdk/              — Offsets loading/parsing/applying pipeline
-│   ├── math/             — Vectors, angles, matrices, WorldToScreen
-│   └── input/            — Mouse/keyboard input handling
-├── features/             — Game features layer (all inherit IFeature)
-│   ├── aimbot/           — Auto-aim with FOV, smooth, target bone selection
-│   ├── esp/              — Box ESP, health bars, names, weapons, skeleton, snaplines
-│   ├── footsteps_esp/    — Footstep visualization (walking/jumping/landing circles)
-│   ├── triggerbot/       — Auto-fire on crosshair target
-│   ├── rcs/              — Recoil Control System (standalone)
-│   ├── misc/             — AWP crosshair and other utilities
-│   ├── bomb/             — Bomb timer and carrier tracking
-│   ├── radar/            — 2D minimap radar
-│   ├── debug_overlay/    — Debug visualization
-│   ├── feature_base.h    — IFeature interface
-│   └── feature_manager.h/cpp — Factory pattern, lazy init, feature coordination
-├── render/               — Rendering and UI layer
-│   ├── overlay/          — Transparent overlay window management
-│   ├── renderer/         — DirectX 11 init, ImGui integration
-│   ├── draw/             — Drawing primitives (lines, boxes, circles, etc.)
-│   └── menu/             — Main menu UI (7 themes, modular tabs)
-├── config/               — Configuration layer
-│   ├── config_manager.h/cpp — Config registry with auto-serialization
-│   └── settings.h        — GlobalSettings struct with all parameters
-└── utils/                — Utilities
-    ├── logger.h/cpp      — Logging (Debug/Info/Warn/Error levels)
-    ├── string_utils.h    — String helpers
-    ├── math.h            — Math helpers
-    └── timer.h           — Timing utilities
+They must stay behaviorally aligned until one is intentionally removed.
+
+## 2. High-Level Architecture
+
+Dependency direction:
+
+```text
+config -> used by almost every runtime layer
+core   -> no dependency on render/features business logic
+features -> depend on core and render/draw
+render -> may coordinate features, but should not own game-memory logic
 ```
 
-### Multithreading Model
+Hard rules:
+- Do not move render concerns into `core/`.
+- Do not move game-memory traversal into `render/`.
+- Do not make features read CS2 memory ad hoc if `GameManager` or SDK wrappers should own that data.
 
-The application uses **two main threads**:
+## 3. Thread Ownership
 
-1. **Memory Thread** — Runs in a loop at configurable UPS (64–240). Reads CS2 memory, updates `GameManager`. Supports VSync-synced UPS mode.
-2. **Render Thread** — Main thread. Handles Windows message pump, overlay rendering, feature logic (aimbot angles, triggerbot), input polling, and menu UI.
+### Render Thread
 
-**Double-buffering** is used for the entity list to avoid race conditions between threads — no explicit locks needed for entity data access.
+Owns:
+- Windows message pump
+- input polling
+- menu open/close
+- `FeatureManager::UpdateAll()`
+- all `SendInput` / `GetAsyncKeyState` driven logic
+- overlay rendering
 
-### Offset System (3-Stage Pipeline)
+Rule:
+- Anything involving synthetic input or real-time key checks stays on the render thread.
 
-Offsets are loaded via a structured pipeline:
+### Memory Thread
 
+Owns:
+- attach retry loop
+- game memory reads
+- entity rebuild
+- `GameManager::Update()`
+
+Rule:
+- If process state becomes invalid, publish empty frame state instead of keeping stale values alive.
+
+## 4. Critical Runtime Rules
+
+### Startup / Shutdown
+
+- Every early return after attach must detach the process.
+- Every early return after overlay creation must destroy the overlay.
+- Every partial renderer failure must release D3D resources.
+- `main.cpp` and `Application::Initialize()` must stay in sync on cleanup behavior.
+
+### Process Recovery
+
+- A CS2 restart is a normal runtime event, not a fatal one.
+- Old `PID` and `HANDLE` values must never survive failed attach or dead process state.
+- Reattach must replace old handles instead of stacking new state on top.
+
+### Game State Publication
+
+- `GameManager` is responsible for publishing render-safe state.
+- If entity list rebuild fails, render-visible state must be cleared.
+- Never rely on "no update happened" as permission to keep old data visible.
+
+## 5. Config Rules
+
+Configs live next to the executable in:
+
+```text
+configs/
 ```
-FileLoader → Parser → Applier
+
+Rules:
+- `default` and `default.json` must resolve to the same config file.
+- Missing config file must fall back to defaults, not hard fail.
+- Invalid config content must reset to defaults safely.
+- Any user-facing setting that should persist must be added to `BuildRegistry()` in `src/config/config_manager.cpp`.
+
+If you add a setting and forget `BuildRegistry()`, that is a bug.
+
+## 6. Feature Rules
+
+Features live under:
+
+```text
+src/features/<feature_name>/
 ```
 
-**File formats supported:**
-- **Priority:** JSON (`offsets.json` + `client_dll.json`)
-- **Fallback:** HPP (`offsets.hpp` + `client_dll.hpp`) — parsed via regex `#define`
+Current feature set:
+- Aimbot
+- Bomb
+- DebugOverlay
+- ESP
+- FootstepsEsp
+- Misc
+- Radar
+- RCSSystem
+- Triggerbot
 
-**Data flow:**
-1. **Build-time:** `build.bat` copies files from `offsets/output/` → `build/Release/cache_offsets/`
-2. **Runtime:** Executable reads from `cache_offsets/` next to the `.exe`
-3. **GitHub fallback:** If `cache_offsets/` is missing or invalid, downloads from `a2x/cs2-dumper`
-4. **UI:** "Update Offsets from GitHub" / "Reload Offsets from Disk" buttons in Settings tab
+Rules:
+- Each feature must fit the `IFeature` lifecycle.
+- `FeatureManager::RegisterAll()` must stay idempotent.
+- Feature enable/disable logic must remain compatible with `ConfigManager::ApplySettings()`.
+- Persistent feature settings must be represented in both:
+  - `settings.h`
+  - `BuildRegistry()`
 
-**Critical validation fields:** `dwEntityList`, `dwLocalPlayerPawn`, `dwViewMatrix` — if any is 0, ESP will not work.
+## 7. Memory And Offset Rules
 
----
+Use:
+- `MemoryManager::Read<T>()`
+- `MemoryManager::ReadOptional<T>()`
+- `MemoryManager::ReadChain<T>()`
+- `MemoryManager::ReadRaw()`
 
-## Building and Running
+Do not:
+- call `NtReadVirtualMemory` directly outside `MemoryManager`
+- hardcode dumper offsets inside feature logic
 
-### Prerequisites
-- **Visual Studio 2019 or 2022** (Community, Professional, or BuildTools) with C++ desktop development workload
-- **CMake 3.20+** in PATH
+Offset pipeline:
+1. read from `cache_offsets/`
+2. if invalid, try GitHub
+3. parse JSON first, HPP second
+4. apply into `SDK::Offsets`
 
-### Build Command
+Critical offsets:
+- `dwEntityList`
+- `dwLocalPlayerPawn`
+- `dwViewMatrix`
 
-```bat
-build.bat
-```
+If these are missing, do not assume ESP data is valid.
 
-This script:
-1. Copies offset files from `offsets/output/` to `build/Release/cache_offsets/`
-2. Detects Visual Studio version and configures CMake
-3. Builds the Release configuration
-4. Outputs `build\Release\cs2overlay.exe`
+## 8. Render And Overlay Rules
 
-### Manual CMake Build
+Overlay:
+- must tolerate CS2 window disappearing
+- must not leak registered window classes on failure
+- must support repeated create/destroy cycles safely
 
-```bat
-mkdir build && cd build
-cmake -G "Visual Studio 17 2022" -A x64 ..
-cmake --build . --config Release
-```
+Renderer:
+- must be safe after partial init failure
+- must release partially created resources immediately on failure
 
-### Running
+## 9. Rules That Prevent Recently Fixed Bugs
 
-Run `build\Release\cs2overlay.exe` while CS2 is running. The overlay will auto-detect the CS2 window position and size.
+- Do not keep stale process state after CS2 exits.
+- Do not keep stale players or local state after frame reconstruction fails.
+- Do not add persistent UI settings without serialization support.
+- Do not register features twice.
+- Do not leave pending UI state stuck after future completion.
+- Do not read array-backed input state without key bounds checks.
 
-- **INSERT** — Toggle menu
-- **END** — Close application
+## 10. Change Checklist
 
-### Providing Offsets
-
-Place dumper output files (from [cs2-dumper](https://github.com/a2x/cs2-dumper)) into `offsets/output/`:
-- `offsets.json` + `client_dll.json` (preferred), or
-- `offsets.hpp` + `client_dll.hpp` (fallback)
-
-Then rebuild.
-
----
-
-## Development Conventions
-
-### Code Style
-- **C++20** with modern features
-- **Header-only inline variables** for offsets (C++17 inline semantics)
-- **MSVC `/W4`** warning level
-- `NOMINMAX` and `WIN32_LEAN_AND_MEAN` defined to avoid Windows header pollution
-
-### Architecture Patterns
-
-1. **Config Registry** — Parameters are registered in `BuildRegistry()` for automatic save/load serialization.
-2. **Feature UI (Open-Closed)** — Each feature renders its own UI via `RenderUI()`. The menu delegates, never hardcodes feature settings.
-3. **Factory Pattern** — Features are registered as factories; instances are created only on first enable (lazy init).
-4. **Double-Buffering** — Entity list written to one buffer, read from another — lock-free.
-5. **Thin Entry Point** — `main.cpp` is minimal. All logic lives in the `Application` class.
-
-### Memory Reading
-- `MemoryManager::Read<T>()` — Silently returns default-constructed `T{}` on failure
-- `MemoryManager::ReadOptional<T>()` — Returns `std::optional<T>`
-- `MemoryManager::ReadBatch()` — Batch reading for contiguous memory blocks
-- `MemoryManager::ReadRaw()` — Raw byte buffer reading
-- **Do not** add verbose logging to `NtRead` operations
-
-### Feature Interface
-
-All features inherit `IFeature` (`feature_base.h`):
-- `Update()` — Logic (called from render thread)
-- `Render(DrawList&)` — Overlay rendering
-- `RenderUI()` — Settings UI in menu
-- `GetName()` — Feature name
-- `OnEnable()` / `OnDisable()` — Enable/disable hooks
-- `Initialize()` — Lazy initialization (called once on first enable)
-
-### Important Notes
-- `GameManager::SetScreenSize()` is called **every frame** from the render loop
-- `Overlay::UpdatePosition()` is called **every frame**
-- WorldToScreen uses `Overlay::GetGameWidth/Height()`
-- Feature Manager `UpdateAll()` contains `GetAsyncKeyState`/`SendInput` — must only be called from the **render thread**
-- `build.bat` copies offsets before building; the executable reads from `cache_offsets/` at runtime
-- `.gitignore` excludes all `build*/` directories
-- Post-build script mutates EXE signature for unique SHA256 per build (anti-detection)
-
-### File Naming
-- Use snake_case for file names (e.g., `feature_manager.h`, `config_manager.cpp`)
-- Headers and sources use `.h` / `.cpp` extensions
+Before finishing a change, verify:
+- startup and shutdown are symmetrical
+- process recovery still works conceptually
+- config persistence still matches visible settings
+- render thread still owns input logic
+- memory thread still owns game-memory reconstruction
+- `Structure.md`, `QWEN.md`, and `GEMINI.md` remain aligned if rules changed

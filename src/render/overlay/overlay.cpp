@@ -112,7 +112,9 @@ bool Overlay::Create() {
         nullptr,
         s_currentClassName, // Masquerade as Chrome/Discord/Nvidia overlay
         nullptr};
-    RegisterClassExA(&wc);
+    if (!RegisterClassExA(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        return false;
+    }
 
     // Create overlay at same position as CS2 window
     RECT rc;
@@ -136,8 +138,10 @@ bool Overlay::Create() {
                            overlayX, overlayY, overlayW, overlayH, nullptr, nullptr,
                            wc.hInstance, nullptr);
 
-    if (!hwnd)
+    if (!hwnd) {
+        UnregisterClassA(wc.lpszClassName, wc.hInstance);
         return false;
+    }
 
     SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
 
@@ -200,12 +204,14 @@ int Overlay::GetGameHeight() {
 void Overlay::Destroy() {
   if (hwnd) {
     DestroyWindow(hwnd);
-    if (s_currentClassName) {
-        UnregisterClassA(s_currentClassName, GetModuleHandle(nullptr));
-    }
-    hwnd = nullptr;
-    hwndCS2 = nullptr;
   }
+
+  if (s_currentClassName) {
+      UnregisterClassA(s_currentClassName, GetModuleHandle(nullptr));
+  }
+
+  hwnd = nullptr;
+  hwndCS2 = nullptr;
 }
 
 HWND Overlay::GetWindowHandle() { return hwnd; }

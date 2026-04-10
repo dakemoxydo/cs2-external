@@ -67,6 +67,7 @@ bool Application::Initialize() {
     if (!Render::Overlay::Create()) {
         Utils::Logger::Error("Failed to create overlay");
         std::cout << "[App] Overlay creation FAILED\n";
+        Process::Detach();
         return false;
     }
     std::cout << "[App] Overlay created\n";
@@ -76,6 +77,8 @@ bool Application::Initialize() {
     if (!Render::Renderer::Init(Render::Overlay::GetWindowHandle())) {
         Utils::Logger::Error("Failed to initialize renderer");
         std::cout << "[App] Renderer init FAILED\n";
+        Render::Overlay::Destroy();
+        Process::Detach();
         return false;
     }
     std::cout << "[App] Renderer initialized\n";
@@ -85,7 +88,7 @@ bool Application::Initialize() {
     std::cout << "[App] Registering features...\n";
     Features::FeatureManager::RegisterAll();
     std::cout << "[App] Loading config...\n";
-    Config::ConfigManager::Load("default.json");
+    Config::ConfigManager::Load("default");
 
     Utils::Logger::Info("Features initialized & config loaded");
     Utils::Logger::Info("Engine running. Press [INSERT] to toggle Menu");

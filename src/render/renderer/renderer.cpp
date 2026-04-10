@@ -8,6 +8,8 @@ ID3D11RenderTargetView *Renderer::pRenderTargetView = nullptr;
 bool Renderer::s_vsyncEnabled = false;
 
 bool Renderer::Init(HWND hwnd) {
+  Shutdown();
+
   DXGI_SWAP_CHAIN_DESC sd;
   ZeroMemory(&sd, sizeof(sd));
   sd.BufferCount = 1;
@@ -38,10 +40,13 @@ bool Renderer::Init(HWND hwnd) {
     return false;
 
   ID3D11Texture2D *pBackBuffer = nullptr;
-  if (pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer)) != S_OK)
+  if (pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer)) != S_OK) {
+    Shutdown();
     return false;
+  }
   if (pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &pRenderTargetView) != S_OK) {
     pBackBuffer->Release();
+    Shutdown();
     return false;
   }
   pBackBuffer->Release();

@@ -1,283 +1,463 @@
-# Структура и принципы работы проекта CS2 External
+# Structure And Engineering Rules For `cs2overlay`
 
-Данный проект является внешним (external) программным обеспечением для игры Counter-Strike 2. Он работает как отдельный процесс, не внедряя (inject) DLL в саму игру, что повышает безопасность.
+This document is the current source of truth for the project structure, runtime model, and maintenance rules.
 
-## 📁 Структура проекта
+It should be updated when:
+- folders or subsystems change
+- feature lifecycle changes
+- config fields are added or removed
+- process attach / detach behavior changes
+- overlay / renderer initialization rules change
 
-Проект разделён на логические слои (Application, Core, Features, Render, Config), строго следующих правилу односторонних зависимостей.
+## 1. Project Layout
 
-### Архитектура папок
-
-```
+```text
 cs2overlay/
-├── build.bat
-├── offsets/                         ← папка проекта (рядом с build.bat)
-│   └── output/                      ← сюда кидаешь папку output из cs2-dumper
-│       ├── client_dll.json
-│       ├── client_dll.hpp
-│       ├── offsets.json
-│       ├── offsets.hpp
-│       └── ...
-├── build/
-│   └── Release/
-│       ├── cs2overlay.exe
-│       └── cache_offsets/           ← создаётся при билде / при GitHub update
-│           ├── offsets.json
-│           ├── client_dll.json
-│           ├── offsets.hpp          (если есть)
-│           └── client_dll.hpp       (если есть)
-├── data/                            ← устаревшая папка (больше не используется)
-└── src/
+|-- CMakeLists.txt
+|-- build.bat
+|-- offsets/
+|   `-- output/
+|       |-- offsets.json
+|       |-- client_dll.json
+|       |-- offsets.hpp
+|       `-- client_dll.hpp
+|-- scripts/
+|   `-- mutate_signature.ps1
+|-- external/
+|   `-- imgui/
+|-- src/
+|   |-- main.cpp
+|   |-- config/
+|   |   |-- config_manager.cpp
+|   |   |-- config_manager.h
+|   |   `-- settings.h
+|   |-- core/
+|   |   |-- application/
+|   |   |-- game/
+|   |   |-- math/
+|   |   |-- memory/
+|   |   |-- process/
+|   |   `-- sdk/
+|   |-- features/
+|   |   |-- aimbot/
+|   |   |-- bomb/
+|   |   |-- debug_overlay/
+|   |   |-- esp/
+|   |   |-- footsteps_esp/
+|   |   |-- misc/
+|   |   |-- radar/
+|   |   |-- rcs/
+|   |   `-- triggerbot/
+|   |-- input/
+|   |-- render/
+|   |   |-- draw/
+|   |   |-- menu/
+|   |   |-- overlay/
+|   |   `-- renderer/
+|   `-- utils/
+|-- build/
+|   `-- Release/
+|       |-- cs2overlay.exe
+|       |-- configs/
+|       `-- cache_offsets/
+|           |-- offsets.json
+|           |-- client_dll.json
+|           |-- offsets.hpp
+|           `-- client_dll.hpp
+`-- Structure.md
 ```
 
-### 0. `src/main.cpp` — Точка входа
-Минимальный файл (10 строк) — создаёт и запускает `Application`.
+## 2. Entry Points
 
-### 1. `src/core/` — Ядро чита
+There are currently two executable flows in the repo:
 
-#### `application/` — Управление жизненным циклом
-*   `application.h/cpp`: Главный класс `Application` — инициализация, главный цикл (Run), завершение (Shutdown).
-*   `app_state.h`: Состояние приложения (running, menuOpen, shouldClose) с атомарными флагами.
-*   `app_config.h`: Конфигурация приложения (fpsLimit, upsLimit, vsyncEnabled).
+- `src/main.cpp`
+  Legacy direct bootstrap path.
+  It initializes stealth, offsets, process, overlay, renderer, ImGui, features, config, then runs memory and render loops directly.
 
-#### `memory/` — Работа с памятью
-*   `memory_manager.h`: Обёртка над `NtReadVirtualMemory`.
-    *   `Read<T>()` — игнорирует ошибки, возвращает 0 при неудаче
-    *   `ReadOptional<T>()` — возвращает `std::optional<T>`
-    *   `ReadBatch()` — пакетное чтение непрерывных блоков
-    *   `ReadChain<T>()` — хелпер для цепочек указателей
-    *   `ReadRaw()` — чтение сырых байтов в буфер
+- `src/core/application/application.cpp`
+  Structured bootstrap path through `Core::Application`.
+  It performs the same high-level work but wraps it in a dedicated application object.
 
-#### `process/` — Управление процессом
-*   `process.h/cpp`: Поиск окна, аттач к `cs2.exe`, PID, хендл.
-*   `module.h/cpp`: Базовые адреса модулей (`client.dll`, и др.).
-*   `stealth.h/cpp`: Анти-детект (PEB spoofing).
+Important:
+- Both paths must stay behaviorally aligned.
+- If startup, shutdown, config loading, or error handling is changed in one path, the other path must be reviewed immediately.
+- Do not fix only one entry path unless the other is intentionally deprecated in the same change.
 
-#### `game/` — Игровые сущности
-*   `game_manager.h/cpp`: Центральный узел — данные игрока, противники, матч.
-    *   Double-buffered entity list (`playerBuffers[2]`)
-    *   `SetScreenSize()` / `IsOnScreen()` — frustum culling
-    *   `EnableBoneRead()` / `EnableWeaponRead()` — lazy reading flags
-    *   `GetRenderPlayers()` — thread-safe getter
-*   `game_manager_getters.cpp`: Вынесенные геттеры.
-*   `entity_list.h`: Обход списка объектов.
-*   `local_player.h`: Доступ к данным своего персонажа.
+## 3. Runtime Architecture
 
-#### `sdk/` — Техническая информация
-*   `offsets.h`: Смещения памяти (inline переменные C++17). Все поля = 0 по умолчанию (кроме internal: m_hPawn, m_bIsLocalPlayerController, m_entitySpottedState, m_bSpottedByMaskOffset, m_boneArrayOffset). Заполняются при загрузке из дампа.
-*   `offset_file_loader.h/cpp`: Загрузка сырых файлов оффсетов.
-    *   `LoadFromCacheDir()` — читает `cache_offsets/` рядом с `.exe` (JSON + HPP)
-    *   `DownloadFromGitHub()` — скачивает с `a2x/cs2-dumper`
-    *   `SaveToCacheDir()` — сохраняет JSON в `cache_offsets/`
-*   `offset_parser.h/cpp`: Парсинг сырых файлов в структурированные оффсеты.
-    *   `ParseJson()` — парсит `offsets.json` + `client_dll.json` через nlohmann::json
-    *   `ParseHpp()` — парсит `offsets.hpp` + `client_dll.hpp` через regex (#define)
-    *   Приоритет: JSON > HPP. Если оба формата есть — используется JSON.
-*   `offset_applier.h/cpp`: Применение распарсенных оффсетов к `SDK::Offsets`.
-    *   `Apply()` — копирует все поля из ParsedOffsets → SDK::Offsets
-    *   `Validate()` — проверяет критичные поля (dwEntityList, dwLocalPlayerPawn, dwViewMatrix)
-    *   `LogStatus()` — логирует все значения в консоль, предупреждает о missing
-*   `offset_loader.h/cpp`: Facade — объединяет FileLoader → Parser → Applier.
-    *   `LoadOffsets()` — основной вход: cache_offsets/ → (если невалиден) GitHub → парсинг → применение
-    *   `ReloadOffsets()` — перечитать cache_offsets/ без скачивания
-    *   `ForceUpdateFromGitHub()` — скачать → сохранить → распарсить → применить
-*   `updater.h`: Backward compatibility wrapper для `OffsetLoader` (async через std::future).
-    *   `UpdateOffsets()`, `ForceUpdateOffsets()`, `ReloadOffsets()`
-*   `entity.h` / `entity_classes.h`: Классы игроков, костей, объектов.
-    *   `Entity` struct: renderPosition, bonePositions, onScreen, distance, health, name, weapon
-    *   `BombInfo` struct: isPlanted, timeLeft, site
-*   `player.h`, `structs.h`: Дополнительные структуры.
+The project is split into two main threads:
 
-#### `math/` — Математика
-*   `math.h/cpp`: Векторы, углы, матрицы, WorldToScreen.
+### Render Thread
 
-#### `input/` — Ввод
-*   `input_manager.h/cpp`: Обработка мыши/клавиатуры.
-*   `keybinds.h`: Горячие клавиши.
+Owned by:
+- `main.cpp` main loop
+- or `Core::Application::RenderLoop()`
 
-### 2. `src/features/` — Игровой функционал
+Responsibilities:
+- Windows message pump
+- menu toggle handling
+- input polling
+- calling `FeatureManager::UpdateAll()`
+- overlay position updates
+- ImGui frame construction
+- rendering ESP and menu
+- FPS limiting and VSync handling
 
-Все фичи наследуются от `IFeature` (`feature_base.h`) с методами:
-*   `Update()` — логика (вызывается из render thread)
-*   `Render(DrawList&)` — отрисовка в оверлее
-*   `RenderUI()` — отрисовка настроек в меню
-*   `GetName()` — имя фичи
-*   `OnEnable()` / `OnDisable()` — хуки включения/выключения
-*   `Initialize()` — lazy init (вызывается один раз при первом включении)
+Rules:
+- Any code that calls `GetAsyncKeyState`, `SendInput`, or interacts with user input must stay on the render thread.
+- Features should assume `Update()` runs on the render thread.
 
-#### Фичи:
-| Фича | Файлы | Описание |
-|------|-------|----------|
-| **Aimbot** | `aimbot.h/cpp`, `aimbot_config.h`, `aimbot_ui.h` | Автонаведение, FOV, smooth, target bone |
-| **ESP** | `esp.h/cpp`, `esp_config.h`, `esp_ui.h` | Box, health bar, name, weapon, skeleton, snaplines, frustum culling |
-| **Footsteps ESP** | `footsteps_esp/footsteps_esp.h/cpp`, `footsteps_esp_config.h`, `footsteps_esp_ui.h` | Расширяющиеся круги под ногами врагов при ходьбе, прыжках, приземлении |
-| **Triggerbot** | `triggerbot.h/cpp`, `triggerbot_config.h`, `triggerbot_ui.h` | Автовыстрел при наведении |
-| **RCS** | `rcs.h/cpp`, `rcs_config.h`, `rcs_ui.h` | Компенсация отдачи (standalone) |
-| **Misc** | `misc.h/cpp`, `misc_config.h`, `misc_ui.h` | AWP crosshair и другое |
-| **Bomb** | `bomb.h/cpp`, `bomb_config.h`, `bomb_ui.h` | Таймер бомбы, носитель |
-| **Radar** | `radar.h/cpp`, `radar_config.h`, `radar_ui.h` | 2D-радар с позициями |
-| **Debug** | `debug_overlay.h/cpp`, `debug_overlay_config.h`, `debug_overlay_ui.h` | Отладочная визуализация |
+### Memory Thread
 
-#### Менеджер фич:
-*   `feature_base.h`: Интерфейс `IFeature`
-*   `feature_manager.h/cpp`: Factory pattern — фичи регистрируются как фабрики, инстансы создаются при первом включении.
-    *   `RegisterAll()` — регистрация всех фич
-    *   `UpdateAll()` / `RenderAll()` — обновление и отрисовка
-    *   `ApplySettings()` — lazy-init при изменении enabled state
-    *   `EnsureFeatureInitialized()` / `EnsureAllInitialized()` / `GetFeature()` — хелперы
+Owned by:
+- lambda in `main.cpp`
+- or `Core::Application::MemoryThreadLoop()`
 
-### 3. `src/render/` — Визуализация и интерфейс
+Responsibilities:
+- periodic attach retry to `cs2.exe`
+- reading live game memory
+- updating `GameManager`
+- UPS limiting
 
-#### `overlay/` — Окно оверлея
-*   `overlay.h/cpp`: Прозрачное окно поверх CS2, UpdatePosition().
-*   `GetGameWidth()` / `GetGameHeight()` — размеры игровой области (для WorldToScreen).
+Rules:
+- Raw memory traversal and entity reconstruction belong here.
+- If the target process disappears, this thread must reset runtime state instead of leaving stale data visible.
 
-#### `renderer/` — Графический движок
-*   `renderer.h/cpp`: DirectX 11 инициализация, BeginFrame/EndFrame.
-*   `imgui_manager.h/cpp`: ImGui инициализация, NewFrame, Render, Shutdown.
+## 4. Core Modules
 
-#### `draw/` — Рисование
-*   `draw_list.h/cpp`: Линии, текст, фигуры, боксы, круги, углы.
+### `src/config/`
 
-#### `menu/` — Главное меню (модульное)
-| Файл | Описание |
-|------|----------|
-| `menu.h/cpp` | Каркас: header, sidebar, tab switcher (~140 строк) |
-| `menu_theme.h/cpp` | 7 тем: Midnight, Blood, Cyber, Lavender, Gold, Monochrome, Toxic |
-| `tab_legit.h/cpp` | Вкладка LEGIT: Aimbot + Triggerbot |
-| `tab_visuals.h/cpp` | Вкладка VISUALS: ESP + Footsteps ESP + Radar + Bomb |
-| `tab_misc.h/cpp` | Вкладка MISC: Crosshair |
-| `tab_settings.h/cpp` | Вкладка SETTINGS: Configs, Themes, Performance, Debug, Frustum Culling, Offsets |
-| `ui_components.h/cpp` | UI-виджеты: SettingToggle, SettingHotkey, SettingColor, BeginCard |
+Files:
+- `config_manager.cpp/.h`
+- `settings.h`
 
-### 4. `src/config/` — Конфигурация
-*   `config_manager.h/cpp`: Config Registry — авто-сериализация через `BuildRegistry()`.
-    *   `Load()` / `Save()` — загрузка/сохранение конфигов
-    *   `ApplySettings()` — lazy-init фич при изменении настроек
-*   `settings.h`: Глобальная структура `GlobalSettings` со всеми конфигами.
+Responsibilities:
+- own global runtime settings
+- serialize and deserialize configs
+- apply settings to feature enable state
 
-### 5. `src/utils/` — Утилиты
-*   `logger.h/cpp`: Расширенный логгер с уровнями (Debug/Info/Warn/Error), вывод в консоль и файл.
-*   `string_utils.h`: Утилиты для строк (ToLower, ToUpper, StartsWith, EndsWith, Trim).
-*   `math.h`: Математические хелперы.
-*   `timer.h`: Таймер для замеров времени.
+Current behavior:
+- Configs are stored under `configs/` next to the executable.
+- Config names are normalized so `default` and `default.json` refer to the same file.
+- Missing config file is not a fatal error.
+- Missing config now means: load default in-memory settings and continue.
+- Invalid config content means: reset to defaults, record `LastError`, and continue safely.
 
-### 6. `external/` — Сторонние библиотеки
-*   `imgui/`: ImGui с бэкендами Win32 + DirectX 11.
+Critical maintenance rule:
+- Every setting that is user-editable and expected to persist must be added to `BuildRegistry()`.
+- If a new field is added to `settings.h` or any feature config and is not registered, persistence is considered broken.
 
----
+### `src/core/process/`
 
-## ⚙️ Принципы работы
+Files:
+- `process.cpp/.h`
+- `module.cpp/.h`
+- `stealth.cpp/.h`
 
-### Многопоточная архитектура
-Чит разделяет логику на два параллельных потока:
+Responsibilities:
+- process discovery
+- attach / detach lifecycle
+- target handle ownership
+- module base lookup
+- stealth behavior
 
-1.  **Memory Thread (Поток памяти)**:
-    *   Работает в бесконечном цикле (частота ~64-240 UPS).
-    *   Читает данные из памяти CS2, обновляет `GameManager`.
-    *   Инкапсулирован в `Application::MemoryThreadLoop()`.
+Current behavior:
+- `Process::Attach()` finds `cs2.exe`, tries handle theft first, falls back to `OpenProcess`.
+- `Process::GetProcessId()` and `Process::GetHandle()` validate whether the underlying process is still alive.
+- If the process has exited, internal process state is cleared automatically.
+- If attach fails because `cs2.exe` is not running, old process state must not survive.
 
-2.  **Render Thread (Основной поток)**:
-    *   Обработка Windows сообщений, отрисовка Overlay.
-    *   Логика фич (aimbot angles, triggerbot).
-    *   Рисует ESP на основе данных из Memory Thread.
-    *   Инкапсулирован в `Application::RenderLoop()`.
+Critical maintenance rules:
+- Never keep an old `HANDLE` when reattaching to a new process.
+- Never keep an old `PID` after process death or failed attach.
+- `module.cpp` must never call `CloseHandle()` on `INVALID_HANDLE_VALUE`.
+- Any attach retry logic must be written so a CS2 restart can recover without restarting the overlay.
 
-### Иерархия управления
-*   `main.cpp` → `Application::Initialize()` → `Application::Run()`
-*   `Application` управляет Memory Thread и Render Loop
-*   `GameManager` предоставляет данные через double-buffering
-*   `FeatureManager` координирует фичи (factory pattern, lazy init)
-*   `Menu` делегирует UI фичам через `RenderUI()`
+### `src/core/game/`
 
-### Парадигмы кода (Важно для ИИ)
-1. **Config Registry (Авто-сериализация)**: Параметры добавляются в `BuildRegistry()` — цикл Save/Load проходит по массиву автоматически.
-2. **Feature UI (Open-Closed Principle)**: Каждая фича рендерит свой UI через `RenderUI()`. Menu.cpp делегирует, не хардкодит.
-3. **Application Layer**: Вся логика инициализации в классе `Application`, main.cpp — тонкая обёртка.
-4. **Factory Pattern**: Фичи регистрируются как фабрики, инстансы создаются только при первом включении.
-5. **Double-Buffering**: Entity list записывается в один буфер, читается из другого — без блокировок.
+Files:
+- `game_manager.cpp/.h`
+- `game_manager_getters.cpp`
+- `entity_list.h`
+- `local_player.h`
 
----
+Responsibilities:
+- live game snapshot assembly
+- cached local player state
+- cached entity state
+- double-buffered render data
+- frustum culling flags
 
-## ⚠️ Важные подсказки и правила
+Current behavior:
+- `GameManager::Update()` is driven by the memory thread.
+- Player data is reconstructed into a write buffer, then published to a read buffer.
+- Scalar state is protected by `stateMutex`.
+- `ClearFrameState()` now resets render-visible state when process data becomes invalid.
 
-### Окно CS2 и оверлей
-- Оверлей находит окно CS2 через `FindWindowA(nullptr, "Counter-Strike 2")`
-- Fallback через `EnumWindows` если не найдено
-- `UpdatePosition()` вызывается КАЖДЫЙ КАДР
-- **ВАЖНО:** WorldToScreen использует `Overlay::GetGameWidth/Height()`
-- `GameManager::SetScreenSize()` вызывается каждый кадр из render loop
+Critical maintenance rules:
+- If process is gone, `GameManager` must publish empty state, not stale state.
+- If `client.dll` disappears or entity list cannot be rebuilt, do not leave old players on screen.
+- Writes to values that are read under `stateMutex` must also be synchronized with that mutex.
+- Render-side code must consume getters, not backend mutable state directly.
 
-### Система оффсетов (3-этапный пайплайн)
+### `src/core/sdk/`
 
-**Архитектура папок:**
+Files:
+- `offsets.h`
+- `offset_file_loader.cpp/.h`
+- `offset_parser.cpp/.h`
+- `offset_applier.cpp/.h`
+- `offset_loader.cpp/.h`
+- `entity.h`
+- `entity_classes.h`
+- `structs.h`
+- `updater.h`
+
+Responsibilities:
+- load offset sources
+- parse offsets
+- apply offsets into `SDK::Offsets`
+- expose typed wrappers around game objects
+
+Offset pipeline:
+1. Load from `cache_offsets/` next to the executable.
+2. If cache is missing or invalid, try GitHub fallback.
+3. Parse JSON first, HPP second.
+4. Apply parsed values to `SDK::Offsets`.
+
+Critical maintenance rules:
+- `dwEntityList`, `dwLocalPlayerPawn`, and `dwViewMatrix` are minimum viable offsets.
+- If these are missing, the overlay must not pretend it has valid game data.
+- Any field used by `entity_classes.h` or feature logic must exist either as parsed data or as an intentional internal hardcoded fallback in `offsets.h`.
+
+### `src/core/memory/`
+
+Files:
+- `memory_manager.h`
+- `pattern_scanner.h`
+
+Responsibilities:
+- safe address validation
+- low-level reads and writes
+- raw buffer reads
+
+Critical maintenance rules:
+- `Read<T>()` is allowed to fail quietly, but callers must treat zero/default return values as potentially invalid.
+- Do not add noisy logging inside hot-path memory reads.
+
+## 5. Feature Layer
+
+Folder:
+- `src/features/`
+
+Shared files:
+- `feature_base.h`
+- `feature_manager.cpp/.h`
+
+Current feature set:
+- Aimbot
+- Bomb
+- DebugOverlay
+- ESP
+- FootstepsEsp
+- Misc
+- Radar
+- RCSSystem
+- Triggerbot
+
+Feature manager behavior:
+- features are registered as factories
+- instances are created lazily
+- `RegisterAll()` must be idempotent
+
+Critical maintenance rules:
+- `RegisterAll()` must not duplicate registrations if called more than once.
+- `UpdateAll()` is render-thread only.
+- Feature enable/disable behavior must remain consistent with `ConfigManager::ApplySettings()`.
+- If a feature is shown in the menu and has persistent settings, those settings must be present in config registry.
+
+## 6. Render Layer
+
+### `src/render/overlay/`
+
+Responsibilities:
+- find the CS2 window
+- create transparent overlay window
+- keep overlay aligned with the game window
+
+Current behavior:
+- class registration is validated
+- failed overlay creation unregisters the class
+- destroy path unregisters the class even if window creation previously failed
+
+Critical maintenance rules:
+- `Create()` must not leak a registered class on failure.
+- `Destroy()` must tolerate partial initialization.
+- `UpdatePosition()` must not assume CS2 is still alive.
+
+### `src/render/renderer/`
+
+Responsibilities:
+- DirectX 11 device and swap chain
+- frame begin/end
+- VSync state
+- ImGui backend
+
+Critical maintenance rules:
+- `Renderer::Init()` must be safe to call after a previous partial init failure.
+- If `GetBuffer()` or `CreateRenderTargetView()` fails, partially created D3D objects must be released immediately.
+- Startup code must destroy overlay/process state if renderer init fails.
+
+### `src/render/menu/`
+
+Responsibilities:
+- top-level menu
+- tab layout
+- config management UI
+- theme controls
+- offset update buttons
+
+Current behavior:
+- config list initializes lazily
+- offset update status distinguishes pending / success / failure
+
+Critical maintenance rules:
+- settings UI and config registry must evolve together
+- do not add new persistent UI fields without updating config serialization
+
+## 7. Input Layer
+
+Files:
+- `input_manager.cpp/.h`
+- `keybinds.h`
+
+Responsibilities:
+- key state polling
+- one-frame pressed detection
+- synthetic mouse movement and clicks
+
+Critical maintenance rules:
+- virtual key access must always be bounds-checked
+- input helpers must remain render-thread only
+
+## 8. Build And Runtime Paths
+
+### Build Inputs
+
+The project expects CS2 dumper files under:
+
+```text
+offsets/output/
 ```
-offsets/output/     ← пользователь кладёт сюда папку output из cs2-dumper
-build.bat           ← копирует из offsets/output/ → build/Release/cache_offsets/
-build/Release/cache_offsets/  ← runtime читает отсюда
+
+### Build Output
+
+Runtime expects:
+
+```text
+build/Release/cache_offsets/
+build/Release/configs/
 ```
 
-**Поток данных:**
-1. **Build-time**: `build.bat` ищет `offsets/output/` → копирует JSON/HPP файлы в `build/Release/cache_offsets/`
-2. **Runtime**: exe читает `cache_offsets/` рядом с собой → `OffsetParser` парсит JSON (приоритет) или HPP (fallback через regex) → `OffsetApplier` применяет к `SDK::Offsets`
-3. **GitHub fallback**: если `cache_offsets/` нет или невалиден → скачивает с `a2x/cs2-dumper` → сохраняет в `cache_offsets/` → парсит
-4. **UI Update**: кнопка "Update Offsets from GitHub" → скачивает → перезаписывает `cache_offsets/` → парсит заново
-5. **UI Reload**: кнопка "Reload Offsets from Disk" → перечитывает `cache_offsets/` без скачивания
+### `build.bat`
 
-**Поддержка форматов:**
-- Приоритет: `.json` (`offsets.json` + `client_dll.json`)
-- Fallback: `.hpp` (`offsets.hpp` + `client_dll.hpp`) — парсинг через regex `#define`
-- Если оба формата есть — используется JSON
+Responsibilities:
+- copy offset files from `offsets/output/` into runtime cache
+- configure CMake
+- build Release target
 
-**Файлы SDK:**
-- `offset_file_loader.h/cpp` — загрузка файлов из `cache_offsets/` или GitHub
-- `offset_parser.h/cpp` — парсинг JSON (nlohmann) + HPP (regex)
-- `offset_applier.h/cpp` — запись в `SDK::Offsets`, валидация, логирование
-- `offset_loader.h/cpp` — Facade: FileLoader → Parser → Applier
-- `offsets.h` — `inline` переменные (C++17), все = 0 по умолчанию (кроме internal)
-- `updater.h` — async wrapper с `UpdateOffsets()`, `ForceUpdateOffsets()`, `ReloadOffsets()`
+Maintenance rule:
+- If runtime cache expectations change, `build.bat`, `Structure.md`, and offset loader logic must be updated together.
 
-**Критичные поля для валидации:** `dwEntityList`, `dwLocalPlayerPawn`, `dwViewMatrix` — если хотя бы одно = 0, ESP не будет работать.
+## 9. Current Known Constraints
 
-### Чтение памяти
-- `MemoryManager::Read<T>()` — игнорирует ошибки
-- `MemoryManager::ReadOptional<T>()` — возвращает `std::optional<T>`
-- `MemoryManager::ReadBatch()` — пакетное чтение
-- `MemoryManager::ReadRaw()` — чтение сырых байтов
-- **ВАЖНО:** Не добавлять verbose-логирование в NtRead
+- There are two startup implementations: `main.cpp` and `Core::Application`.
+- The project currently relies on external offset files being present or downloadable.
+- Environment-specific MSBuild issues can still block local compilation even when the code is correct.
 
-### Конфигурация
-- Config Registry: параметры в `BuildRegistry()` → авто-сериализация
-- `Settings` — глобальная структура
-- Конфиги сохраняются в папку `configs/` рядом с exe
+These are not reasons to duplicate logic further. They are reasons to centralize behavior more aggressively over time.
 
-### Feature Manager
-- `RegisterAll()` — регистрация фич как фабрик
-- `UpdateAll()` — ТОЛЬКО из render thread (содержит GetAsyncKeyState/SendInput)
-- `RenderAll(drawList)` — отрисовка через DrawList
-- `ApplySettings()` — lazy-init: создаёт инстанс фичи только при enabled = true
-- `EnsureFeatureInitialized(name)` — принудительная инициализация конкретной фичи
+## 10. Rules Added After Recent Bug Fixes
 
-### Frustum Culling
-- `GameManager::SetScreenSize(w, h)` — вызывается каждый кадр
-- `GameManager::IsOnScreen(worldPos)` — проверка через viewMatrix projection
-- `Entity::onScreen` — флаг, обновляется каждый кадр в `Update()`
-- ESP пропускает off-screen entities; `showOffscreen` рисует стрелки на краю экрана
-- `frustumCullingEnabled` — глобальный переключатель (Settings → Performance & Debug)
+These rules are mandatory because recent bugs came from violating them.
 
-### Footsteps ESP
-- Обнаружение через чтение `m_fFlags` (bit 0 = FL_ONGROUND) + `m_vecVelocity` из памяти CS2
-- **Walking**: on ground + velocity > 50 → жёлтый круг (~25 units max)
-- **Jumping**: was on ground → now airborne → голубой круг (~40 units max)
-- **Landing**: was airborne → now on ground → оранжевый круг (radius зависит от скорости падения, до ~55 units)
-- Круги расширяются за `expandDuration`, затем затухают за `fadeDuration`
-- Радиус в пикселях вычисляется через проекцию смещённой точки в screen space
-- Дебаунс footsteps: не чаще 250ms на одного игрока
+### Startup And Shutdown
 
-### Сборка
-- `build.bat` — основной скрипт
-- `build.bat` копирует файлы из `offsets/output/` в `build/Release/cache_offsets/` перед сборкой
-- CMakeLists.txt: `GLOB_RECURSE CONFIGURE_DEPENDS` — новые файлы подхватываются автоматически
-- `dxguid` добавлен в target_link_libraries
-- Использовать только папку `build/` — не плодить build2, build3 и т.д.
-- `.gitignore` содержит `build*/` — все build-папки игнорируются git
+- Every early return after successful process attach must detach the process.
+- Every early return after overlay creation must destroy the overlay.
+- Every early return after partial renderer creation must call renderer shutdown.
+- `main.cpp` and `Application::Initialize()` must follow the same cleanup contract.
+
+### Process Recovery
+
+- A CS2 restart must be treated as a normal runtime event.
+- Losing the process must clear runtime state.
+- Reattach must replace old handles, not stack on top of them.
+
+### Config Safety
+
+- Loading a missing config must not leave the application in a half-configured state.
+- Loading a broken config must reset to defaults instead of keeping partially applied values.
+- `LastError` must be cleared after successful `Load()`, `Save()`, or `LoadDefault()`.
+
+### State Publication
+
+- Render-visible state must be explicitly published as empty when the backend has no valid frame.
+- Never assume "no new data" means "keep old data".
+
+### Registration And UI
+
+- Factory registration functions must be idempotent.
+- Menu state that reads from futures must update the pending flag when the future completes.
+- Lists shown in UI should initialize themselves when safe instead of requiring a manual refresh for first use.
+
+## 11. Checklist For Future Changes
+
+When changing the project, verify all relevant items below.
+
+### If you add a new config field
+
+- add the field to the correct config struct
+- add it to `BuildRegistry()`
+- ensure the menu reads and writes it
+- decide what the default value should be
+
+### If you add a new feature
+
+- add the feature files
+- register it in `FeatureManager::RegisterAll()`
+- ensure registration stays idempotent
+- wire its enabled flag into `ConfigManager::ApplySettings()`
+- add its persistent settings to config registry if needed
+
+### If you change process attach logic
+
+- test the mental model for:
+  - CS2 not started yet
+  - CS2 starts later
+  - CS2 closes while overlay is alive
+  - CS2 restarts with a new PID
+
+### If you change overlay or renderer init
+
+- inspect all failure paths
+- ensure every partially acquired resource is released
+- ensure later retries are still safe
+
+### If you change `GameManager`
+
+- decide what happens when data is invalid
+- verify empty state is published correctly
+- verify thread-safe reads still use the intended lock / buffer model
+
+## 12. Documentation Rule
+
+If any of the following change, update this file in the same task:
+- folder layout
+- startup flow
+- process lifecycle
+- config persistence rules
+- feature registration rules
+- render / memory thread ownership
+- offset loading pipeline

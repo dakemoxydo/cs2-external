@@ -2,6 +2,7 @@
 #include "game_manager.h"
 #include "../memory/memory_manager.h"
 #include "../process/module.h"
+#include "../process/process.h"
 #include "../sdk/entity_classes.h"
 #include "../sdk/offsets.h"
 #include "config/settings.h"
@@ -85,12 +86,22 @@ int GameManager::s_screenWidth = 1920;
 int GameManager::s_screenHeight = 1080;
 
 bool GameManager::Init() {
-  clientBase = Module::GetBaseAddress(L"client.dll");
-  return clientBase != 0;
+  const uintptr_t base = Module::GetBaseAddress(L"client.dll");
+  {
+    std::unique_lock<std::shared_mutex> lock(stateMutex);
+    clientBase = base;
+  }
+  return base != 0;
 }
 
 void GameManager::Update() {
+  if (Process::GetProcessId() == 0) {
+    ClearFrameState(true);
+    return;
+  }
+
   if (!clientBase && !Init()) {
+    ClearFrameState(true);
     return;
   }
 
@@ -102,6 +113,7 @@ void GameManager::Update() {
 
   FrameContext context{SDK::CEntityList(0), SDK::CPlayerPawn(0)};
   if (!BuildFrameContext(context)) {
+    ClearFrameState(false);
     return;
   }
 
@@ -144,6 +156,23 @@ void GameManager::Update() {
     std::cout << std::endl;
   }
 #endif
+}
+
+void GameManager::ClearFrameState(bool clearClientBase) {
+  viewMatrix = {};
+  players.clear();
+  ResetLocalState();
+  entityList = 0;
+  bombInfo = {};
+
+  if (clearClientBase) {
+    std::unique_lock<std::shared_mutex> lock(stateMutex);
+    clientBase = 0;
+    s_invalidSlotCache.clear();
+    InvalidateCachedEntityData();
+  }
+
+  PublishFrameState();
 }
 
 void GameManager::ResetLocalState() {

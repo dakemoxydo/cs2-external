@@ -7,9 +7,9 @@ namespace SDK {
 
 class OffsetLoader {
 public:
-    void LoadOffsets();
-    void ReloadOffsets();
-    void ForceUpdateFromGitHub();
+    bool LoadOffsets();
+    bool ReloadOffsets();
+    bool ForceUpdateFromGitHub();
 
 private:
     OffsetFileLoader fileLoader;

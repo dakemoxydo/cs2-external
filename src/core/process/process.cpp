@@ -21,6 +21,15 @@ struct Cs2HandleInfo {
   ULONG Count;
   Cs2HandleEntry Entries[1];
 };
+
+bool IsHandleAlive(HANDLE handle) {
+  if (!handle) {
+    return false;
+  }
+
+  DWORD exitCode = 0;
+  return GetExitCodeProcess(handle, &exitCode) != 0 && exitCode == STILL_ACTIVE;
+}
 } // anonymous namespace
 
 namespace Core {
@@ -166,8 +175,10 @@ bool Process::Attach(const std::wstring &processName) {
     } while (Process32NextW(hSnap, &entry));
   }
   CloseHandle(hSnap);
-  if (!found)
+  if (!found) {
+    Detach();
     return false;
+  }
 
   // Try handle theft first (stealthier)
   HANDLE stolen = TryStealHandle(entry.th32ProcessID);
@@ -188,7 +199,11 @@ bool Process::Attach(const std::wstring &processName) {
 
   {
     std::lock_guard lock(s_mutex);
+    if (hProcess && hProcess != stolen) {
+      CloseHandle(hProcess);
+    }
     hProcess = stolen;
+    processId = entry.th32ProcessID;
   }
   return true;
 }
@@ -205,8 +220,23 @@ void Process::Detach() {
 
 HANDLE Process::GetHandle() {
   std::lock_guard lock(s_mutex);
+  if (hProcess && !IsHandleAlive(hProcess)) {
+    CloseHandle(hProcess);
+    hProcess = nullptr;
+    processId = 0;
+  }
   return hProcess;
 }
-DWORD Process::GetProcessId() { return processId.load(); }
+DWORD Process::GetProcessId() {
+  std::lock_guard lock(s_mutex);
+
+  if (hProcess && !IsHandleAlive(hProcess)) {
+    CloseHandle(hProcess);
+    hProcess = nullptr;
+    processId = 0;
+  }
+
+  return processId.load();
+}
 
 } // namespace Core

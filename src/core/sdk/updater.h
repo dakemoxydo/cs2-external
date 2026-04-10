@@ -8,25 +8,34 @@ class Updater {
 public:
     static std::future<bool> UpdateOffsets() {
         return std::async(std::launch::async, []() {
-            static OffsetLoader loader;
-            loader.LoadOffsets();
-            return true;
+            try {
+                static OffsetLoader loader;
+                return loader.LoadOffsets();
+            } catch (...) {
+                return false;
+            }
         });
     }
 
     static std::future<bool> ForceUpdateOffsets() {
         return std::async(std::launch::async, []() {
-            static OffsetLoader loader;
-            loader.ForceUpdateFromGitHub();
-            return true;
+            try {
+                static OffsetLoader loader;
+                return loader.ForceUpdateFromGitHub();
+            } catch (...) {
+                return false;
+            }
         });
     }
 
     static std::future<bool> ReloadOffsets() {
         return std::async(std::launch::async, []() {
-            static OffsetLoader loader;
-            loader.ReloadOffsets();
-            return true;
+            try {
+                static OffsetLoader loader;
+                return loader.ReloadOffsets();
+            } catch (...) {
+                return false;
+            }
         });
     }
 };
