@@ -1,6 +1,7 @@
 #pragma once
 #include "core/constants.h"
 #include "../sdk/entity.h"
+#include "../sdk/entity_classes.h"
 #include "../sdk/structs.h"
 #include <atomic>
 #include <mutex>
@@ -66,6 +67,12 @@ public:
   static SDK::BombInfo GetBombInfo();
 
 private:
+  struct FrameContext {
+    SDK::CEntityList entityListObj;
+    SDK::CPlayerPawn localPlayer;
+    uintptr_t controllerPointers[Constants::MAX_PLAYERS] = {};
+  };
+
   static uintptr_t clientBase;
   static std::atomic<bool> s_readBones;
   static std::atomic<bool> s_readWeapons;
@@ -116,5 +123,14 @@ private:
   static uintptr_t cachedLocalPawn;
   static uintptr_t cachedEntityList;
   static SDK::BombInfo cachedBombInfo;
+
+  static void ResetLocalState();
+  static void UpdateLocalState(const SDK::CPlayerPawn& localPlayer);
+  static void UpdateBombState();
+  static bool BuildFrameContext(FrameContext& context);
+  static int FindLocalSlot(const FrameContext& context);
+  static void DecrementInvalidSlotCache();
+  static void RebuildPlayers(const FrameContext& context, int localSlot);
+  static void PublishFrameState();
 };
 } // namespace Core

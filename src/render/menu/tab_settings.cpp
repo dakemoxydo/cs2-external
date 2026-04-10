@@ -22,6 +22,11 @@ static bool s_offsetUpdateSuccess = false;
 static std::string s_offsetUpdateMessage = "";
 static std::future<bool> s_offsetUpdateFuture;
 
+static bool s_offsetReloadPending = false;
+static bool s_offsetReloadSuccess = false;
+static std::string s_offsetReloadMessage = "";
+static std::future<bool> s_offsetReloadFuture;
+
 void RenderTabSettings() {
     ImGui::Columns(2, "SetCols", false);
 

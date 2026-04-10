@@ -6,6 +6,30 @@
 
 Проект разделён на логические слои (Application, Core, Features, Render, Config), строго следующих правилу односторонних зависимостей.
 
+### Архитектура папок
+
+```
+cs2overlay/
+├── build.bat
+├── offsets/                         ← папка проекта (рядом с build.bat)
+│   └── output/                      ← сюда кидаешь папку output из cs2-dumper
+│       ├── client_dll.json
+│       ├── client_dll.hpp
+│       ├── offsets.json
+│       ├── offsets.hpp
+│       └── ...
+├── build/
+│   └── Release/
+│       ├── cs2overlay.exe
+│       └── cache_offsets/           ← создаётся при билде / при GitHub update
+│           ├── offsets.json
+│           ├── client_dll.json
+│           ├── offsets.hpp          (если есть)
+│           └── client_dll.hpp       (если есть)
+├── data/                            ← устаревшая папка (больше не используется)
+└── src/
+```
+
 ### 0. `src/main.cpp` — Точка входа
 Минимальный файл (10 строк) — создаёт и запускает `Application`.
 
@@ -40,14 +64,25 @@
 *   `local_player.h`: Доступ к данным своего персонажа.
 
 #### `sdk/` — Техническая информация
-*   `offsets.h`: Смещения памяти (inline переменные C++17).
-    *   `client.dll` оффсеты: dwEntityList, dwLocalPlayerPawn, dwViewMatrix, dwPlantedC4, m_iHealth, и др.
-    *   Entity поля: m_fFlags, m_vecVelocity, m_pGameSceneNode, m_boneArrayOffset, и др.
-*   `offset_loader.h/cpp`: Загрузка оффсетов из кэша/GitHub (OOP класс).
-    *   Читает `offsets_cache.json` и `client_cache.json` из папки с exe
-    *   `ForceUpdateFromGitHub()` — принудительное обновление и перезапись кэша
-    *   `FindFieldInClientJson()` — поиск полей в загруженном JSON
-*   `updater.h/cpp`: Backward compatibility wrapper для `OffsetLoader`.
+*   `offsets.h`: Смещения памяти (inline переменные C++17). Все поля = 0 по умолчанию (кроме internal: m_hPawn, m_bIsLocalPlayerController, m_entitySpottedState, m_bSpottedByMaskOffset, m_boneArrayOffset). Заполняются при загрузке из дампа.
+*   `offset_file_loader.h/cpp`: Загрузка сырых файлов оффсетов.
+    *   `LoadFromCacheDir()` — читает `cache_offsets/` рядом с `.exe` (JSON + HPP)
+    *   `DownloadFromGitHub()` — скачивает с `a2x/cs2-dumper`
+    *   `SaveToCacheDir()` — сохраняет JSON в `cache_offsets/`
+*   `offset_parser.h/cpp`: Парсинг сырых файлов в структурированные оффсеты.
+    *   `ParseJson()` — парсит `offsets.json` + `client_dll.json` через nlohmann::json
+    *   `ParseHpp()` — парсит `offsets.hpp` + `client_dll.hpp` через regex (#define)
+    *   Приоритет: JSON > HPP. Если оба формата есть — используется JSON.
+*   `offset_applier.h/cpp`: Применение распарсенных оффсетов к `SDK::Offsets`.
+    *   `Apply()` — копирует все поля из ParsedOffsets → SDK::Offsets
+    *   `Validate()` — проверяет критичные поля (dwEntityList, dwLocalPlayerPawn, dwViewMatrix)
+    *   `LogStatus()` — логирует все значения в консоль, предупреждает о missing
+*   `offset_loader.h/cpp`: Facade — объединяет FileLoader → Parser → Applier.
+    *   `LoadOffsets()` — основной вход: cache_offsets/ → (если невалиден) GitHub → парсинг → применение
+    *   `ReloadOffsets()` — перечитать cache_offsets/ без скачивания
+    *   `ForceUpdateFromGitHub()` — скачать → сохранить → распарсить → применить
+*   `updater.h`: Backward compatibility wrapper для `OffsetLoader` (async через std::future).
+    *   `UpdateOffsets()`, `ForceUpdateOffsets()`, `ReloadOffsets()`
 *   `entity.h` / `entity_classes.h`: Классы игроков, костей, объектов.
     *   `Entity` struct: renderPosition, bonePositions, onScreen, distance, health, name, weapon
     *   `BombInfo` struct: isPlanted, timeLeft, site
@@ -112,7 +147,7 @@
 | `tab_legit.h/cpp` | Вкладка LEGIT: Aimbot + Triggerbot |
 | `tab_visuals.h/cpp` | Вкладка VISUALS: ESP + Footsteps ESP + Radar + Bomb |
 | `tab_misc.h/cpp` | Вкладка MISC: Crosshair |
-| `tab_settings.h/cpp` | Вкладка SETTINGS: Configs, Themes, Performance, Debug, Frustum Culling |
+| `tab_settings.h/cpp` | Вкладка SETTINGS: Configs, Themes, Performance, Debug, Frustum Culling, Offsets |
 | `ui_components.h/cpp` | UI-виджеты: SettingToggle, SettingHotkey, SettingColor, BeginCard |
 
 ### 4. `src/config/` — Конфигурация
@@ -173,12 +208,36 @@
 - **ВАЖНО:** WorldToScreen использует `Overlay::GetGameWidth/Height()`
 - `GameManager::SetScreenSize()` вызывается каждый кадр из render loop
 
-### Система оффсетов
-- Оффсеты загружаются из КЭША (`offsets_cache.json`, `client_cache.json`) из папки с exe
-- Кнопка "Update Offsets from GitHub" → принудительное обновление и перезапись кэша
-- `offsets.h` использует `inline` переменные (C++17) — НЕ создавать offsets.cpp
-- `OffsetLoader` — OOP класс для загрузки, `Updater` — backward compatibility
-- `m_fFlags` и `m_vecVelocity` загружаются через `FindFieldInClientJson()` из client_dll.json
+### Система оффсетов (3-этапный пайплайн)
+
+**Архитектура папок:**
+```
+offsets/output/     ← пользователь кладёт сюда папку output из cs2-dumper
+build.bat           ← копирует из offsets/output/ → build/Release/cache_offsets/
+build/Release/cache_offsets/  ← runtime читает отсюда
+```
+
+**Поток данных:**
+1. **Build-time**: `build.bat` ищет `offsets/output/` → копирует JSON/HPP файлы в `build/Release/cache_offsets/`
+2. **Runtime**: exe читает `cache_offsets/` рядом с собой → `OffsetParser` парсит JSON (приоритет) или HPP (fallback через regex) → `OffsetApplier` применяет к `SDK::Offsets`
+3. **GitHub fallback**: если `cache_offsets/` нет или невалиден → скачивает с `a2x/cs2-dumper` → сохраняет в `cache_offsets/` → парсит
+4. **UI Update**: кнопка "Update Offsets from GitHub" → скачивает → перезаписывает `cache_offsets/` → парсит заново
+5. **UI Reload**: кнопка "Reload Offsets from Disk" → перечитывает `cache_offsets/` без скачивания
+
+**Поддержка форматов:**
+- Приоритет: `.json` (`offsets.json` + `client_dll.json`)
+- Fallback: `.hpp` (`offsets.hpp` + `client_dll.hpp`) — парсинг через regex `#define`
+- Если оба формата есть — используется JSON
+
+**Файлы SDK:**
+- `offset_file_loader.h/cpp` — загрузка файлов из `cache_offsets/` или GitHub
+- `offset_parser.h/cpp` — парсинг JSON (nlohmann) + HPP (regex)
+- `offset_applier.h/cpp` — запись в `SDK::Offsets`, валидация, логирование
+- `offset_loader.h/cpp` — Facade: FileLoader → Parser → Applier
+- `offsets.h` — `inline` переменные (C++17), все = 0 по умолчанию (кроме internal)
+- `updater.h` — async wrapper с `UpdateOffsets()`, `ForceUpdateOffsets()`, `ReloadOffsets()`
+
+**Критичные поля для валидации:** `dwEntityList`, `dwLocalPlayerPawn`, `dwViewMatrix` — если хотя бы одно = 0, ESP не будет работать.
 
 ### Чтение памяти
 - `MemoryManager::Read<T>()` — игнорирует ошибки
@@ -217,6 +276,7 @@
 
 ### Сборка
 - `build.bat` — основной скрипт
+- `build.bat` копирует файлы из `offsets/output/` в `build/Release/cache_offsets/` перед сборкой
 - CMakeLists.txt: `GLOB_RECURSE CONFIGURE_DEPENDS` — новые файлы подхватываются автоматически
 - `dxguid` добавлен в target_link_libraries
 - Использовать только папку `build/` — не плодить build2, build3 и т.д.

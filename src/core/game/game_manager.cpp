@@ -2,17 +2,46 @@
 #include "game_manager.h"
 #include "../memory/memory_manager.h"
 #include "../process/module.h"
-#include "../sdk/offsets.h"
 #include "../sdk/entity_classes.h"
+#include "../sdk/offsets.h"
 #include "config/settings.h"
-#include <cmath>
-#include <unordered_map>
-#include <iostream>
 #include <chrono>
+#include <cmath>
+#include <cstring>
+#include <iostream>
+#include <unordered_map>
 
 namespace Core {
 
-// Thread synchronization primitives
+namespace {
+
+constexpr int LIST_CHUNKS = 64;
+constexpr uint32_t INVALID_PAWN_HANDLE = 0xFFFFFFFFu;
+
+uintptr_t s_pawnListCache[LIST_CHUNKS] = {};
+std::unordered_map<uint32_t, std::string> s_nameCache;
+std::unordered_map<uintptr_t, SDK::Vector3> s_prevPositions;
+
+void InvalidateCachedEntityData() {
+  std::memset(s_pawnListCache, 0, sizeof(s_pawnListCache));
+  s_nameCache.clear();
+  s_prevPositions.clear();
+}
+
+bool IsInvalidPawnHandle(uint32_t pawnHandle) {
+  return pawnHandle == 0 || pawnHandle == INVALID_PAWN_HANDLE;
+}
+
+float ComputeDistanceSquared(const SDK::Vector3 &from, const SDK::Vector3 &to,
+                             float &dx, float &dy, float &dz) {
+  dx = to.x - from.x;
+  dy = to.y - from.y;
+  dz = to.z - from.z;
+  return dx * dx + dy * dy + dz * dz;
+}
+
+} // namespace
+
 std::shared_mutex GameManager::stateMutex;
 SDK::Matrix4x4 GameManager::cachedViewMatrix = {};
 
@@ -22,7 +51,7 @@ std::mutex GameManager::bufferMutex;
 
 std::atomic<bool> GameManager::s_readBones{false};
 std::atomic<bool> GameManager::s_readWeapons{false};
-float GameManager::s_interpolationFactor{0.98f}; // Higher = closer to current position, less ghosting (tuned for responsive ESP)
+float GameManager::s_interpolationFactor{0.98f};
 SDK::Vector3 GameManager::cachedLocalPos = {};
 SDK::Vector3 GameManager::cachedLocalEyePos = {};
 SDK::Vector2 GameManager::cachedLocalAngles = {};
@@ -34,9 +63,6 @@ uint32_t GameManager::cachedLocalCrosshairHandle = 0;
 uintptr_t GameManager::cachedLocalPawn = 0;
 uintptr_t GameManager::cachedEntityList = 0;
 SDK::BombInfo GameManager::cachedBombInfo = {};
-
-// Поля читаются отдельно через SDK::Offsets — PawnFields была удалена,
-// так как её capture-паддинги не совпадали с реальными смещениями из offsets.h.
 
 SDK::Matrix4x4 GameManager::viewMatrix = {};
 uintptr_t GameManager::clientBase = 0;
@@ -54,15 +80,6 @@ uintptr_t GameManager::localPawn = 0;
 uintptr_t GameManager::entityList = 0;
 SDK::BombInfo GameManager::bombInfo = {};
 
-// Cache: pawnListEntry per chunk index
-static constexpr int LIST_CHUNKS = 64;
-static uintptr_t s_pawnListCache[LIST_CHUNKS] = {};
-static std::unordered_map<uint32_t, std::string> s_nameCache;
-
-// Position interpolation cache: entity address -> previous position
-static std::unordered_map<uintptr_t, SDK::Vector3> s_prevPositions;
-
-// Invalid slot cache implementation
 std::unordered_map<int, int> GameManager::s_invalidSlotCache;
 int GameManager::s_screenWidth = 1920;
 int GameManager::s_screenHeight = 1080;
@@ -73,42 +90,63 @@ bool GameManager::Init() {
 }
 
 void GameManager::Update() {
-  if (!clientBase) {
-    if (!Init())
-      return;
+  if (!clientBase && !Init()) {
+    return;
   }
 
-  // ── View matrix (single read) ──
-  viewMatrix = MemoryManager::Read<SDK::Matrix4x4>(clientBase +
-                                                   SDK::Offsets::dwViewMatrix);
+  viewMatrix =
+      MemoryManager::Read<SDK::Matrix4x4>(clientBase + SDK::Offsets::dwViewMatrix);
 
   players.clear();
   players.reserve(16);
 
-  // Убираем s_nameCache.clear() каждый кадр для оптимизации.
-  // Имена переиспользуются, строка обновится поверх, если pawnHandle совпадёт.
-
-  entityList =
-      MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwEntityList);
-  if (!entityList)
+  FrameContext context{SDK::CEntityList(0), SDK::CPlayerPawn(0)};
+  if (!BuildFrameContext(context)) {
     return;
-
-  SDK::CEntityList entityListObj(entityList);
-
-  // ── Cache Invalidation ──
-  // If the first chunk address changes, we are on a new map or reconnected
-  static uintptr_t s_lastFirstChunk = 0;
-  uintptr_t currentFirstChunk = entityListObj.GetListEntry(0);
-  if (currentFirstChunk != s_lastFirstChunk) {
-    s_lastFirstChunk = currentFirstChunk;
-    memset(s_pawnListCache, 0, sizeof(s_pawnListCache));
-    s_nameCache.clear();
-    s_prevPositions.clear();
   }
 
-  SDK::CPlayerPawn localPlayer(MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwLocalPlayerPawn));
-  localPawn = localPlayer.GetAddress();
+  ResetLocalState();
+  UpdateLocalState(context.localPlayer);
+  UpdateBombState();
 
+  const int localSlot = FindLocalSlot(context);
+  DecrementInvalidSlotCache();
+  RebuildPlayers(context, localSlot);
+  PublishFrameState();
+
+#ifdef DEBUG
+  static auto lastDebugTime = std::chrono::steady_clock::now();
+  const auto now = std::chrono::steady_clock::now();
+  if (std::chrono::duration_cast<std::chrono::seconds>(now - lastDebugTime)
+          .count() >= 5) {
+    lastDebugTime = now;
+
+    std::cout << "[DEBUG] Entity List: 0x" << std::hex << entityList << std::dec
+              << "\n";
+    std::cout << "[DEBUG] Local Pawn: 0x" << std::hex << localPawn << std::dec
+              << "\n";
+    std::cout << "[DEBUG] Client Base: 0x" << std::hex << clientBase << std::dec
+              << "\n";
+    std::cout << "[DEBUG] Players found: " << players.size() << "\n";
+    std::cout << "[DEBUG] Local Team: " << localTeam << "\n";
+    std::cout << "[DEBUG] Local Pos: " << localPos.x << ", " << localPos.y
+              << ", " << localPos.z << "\n";
+
+    for (size_t i = 0; i < players.size(); ++i) {
+      const auto &p = players[i];
+      std::cout << "  Player[" << i << "]: addr=0x" << std::hex << p.address
+                << " hp=" << std::dec << p.health << " team=" << p.team
+                << " dist=" << p.distance << "m"
+                << " name=" << p.name << " weapon=" << p.weapon
+                << " spotted=" << p.isSpotted
+                << " bones=" << p.bonePositions.size() << "\n";
+    }
+    std::cout << std::endl;
+  }
+#endif
+}
+
+void GameManager::ResetLocalState() {
   localPos = {};
   localEyePos = {};
   localAngles = {};
@@ -117,231 +155,249 @@ void GameManager::Update() {
   localTeam = 0;
   localScoped = false;
   localCrosshairHandle = 0;
+  localPawn = 0;
+}
 
-  if (localPlayer.IsValid()) {
-    localPos = localPlayer.GetOldOrigin();
-    localEyePos = localPlayer.GetCameraPos();
-    localTeam = localPlayer.GetTeam();
-    localAngles = localPlayer.GetEyeAngles();
-    localAimPunch = localPlayer.GetAimPunch();
-    localShotsFired = localPlayer.GetShotsFired();
-    localScoped = localPlayer.IsScoped();
-    localCrosshairHandle = localPlayer.GetCrosshairEntityHandle();
-  }
-
-  // ── Read Bomb State ──
-  bombInfo.isPlanted = false;
-  bombInfo.site = -1;
-  bombInfo.timeLeft = 0.0f;
-
-  if (SDK::Offsets::dwPlantedC4 != 0) {
-    uintptr_t c4Ptr =
-        MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwPlantedC4);
-    if (c4Ptr > Constants::MIN_VALID_ADDRESS) {
-      uintptr_t c4Addr = MemoryManager::Read<uintptr_t>(c4Ptr);
-      if (!c4Addr || c4Addr < Constants::MIN_VALID_ADDRESS)
-        c4Addr = c4Ptr;
-      
-      SDK::CPlantedC4 c4(c4Addr);
-      if (c4.IsTicking()) {
-        bombInfo.isPlanted = true;
-        bombInfo.site = c4.GetSite();
-        bombInfo.timeLeft = c4.GetTimeLeft();
-      }
-    }
-  }
-
-  // ── Batch-read first chunk of controller pointers ──
-  uintptr_t listEntry = MemoryManager::Read<uintptr_t>(entityList + Constants::ENTITY_LIST_HEADER_OFFSET);
-  if (!listEntry)
+void GameManager::UpdateLocalState(const SDK::CPlayerPawn &currentLocalPlayer) {
+  localPawn = currentLocalPlayer.GetAddress();
+  if (!currentLocalPlayer.IsValid()) {
     return;
-
-  // В CS2 каждая запись entity list chunk — CEntityIdentity (Constants::ENTITY_IDENTITY_ENTRY_SIZE байт).
-  // Указатель на entity лежит по +0x00 каждой записи.
-  // Контроллеры: индексы 1..Constants::MAX_PLAYERS (0 = world/null), шаг Constants::ENTITY_IDENTITY_ENTRY_SIZE байт.
-  uintptr_t controllerPointers[Constants::MAX_PLAYERS] = {};
-  for (int i = 0; i < Constants::MAX_PLAYERS; i++) {
-    controllerPointers[i] =
-        MemoryManager::Read<uintptr_t>(listEntry + (i + 1) * Constants::ENTITY_IDENTITY_ENTRY_SIZE);
   }
 
-  // ── Invalidate pawn list chunk cache each frame ──
-  memset(s_pawnListCache, 0, sizeof(s_pawnListCache));
+  localPos = currentLocalPlayer.GetOldOrigin();
+  localEyePos = currentLocalPlayer.GetCameraPos();
+  localTeam = currentLocalPlayer.GetTeam();
+  localAngles = currentLocalPlayer.GetEyeAngles();
+  localAimPunch = currentLocalPlayer.GetAimPunch();
+  localShotsFired = currentLocalPlayer.GetShotsFired();
+  localScoped = currentLocalPlayer.IsScoped();
+  localCrosshairHandle = currentLocalPlayer.GetCrosshairEntityHandle();
+}
 
-  // Find localSlot for SpottedByMask
-  int localSlot = 0;
-  for (int i = 0; i < Constants::MAX_PLAYERS; i++) {
-    SDK::CPlayerController controller(controllerPointers[i]);
-    if (!controller.IsValid())
+void GameManager::UpdateBombState() {
+  bombInfo = {};
+  bombInfo.site = -1;
+
+  if (SDK::Offsets::dwPlantedC4 == 0) {
+    return;
+  }
+
+  uintptr_t c4Ptr =
+      MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwPlantedC4);
+  if (c4Ptr <= Constants::MIN_VALID_ADDRESS) {
+    return;
+  }
+
+  uintptr_t c4Addr = MemoryManager::Read<uintptr_t>(c4Ptr);
+  if (c4Addr < Constants::MIN_VALID_ADDRESS) {
+    c4Addr = c4Ptr;
+  }
+
+  SDK::CPlantedC4 c4(c4Addr);
+  if (!c4.IsTicking()) {
+    return;
+  }
+
+  bombInfo.isPlanted = true;
+  bombInfo.site = c4.GetSite();
+  bombInfo.timeLeft = c4.GetTimeLeft();
+}
+
+bool GameManager::BuildFrameContext(FrameContext &context) {
+  entityList =
+      MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwEntityList);
+  if (!entityList) {
+    return false;
+  }
+
+  context.entityListObj = SDK::CEntityList(entityList);
+
+  static uintptr_t s_lastFirstChunk = 0;
+  const uintptr_t currentFirstChunk = context.entityListObj.GetListEntry(0);
+  if (currentFirstChunk != s_lastFirstChunk) {
+    s_lastFirstChunk = currentFirstChunk;
+    InvalidateCachedEntityData();
+  }
+
+  context.localPlayer = SDK::CPlayerPawn(
+      MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwLocalPlayerPawn));
+
+  uintptr_t listEntry = MemoryManager::Read<uintptr_t>(
+      entityList + Constants::ENTITY_LIST_HEADER_OFFSET);
+  if (!listEntry) {
+    return false;
+  }
+
+  std::memset(s_pawnListCache, 0, sizeof(s_pawnListCache));
+  for (int i = 0; i < Constants::MAX_PLAYERS; ++i) {
+    context.controllerPointers[i] = MemoryManager::Read<uintptr_t>(
+        listEntry + (i + 1) * Constants::ENTITY_IDENTITY_ENTRY_SIZE);
+  }
+
+  return true;
+}
+
+int GameManager::FindLocalSlot(const FrameContext &context) {
+  for (uintptr_t controllerPtr : context.controllerPointers) {
+    SDK::CPlayerController controller(controllerPtr);
+    if (!controller.IsValid()) {
       continue;
-    uint32_t pawnHandle = controller.GetPawnHandle();
-    if (pawnHandle && pawnHandle != 0xFFFFFFFF) {
-      if (controller.IsLocalPlayerController()) {
-        localSlot = (pawnHandle & 0x7FFF) - 1;
-        break;
-      }
+    }
+
+    const uint32_t pawnHandle = controller.GetPawnHandle();
+    if (!IsInvalidPawnHandle(pawnHandle) && controller.IsLocalPlayerController()) {
+      return static_cast<int>((pawnHandle & 0x7FFF) - 1);
     }
   }
 
-  // ── Decrement invalid slot cache counters ──
-  for (auto it = s_invalidSlotCache.begin(); it != s_invalidSlotCache.end(); ) {
-    it->second--;
+  return -1;
+}
+
+void GameManager::DecrementInvalidSlotCache() {
+  for (auto it = s_invalidSlotCache.begin(); it != s_invalidSlotCache.end();) {
+    --it->second;
     if (it->second <= 0) {
       it = s_invalidSlotCache.erase(it);
     } else {
       ++it;
     }
   }
+}
 
-  for (int i = 0; i < Constants::MAX_PLAYERS; i++) {
-    SDK::CPlayerController controller(controllerPointers[i]);
-    if (!controller.IsValid())
+void GameManager::RebuildPlayers(const FrameContext &context, int localSlot) {
+  constexpr float maxDistSq =
+      Constants::ESP_MAX_DISTANCE_UNITS * Constants::ESP_MAX_DISTANCE_UNITS;
+
+  for (uintptr_t controllerPtr : context.controllerPointers) {
+    SDK::CPlayerController controller(controllerPtr);
+    if (!controller.IsValid()) {
       continue;
-
-    uint32_t pawnHandle = controller.GetPawnHandle();
-    if (!pawnHandle || pawnHandle == 0xFFFFFFFF)
-      continue;
-
-    // Check invalid slot cache
-    int slot = (pawnHandle & 0x7FFF) - 1;
-    auto cacheIt = s_invalidSlotCache.find(slot);
-    if (cacheIt != s_invalidSlotCache.end() && cacheIt->second > 0) {
-      continue; // Skip reading this slot for N frames
     }
 
-    // Cached pawn list chunk lookup
-    int chunkIdx = (int)((pawnHandle & 0x7FFF) >> 9);
-    if (chunkIdx < 0 || chunkIdx >= LIST_CHUNKS)
+    const uint32_t pawnHandle = controller.GetPawnHandle();
+    if (IsInvalidPawnHandle(pawnHandle)) {
       continue;
+    }
+
+    const int slot = static_cast<int>((pawnHandle & 0x7FFF) - 1);
+    const auto invalidIt = s_invalidSlotCache.find(slot);
+    if (invalidIt != s_invalidSlotCache.end() && invalidIt->second > 0) {
+      continue;
+    }
+
+    const int chunkIdx = static_cast<int>((pawnHandle & 0x7FFF) >> 9);
+    if (chunkIdx < 0 || chunkIdx >= LIST_CHUNKS) {
+      continue;
+    }
 
     if (!s_pawnListCache[chunkIdx]) {
-      s_pawnListCache[chunkIdx] = entityListObj.GetListEntry(chunkIdx);
+      s_pawnListCache[chunkIdx] = context.entityListObj.GetListEntry(chunkIdx);
     }
-    
-    SDK::CPlayerPawn pawn = entityListObj.GetPawnFromHandle(pawnHandle, s_pawnListCache[chunkIdx]);
+
+    SDK::CPlayerPawn pawn =
+        context.entityListObj.GetPawnFromHandle(pawnHandle, s_pawnListCache[chunkIdx]);
     if (!pawn.IsValid() || pawn.GetAddress() == localPawn) {
-      // Add to invalid cache
       s_invalidSlotCache[slot] = INVALID_SLOT_SKIP_FRAMES;
       continue;
     }
 
-    int health = pawn.GetHealth();
+    const int health = pawn.GetHealth();
     if (health <= 0 || health > 100) {
       s_invalidSlotCache[slot] = INVALID_SLOT_SKIP_FRAMES;
       continue;
     }
 
-    int team = pawn.GetTeam();
+    const int team = pawn.GetTeam();
     if (team != 2 && team != 3) {
       s_invalidSlotCache[slot] = INVALID_SLOT_SKIP_FRAMES;
       continue;
     }
 
-    SDK::Vector3 position = pawn.GetOldOrigin();
+    const SDK::Vector3 position = pawn.GetOldOrigin();
     if (position.x == 0.0f && position.y == 0.0f && position.z == 0.0f) {
       s_invalidSlotCache[slot] = INVALID_SLOT_SKIP_FRAMES;
       continue;
     }
 
-    // ── Early distance check (skip distant entities before expensive reads) ──
-    float dx = position.x - localPos.x;
-    float dy = position.y - localPos.y;
-    float dz = position.z - localPos.z;
-    float distSq = dx * dx + dy * dy + dz * dz;
-    
-    // ESP max distance check (5000 units = 50m, squared = 25,000,000)
-    constexpr float maxDistSq = Constants::ESP_MAX_DISTANCE_UNITS * Constants::ESP_MAX_DISTANCE_UNITS;
-    bool tooFar = distSq > maxDistSq;
-    
-    // If entity is too far, skip expensive reads (bones/weapons)
-    // but still process the entity for basic ESP (box, health, name, distance)
-    if (tooFar) {
-      // Skip expensive bone/weapon reads for distant entities
-      // but don't add to invalid cache — we still need the entity for ESP
-      // Just skip the expensive reads below
-    }
+    float dx = 0.0f;
+    float dy = 0.0f;
+    float dz = 0.0f;
+    const float distSq = ComputeDistanceSquared(localPos, position, dx, dy, dz);
+    const bool tooFar = distSq > maxDistSq;
 
-    // ── Build entity ──
-    SDK::Entity p;
-    p.address = pawn.GetAddress();
-    p.controllerAddress = controller.GetAddress();
-    p.pawnHandle = pawnHandle;
-    p.health = health;
-    p.team = team;
-    p.isTeammate = (localTeam != 0 && team == localTeam);
-    p.position = position;
+    SDK::Entity entity;
+    entity.address = pawn.GetAddress();
+    entity.controllerAddress = controller.GetAddress();
+    entity.pawnHandle = pawnHandle;
+    entity.health = health;
+    entity.team = team;
+    entity.isTeammate = (localTeam != 0 && team == localTeam);
+    entity.position = position;
 
-    // ── Position interpolation ──
-    float interpFactor = s_interpolationFactor;
-    auto prevIt = s_prevPositions.find(p.address);
+    const float interpFactor = s_interpolationFactor;
+    const auto prevIt = s_prevPositions.find(entity.address);
     if (prevIt != s_prevPositions.end()) {
-      p.prevPosition = prevIt->second;
-      // Lerp: renderPosition = prevPosition + (position - prevPosition) * factor
-      p.renderPosition.x = p.prevPosition.x + (position.x - p.prevPosition.x) * interpFactor;
-      p.renderPosition.y = p.prevPosition.y + (position.y - p.prevPosition.y) * interpFactor;
-      p.renderPosition.z = p.prevPosition.z + (position.z - p.prevPosition.z) * interpFactor;
-      p.interpolationFactor = interpFactor;
+      entity.prevPosition = prevIt->second;
+      entity.renderPosition.x =
+          entity.prevPosition.x + (position.x - entity.prevPosition.x) * interpFactor;
+      entity.renderPosition.y =
+          entity.prevPosition.y + (position.y - entity.prevPosition.y) * interpFactor;
+      entity.renderPosition.z =
+          entity.prevPosition.z + (position.z - entity.prevPosition.z) * interpFactor;
+      entity.interpolationFactor = interpFactor;
     } else {
-      // First frame: no interpolation
-      p.prevPosition = position;
-      p.renderPosition = position;
-      p.interpolationFactor = 1.0f;
+      entity.prevPosition = position;
+      entity.renderPosition = position;
+      entity.interpolationFactor = 1.0f;
     }
-    // Update previous position for next frame
-    s_prevPositions[p.address] = position;
+    s_prevPositions[entity.address] = position;
 
-    // Ограничиваем размер кэша (макс 128 сущностей)
     if (s_prevPositions.size() > Constants::MAX_POSITION_CACHE_SIZE) {
-      // Clear half of entries (unordered_map has no ordering, so we clear arbitrary entries)
-      size_t toRemove = s_prevPositions.size() / 2;
+      const size_t toRemove = s_prevPositions.size() / 2;
       for (size_t i = 0; i < toRemove && !s_prevPositions.empty(); ++i) {
         s_prevPositions.erase(s_prevPositions.begin());
       }
     }
 
-    // Read spotted state
-    uint32_t spottedMask = pawn.GetSpottedStateMask();
-    p.isSpotted = (spottedMask & (1 << localSlot)) != 0;
+    const uint32_t spottedMask = pawn.GetSpottedStateMask();
+    entity.isSpotted =
+        localSlot >= 0 && (spottedMask & (1u << localSlot)) != 0;
 
-    // Name (Cached)
     if (s_nameCache.find(pawnHandle) == s_nameCache.end()) {
       s_nameCache[pawnHandle] = controller.GetPlayerName();
     }
-    p.name = s_nameCache[pawnHandle];
+    entity.name = s_nameCache[pawnHandle];
 
-    // Distance (reuse dx, dy, dz computed earlier)
-    p.distance = sqrtf(distSq) / 100.0f;
+    entity.distance = std::sqrt(distSq) / 100.0f;
 
-    // Weapon — skip for distant entities
     if (!tooFar && s_readWeapons.load(std::memory_order_relaxed)) {
-      p.weapon = pawn.GetWeaponName();
+      entity.weapon = pawn.GetWeaponName();
     }
 
-    // ── Skeleton bones (one batch ReadRaw) — skip for distant entities ──
     if (!tooFar && s_readBones.load(std::memory_order_relaxed)) {
-      uintptr_t gameScene = pawn.GetGameSceneNode();
+      const uintptr_t gameScene = pawn.GetGameSceneNode();
       if (gameScene > Constants::MIN_VALID_ADDRESS) {
-        uintptr_t boneArray = MemoryManager::Read<uintptr_t>(
+        const uintptr_t boneArray = MemoryManager::Read<uintptr_t>(
             gameScene + SDK::Offsets::m_boneArrayOffset);
         if (boneArray > Constants::MIN_VALID_ADDRESS) {
           BoneData rawBones[BONE_COUNT];
           if (MemoryManager::ReadRaw(boneArray, rawBones, sizeof(rawBones))) {
-            p.bonePositions.resize(BONE_COUNT);
-            for (int b = 0; b < BONE_COUNT; b++)
-              p.bonePositions[b] = rawBones[b].pos;
+            entity.bonePositions.resize(BONE_COUNT);
+            for (int boneIndex = 0; boneIndex < BONE_COUNT; ++boneIndex) {
+              entity.bonePositions[boneIndex] = rawBones[boneIndex].pos;
+            }
           }
         }
       }
     }
 
-    // Frustum culling: mark entity as on/off screen
-    p.onScreen = IsOnScreen(position);
-
-    players.emplace_back(std::move(p));
+    entity.onScreen = IsOnScreen(position);
+    players.emplace_back(std::move(entity));
   }
+}
 
-  // ── Push to frontend (Thread-Safe Buffer) ──
-  int writeIdx = activeBufferIndex.load(std::memory_order_relaxed) ^ 1;
+void GameManager::PublishFrameState() {
+  const int writeIdx = activeBufferIndex.load(std::memory_order_relaxed) ^ 1;
   {
     std::lock_guard<std::mutex> lock(bufferMutex);
     playerBuffers[writeIdx] = players;
@@ -363,35 +419,6 @@ void GameManager::Update() {
     cachedEntityList = entityList;
     cachedBombInfo = bombInfo;
   }
-
-  // Debug output every 5 seconds
-#ifdef DEBUG
-  static auto lastDebugTime = std::chrono::steady_clock::now();
-  auto now = std::chrono::steady_clock::now();
-  if (std::chrono::duration_cast<std::chrono::seconds>(now - lastDebugTime).count() >= 5) {
-    lastDebugTime = now;
-    
-    std::cout << "[DEBUG] Entity List: 0x" << std::hex << entityList << std::dec << "\n";
-    std::cout << "[DEBUG] Local Pawn: 0x" << std::hex << localPawn << std::dec << "\n";
-    std::cout << "[DEBUG] Client Base: 0x" << std::hex << clientBase << std::dec << "\n";
-    std::cout << "[DEBUG] Players found: " << players.size() << "\n";
-    std::cout << "[DEBUG] Local Team: " << localTeam << "\n";
-    std::cout << "[DEBUG] Local Pos: " << localPos.x << ", " << localPos.y << ", " << localPos.z << "\n";
-    
-    for (size_t i = 0; i < players.size(); i++) {
-      const auto& p = players[i];
-      std::cout << "  Player[" << i << "]: addr=0x" << std::hex << p.address 
-                << " hp=" << std::dec << p.health 
-                << " team=" << p.team 
-                << " dist=" << p.distance << "m"
-                << " name=" << p.name
-                << " weapon=" << p.weapon
-                << " spotted=" << p.isSpotted
-                << " bones=" << p.bonePositions.size() << "\n";
-    }
-    std::cout << std::endl;
-  }
-#endif
 }
 
 void GameManager::EnableBoneRead(bool enable) {
@@ -411,16 +438,25 @@ void GameManager::SetScreenSize(int width, int height) {
   s_screenHeight = height;
 }
 
-bool GameManager::IsOnScreen(const SDK::Vector3& worldPos) {
-  SDK::Matrix4x4 vm = viewMatrix;
-  float clipX = vm.m[0][0] * worldPos.x + vm.m[0][1] * worldPos.y + vm.m[0][2] * worldPos.z + vm.m[0][3];
-  float clipY = vm.m[1][0] * worldPos.x + vm.m[1][1] * worldPos.y + vm.m[1][2] * worldPos.z + vm.m[1][3];
-  float clipW = vm.m[3][0] * worldPos.x + vm.m[3][1] * worldPos.y + vm.m[3][2] * worldPos.z + vm.m[3][3];
-  if (clipW < 0.001f) return false;
-  float ndcX = clipX / clipW;
-  float ndcY = clipY / clipW;
-  return (ndcX >= -1.0f - FRUSTUM_MARGIN / s_screenWidth && ndcX <= 1.0f + FRUSTUM_MARGIN / s_screenWidth &&
-          ndcY >= -1.0f - FRUSTUM_MARGIN / s_screenHeight && ndcY <= 1.0f + FRUSTUM_MARGIN / s_screenHeight);
+bool GameManager::IsOnScreen(const SDK::Vector3 &worldPos) {
+  const SDK::Matrix4x4 vm = viewMatrix;
+  const float clipX = vm.m[0][0] * worldPos.x + vm.m[0][1] * worldPos.y +
+                      vm.m[0][2] * worldPos.z + vm.m[0][3];
+  const float clipY = vm.m[1][0] * worldPos.x + vm.m[1][1] * worldPos.y +
+                      vm.m[1][2] * worldPos.z + vm.m[1][3];
+  const float clipW = vm.m[3][0] * worldPos.x + vm.m[3][1] * worldPos.y +
+                      vm.m[3][2] * worldPos.z + vm.m[3][3];
+
+  if (clipW < 0.001f) {
+    return false;
+  }
+
+  const float ndcX = clipX / clipW;
+  const float ndcY = clipY / clipW;
+  return (ndcX >= -1.0f - FRUSTUM_MARGIN / s_screenWidth &&
+          ndcX <= 1.0f + FRUSTUM_MARGIN / s_screenWidth &&
+          ndcY >= -1.0f - FRUSTUM_MARGIN / s_screenHeight &&
+          ndcY <= 1.0f + FRUSTUM_MARGIN / s_screenHeight);
 }
 
 } // namespace Core

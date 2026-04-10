@@ -34,7 +34,6 @@ bool BeginCard(const char *title, ImVec2 size) {
   ImVec4 accent = style.Colors[ImGuiCol_Button];
   ImVec4 accentHover = style.Colors[ImGuiCol_ButtonHovered];
 
-  // Фоновый градиент-эффект через полупрозрачный оверлей
   ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(
       style.Colors[ImGuiCol_ChildBg].x * 0.85f + accent.x * 0.02f,
       style.Colors[ImGuiCol_ChildBg].y * 0.85f + accent.y * 0.02f,
@@ -49,7 +48,6 @@ bool BeginCard(const char *title, ImVec2 size) {
   ImGui::PopStyleVar(2);
   ImGui::PopStyleColor();
 
-  // Заголовок карточки с акцентной полоской слева
   ImGuiWindow *window = ImGui::GetCurrentWindow();
   ImVec2 pos = window->DC.CursorPos;
   window->DrawList->AddRectFilled(
@@ -85,7 +83,6 @@ bool SettingToggle(const char *label, bool *v) {
   const ImGuiID id = window->GetID(label);
   const ImVec2 label_size = ImGui::CalcTextSize(label, NULL, true);
 
-  // Увеличенный размер переключателя
   float height = 22.0f;
   float width = height * 1.8f;
   float radius = height * 0.50f;
@@ -118,7 +115,6 @@ bool SettingToggle(const char *label, bool *v) {
     storage->SetInt(id, 1);
   }
 
-  // Более плавная анимация
   float ANIM_SPEED = g.IO.DeltaTime * 10.0f;
   if (t_anim != t) {
     t_anim += (*v ? 1.0f : -1.0f) * ANIM_SPEED;
@@ -134,32 +130,26 @@ bool SettingToggle(const char *label, bool *v) {
     col_on = style.Colors[ImGuiCol_ButtonHovered];
   }
 
-  // Фон с тенью
   ImU32 bg_color = ImGui::GetColorU32(ImLerp(col_off, col_on, t_anim));
   window->DrawList->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height), bg_color, height * 0.5f);
 
-  // Обводка при наведении
   if (hovered) {
     window->DrawList->AddRect(pos, ImVec2(pos.x + width, pos.y + height),
         ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.15f)), height * 0.5f, 0, 1.0f);
   }
 
-  // Круглый переключатель с тенью
   float circle_x = pos.x + radius + t_anim * (width - radius * 2.0f);
   float circle_y = pos.y + radius;
   float circle_radius = radius - 2.0f;
 
-  // Тень кружка
   window->DrawList->AddCircleFilled(
       ImVec2(circle_x + 1.0f, circle_y + 1.5f),
       circle_radius, IM_COL32(0, 0, 0, 60));
 
-  // Основной кружок
   window->DrawList->AddCircleFilled(
       ImVec2(circle_x, circle_y),
       circle_radius, IM_COL32(255, 255, 255, 255));
 
-  // Внутренний градиент на кружке
   window->DrawList->AddCircleFilled(
       ImVec2(circle_x, circle_y - 1.0f),
       circle_radius * 0.6f, IM_COL32(255, 255, 255, 40));
@@ -195,7 +185,6 @@ bool SettingHotkey(const char* label, int& keyTarget) {
 
   bool listening = (s_listening == &keyTarget);
 
-  // Метка
   ImGui::TextUnformatted(btnLabel);
   ImGui::SameLine();
 

@@ -4,17 +4,30 @@
 
 namespace SDK {
 
-// Backward compatibility — делегируем OffsetLoader
 class Updater {
 public:
     static std::future<bool> UpdateOffsets() {
-        static OffsetLoader loader;
-        return loader.LoadOffsets();
+        return std::async(std::launch::async, []() {
+            static OffsetLoader loader;
+            loader.LoadOffsets();
+            return true;
+        });
     }
 
     static std::future<bool> ForceUpdateOffsets() {
-        static OffsetLoader loader;
-        return loader.ForceUpdate();
+        return std::async(std::launch::async, []() {
+            static OffsetLoader loader;
+            loader.ForceUpdateFromGitHub();
+            return true;
+        });
+    }
+
+    static std::future<bool> ReloadOffsets() {
+        return std::async(std::launch::async, []() {
+            static OffsetLoader loader;
+            loader.ReloadOffsets();
+            return true;
+        });
     }
 };
 

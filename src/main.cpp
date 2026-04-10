@@ -171,9 +171,6 @@ int main() {
         // ── Update frustum culling screen size ──
         Core::GameManager::SetScreenSize(Render::Overlay::GetGameWidth(), Render::Overlay::GetGameHeight());
 
-        // ── Update frustum culling screen size ──
-        Core::GameManager::SetScreenSize(Render::Overlay::GetGameWidth(), Render::Overlay::GetGameHeight());
-
         // UpdateAll содержит GetAsyncKeyState/SendInput — только из render-треда
         Features::FeatureManager::UpdateAll();
 

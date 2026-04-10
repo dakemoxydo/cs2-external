@@ -1,5 +1,5 @@
 // Generated using https://github.com/a2x/cs2-dumper
-// 2026-03-27 23:29:07.271766300 UTC
+// 2026-04-03 15:46:49.540430 UTC
 
 #pragma once
 
@@ -6336,6 +6336,7 @@ namespace cs2_dumper {
             // Parent: C_EconEntity
             // Field count: 2
             namespace C_EconWearable {
+                constexpr std::ptrdiff_t m_nForceSkin = 0x18C0; // int32
                 constexpr std::ptrdiff_t m_bAlwaysAllow = 0x18C4; // bool
             }
             // Parent: C_BaseModelEntity

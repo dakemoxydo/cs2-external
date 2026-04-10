@@ -1,0 +1,29 @@
+# Build and binary files
+build*/
+bin/
+*.exe
+*.pdb
+*.obj
+*.log
+
+# IDE and AI agent files
+.agents/
+.gemini/
+GEMINI.md
+.vs/
+*.sln
+*.vcxproj
+*.user
+*.filters
+
+# Temporary and output files
+out.txt
+imgui.ini
+*.tmp
+
+# Offset cache files (generated locally)
+offsets_cache.json
+client_cache.json
+
+# Reference repository (if not intended to be a submodule)
+cs2/
