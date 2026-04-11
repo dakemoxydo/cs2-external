@@ -93,6 +93,8 @@ echo.
 if not exist "build" mkdir build
 cd /d "%~dp0build"
 
+set "PATH=%PATH%"
+
 echo [BUILD] Configuring CMake...
 cmake %GENERATOR% -A x64 ..
 if %ERRORLEVEL% neq 0 (

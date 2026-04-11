@@ -2,130 +2,109 @@
 #include "game_manager.h"
 #include "../memory/memory_manager.h"
 #include "../sdk/offsets.h"
-#include <shared_mutex>
+#include <memory>
 
 namespace Core {
 
-// ── Thread-safe rendering getters ─────────────────────────────────────────────
+std::shared_ptr<const GameSnapshot> GameManager::GetSnapshot() {
+  auto snapshot = s_snapshot.load(std::memory_order_acquire);
+  if (snapshot) {
+    return snapshot;
+  }
+
+  static const std::shared_ptr<const GameSnapshot> emptySnapshot =
+      std::make_shared<const GameSnapshot>();
+  return emptySnapshot;
+}
 
 SDK::Matrix4x4 GameManager::GetViewMatrix() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedViewMatrix;
+  return GetSnapshot()->viewMatrix;
 }
 
 std::vector<SDK::Entity> GameManager::GetRenderPlayers() {
-  std::lock_guard<std::mutex> lock(bufferMutex);
-  int readIdx = activeBufferIndex.load(std::memory_order_acquire);
-  return playerBuffers[readIdx];
+  return GetSnapshot()->players;
 }
 
 SDK::Vector3 GameManager::GetLocalPos() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedLocalPos;
+  return GetSnapshot()->localPos;
 }
 
 SDK::Vector3 GameManager::GetLocalEyePos() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedLocalEyePos;
+  return GetSnapshot()->localEyePos;
 }
 
 SDK::Vector2 GameManager::GetLocalAimPunch() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedLocalAimPunch;
+  return GetSnapshot()->localAimPunch;
 }
 
 int GameManager::GetLocalShotsFired() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedLocalShotsFired;
+  return GetSnapshot()->localShotsFired;
 }
 
 int GameManager::GetLocalTeam() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedLocalTeam;
+  return GetSnapshot()->localTeam;
 }
 
 SDK::Vector2 GameManager::GetLocalAngles() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedLocalAngles;
+  return GetSnapshot()->localAngles;
 }
 
 bool GameManager::IsLocalScoped() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedLocalScoped;
+  return GetSnapshot()->localScoped;
 }
 
 uint32_t GameManager::GetLocalCrosshairEntityHandle() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedLocalCrosshairHandle;
+  return GetSnapshot()->localCrosshairHandle;
 }
 
 SDK::BombInfo GameManager::GetBombInfo() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedBombInfo;
+  return GetSnapshot()->bombInfo;
 }
 
 uintptr_t GameManager::GetLocalPlayerPawn() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedLocalPawn;
+  return GetSnapshot()->localPawn;
 }
 
 uintptr_t GameManager::GetEntityList() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return cachedEntityList;
+  return GetSnapshot()->entityList;
 }
 
-// NOTE: Now protected by shared_lock — clientBase written once during Init()
 uintptr_t GameManager::GetClientBase() {
-  std::shared_lock<std::shared_mutex> lock(stateMutex);
-  return clientBase;
+  return GetSnapshot()->clientBase;
 }
 
-// NOTE: Makes a live RPM call — must be called only from memory thread
 uintptr_t GameManager::GetEntityFromHandle(uint32_t handle) {
-  if (!handle || handle == 0xFFFFFFFF)
+  if (!handle || handle == 0xFFFFFFFF) {
     return 0;
+  }
 
-  uintptr_t list = GetEntityList();
-  if (!list)
+  const auto snapshot = GetSnapshot();
+  if (!snapshot->entityList) {
     return 0;
+  }
 
   uintptr_t listEntry = MemoryManager::Read<uintptr_t>(
-      list + Constants::ENTITY_LIST_HEADER_OFFSET + 0x8 * ((handle & 0x7FFF) >> 9));
-  if (!listEntry)
+      snapshot->entityList + Constants::ENTITY_LIST_HEADER_OFFSET +
+      0x8 * ((handle & 0x7FFF) >> 9));
+  if (!listEntry) {
     return 0;
+  }
 
-  uintptr_t entity =
-      MemoryManager::Read<uintptr_t>(listEntry + Constants::ENTITY_IDENTITY_ENTRY_SIZE * (handle & 0x1FF));
-  return entity;
+  return MemoryManager::Read<uintptr_t>(
+      listEntry + Constants::ENTITY_IDENTITY_ENTRY_SIZE * (handle & 0x1FF));
 }
 
 std::string GameManager::GetLocalWeaponName() {
-  uintptr_t pawn = GetLocalPlayerPawn();
-  if (!pawn || pawn <= Constants::MIN_VALID_ADDRESS)
-    return "";
-  uintptr_t cw =
-      MemoryManager::Read<uintptr_t>(pawn + SDK::Offsets::m_pClippingWeapon);
-  if (cw <= Constants::MIN_VALID_ADDRESS)
-    return "";
-  uintptr_t wPtr = MemoryManager::Read<uintptr_t>(cw + 0x10);
-  if (wPtr <= Constants::MIN_VALID_ADDRESS)
-    return "";
-  uintptr_t nPtr = MemoryManager::Read<uintptr_t>(wPtr + 0x20);
-  if (nPtr <= Constants::MIN_VALID_ADDRESS)
-    return "";
-  char wb[64] = {};
-  MemoryManager::ReadRaw(nPtr, wb, sizeof(wb) - 1);
-  std::string name(wb);
-  if (name.rfind("weapon_", 0) == 0)
-    return name.substr(7);
-  return name;
+  return GetSnapshot()->localWeaponName;
 }
 
 uintptr_t GameManager::GetEntityGameSceneNode(uintptr_t entity) {
-  if (!entity)
+  if (!entity) {
     return 0;
-  return MemoryManager::Read<uintptr_t>(entity +
-                                        SDK::Offsets::m_pGameSceneNode);
+  }
+
+  const auto offsets = SDK::Offsets::GetCopy();
+  return MemoryManager::Read<uintptr_t>(entity + offsets.m_pGameSceneNode);
 }
 
 } // namespace Core

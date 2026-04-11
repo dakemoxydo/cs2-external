@@ -5,21 +5,6 @@
 
 namespace SDK {
 
-int OffsetParser::ParsedOffsets::missingCount() const {
-    int count = 0;
-    #define CHECK(f) if (f == 0) count++
-    CHECK(dwEntityList); CHECK(dwLocalPlayerPawn); CHECK(dwLocalPlayerController);
-    CHECK(dwViewMatrix); CHECK(dwPlantedC4);
-    CHECK(m_fFlags); CHECK(m_vecVelocity); CHECK(m_iHealth); CHECK(m_iTeamNum);
-    CHECK(m_vOldOrigin); CHECK(m_pGameSceneNode); CHECK(m_modelState);
-    CHECK(m_hPlayerPawn); CHECK(m_iszPlayerName); CHECK(m_pClippingWeapon);
-    CHECK(m_vecViewOffset); CHECK(m_angEyeAngles); CHECK(m_aimPunchAngle);
-    CHECK(m_iIDEntIndex); CHECK(m_bIsScoped); CHECK(m_iShotsFired);
-    CHECK(m_nBombSite); CHECK(m_bBombTicking); CHECK(m_flTimerLength);
-    #undef CHECK
-    return count;
-}
-
 ptrdiff_t OffsetParser::GetVal(const nlohmann::json& j, const std::string& key) {
     if (!j.contains(key)) return 0;
     auto val = j[key];
@@ -40,8 +25,8 @@ ptrdiff_t OffsetParser::FindField(const nlohmann::json& clientJson, const std::s
     return 0;
 }
 
-OffsetParser::ParsedOffsets OffsetParser::ParseJson(const std::string& offsetsJson, const std::string& clientJson) {
-    ParsedOffsets result;
+OffsetSet OffsetParser::ParseJson(const std::string& offsetsJson, const std::string& clientJson) {
+    OffsetSet result;
     try {
         auto offsetsParsed = nlohmann::json::parse(offsetsJson);
         auto clientParsed = nlohmann::json::parse(clientJson);
@@ -53,6 +38,7 @@ OffsetParser::ParsedOffsets OffsetParser::ParseJson(const std::string& offsetsJs
             result.dwLocalPlayerController = GetVal(c, "dwLocalPlayerController");
             result.dwViewMatrix = GetVal(c, "dwViewMatrix");
             result.dwPlantedC4 = GetVal(c, "dwPlantedC4");
+            result.dwGlobalVars = GetVal(c, "dwGlobalVars");
         }
 
         result.m_fFlags = FindField(clientParsed, "m_fFlags");
@@ -66,6 +52,7 @@ OffsetParser::ParsedOffsets OffsetParser::ParseJson(const std::string& offsetsJs
         result.m_iszPlayerName = FindField(clientParsed, "m_iszPlayerName");
         result.m_pClippingWeapon = FindField(clientParsed, "m_pClippingWeapon");
         result.m_vecViewOffset = FindField(clientParsed, "m_vecViewOffset");
+        result.m_flSimulationTime = FindField(clientParsed, "m_flSimulationTime");
         result.m_angEyeAngles = FindField(clientParsed, "m_angEyeAngles");
         result.m_aimPunchAngle = FindField(clientParsed, "m_aimPunchAngle");
         result.m_iIDEntIndex = FindField(clientParsed, "m_iIDEntIndex");
@@ -74,6 +61,9 @@ OffsetParser::ParsedOffsets OffsetParser::ParseJson(const std::string& offsetsJs
         result.m_nBombSite = FindField(clientParsed, "m_nBombSite");
         result.m_bBombTicking = FindField(clientParsed, "m_bBombTicking");
         result.m_flTimerLength = FindField(clientParsed, "m_flTimerLength");
+        result.m_flC4Blow = FindField(clientParsed, "m_flC4Blow");
+        result.m_bBeingDefused = FindField(clientParsed, "m_bBeingDefused");
+        result.m_flDefuseCountDown = FindField(clientParsed, "m_flDefuseCountDown");
     } catch (const std::exception& e) {
         std::cerr << "[!] JSON parse error: " << e.what() << "\n";
     }
@@ -91,8 +81,8 @@ static ptrdiff_t ParseHppValue(const std::string& content, const std::string& ma
     return 0;
 }
 
-OffsetParser::ParsedOffsets OffsetParser::ParseHpp(const std::string& offsetsHpp, const std::string& clientHpp) {
-    ParsedOffsets result;
+OffsetSet OffsetParser::ParseHpp(const std::string& offsetsHpp, const std::string& clientHpp) {
+    OffsetSet result;
     // Parse offsets.hpp for dw* values
     if (!offsetsHpp.empty()) {
         result.dwEntityList = ParseHppValue(offsetsHpp, "client_dwEntityList");
@@ -100,6 +90,7 @@ OffsetParser::ParsedOffsets OffsetParser::ParseHpp(const std::string& offsetsHpp
         result.dwLocalPlayerController = ParseHppValue(offsetsHpp, "client_dwLocalPlayerController");
         result.dwViewMatrix = ParseHppValue(offsetsHpp, "client_dwViewMatrix");
         result.dwPlantedC4 = ParseHppValue(offsetsHpp, "client_dwPlantedC4");
+        result.dwGlobalVars = ParseHppValue(offsetsHpp, "client_dwGlobalVars");
     }
     // Parse client_dll.hpp for field values
     if (!clientHpp.empty()) {
@@ -117,6 +108,8 @@ OffsetParser::ParsedOffsets OffsetParser::ParseHpp(const std::string& offsetsHpp
         result.m_pClippingWeapon = ParseHppValue(clientHpp, "CCSPlayerPawn_m_pClippingWeapon");
         result.m_vecViewOffset = ParseHppValue(clientHpp, "CCSPlayerPawn_m_vecViewOffset");
         if (result.m_vecViewOffset == 0) result.m_vecViewOffset = ParseHppValue(clientHpp, "CBaseModelEntity_m_vecViewOffset");
+        result.m_flSimulationTime = ParseHppValue(clientHpp, "C_BaseEntity_m_flSimulationTime");
+        if (result.m_flSimulationTime == 0) result.m_flSimulationTime = ParseHppValue(clientHpp, "CBaseEntity_m_flSimulationTime");
         result.m_angEyeAngles = ParseHppValue(clientHpp, "CCSPlayerPawn_m_angEyeAngles");
         result.m_aimPunchAngle = ParseHppValue(clientHpp, "CCSPlayerPawn_m_aimPunchAngle");
         result.m_iIDEntIndex = ParseHppValue(clientHpp, "CCSPlayerPawn_m_iIDEntIndex");
@@ -125,18 +118,21 @@ OffsetParser::ParsedOffsets OffsetParser::ParseHpp(const std::string& offsetsHpp
         result.m_nBombSite = ParseHppValue(clientHpp, "C_PlantedC4_m_nBombSite");
         result.m_bBombTicking = ParseHppValue(clientHpp, "C_PlantedC4_m_bBombTicking");
         result.m_flTimerLength = ParseHppValue(clientHpp, "C_PlantedC4_m_flTimerLength");
+        result.m_flC4Blow = ParseHppValue(clientHpp, "C_PlantedC4_m_flC4Blow");
+        result.m_bBeingDefused = ParseHppValue(clientHpp, "C_PlantedC4_m_bBeingDefused");
+        result.m_flDefuseCountDown = ParseHppValue(clientHpp, "C_PlantedC4_m_flDefuseCountDown");
     }
     return result;
 }
 
-OffsetParser::ParsedOffsets OffsetParser::Parse(const OffsetFileLoader::FileResult& files) {
+OffsetSet OffsetParser::Parse(const OffsetFileLoader::FileResult& files) {
     if (files.hasJson()) {
         return ParseJson(files.offsetsJson, files.clientJson);
     }
     if (files.hasHpp()) {
         return ParseHpp(files.offsetsHpp, files.clientHpp);
     }
-    return ParsedOffsets();
+    return OffsetSet();
 }
 
 } // namespace SDK

@@ -7,8 +7,6 @@
 
 namespace Features {
 
-extern BombConfig bombConfig;
-
 class Bomb : public IFeature {
 public:
   std::string_view GetName() override { return "BombTimer"; }

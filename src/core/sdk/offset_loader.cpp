@@ -5,10 +5,8 @@ namespace SDK {
 
 namespace {
 
-bool HasRequiredOffsets(const OffsetParser::ParsedOffsets& parsed) {
-    return parsed.dwEntityList != 0
-        && parsed.dwLocalPlayerPawn != 0
-        && parsed.dwViewMatrix != 0;
+bool HasRequiredOffsets(const OffsetSet& parsed) {
+    return parsed.HasRequired();
 }
 
 } // namespace
@@ -19,8 +17,8 @@ bool OffsetLoader::LoadOffsets() {
     if (files.hasAny()) {
         auto parsed = parser.Parse(files);
         applier.Apply(parsed);
-        applier.LogStatus();
-        if (applier.Validate()) {
+        applier.LogStatus(parsed);
+        if (applier.Validate(parsed)) {
             std::cout << "[+] Offsets loaded from cache_offsets/.\n";
             return true;
         }
@@ -32,9 +30,13 @@ bool OffsetLoader::LoadOffsets() {
             if (HasRequiredOffsets(ghParsed)) {
                 fileLoader.SaveToCacheDir(ghFiles.offsetsJson, ghFiles.clientJson);
                 applier.Apply(ghParsed);
-                applier.LogStatus();
-                std::cout << "[+] Offsets updated from GitHub.\n";
-                return true;
+                applier.LogStatus(ghParsed);
+                if (applier.Validate(ghParsed)) {
+                    std::cout << "[+] Offsets updated from GitHub.\n";
+                    return true;
+                }
+                std::cout << "[!] GitHub offsets failed validation, keeping cache.\n";
+                return false;
             }
 
             std::cout << "[!] GitHub returned incomplete or invalid offsets, keeping cache.\n";
@@ -51,9 +53,13 @@ bool OffsetLoader::LoadOffsets() {
         if (HasRequiredOffsets(parsed)) {
             fileLoader.SaveToCacheDir(ghFiles.offsetsJson, ghFiles.clientJson);
             applier.Apply(parsed);
-            applier.LogStatus();
-            std::cout << "[+] Offsets updated from GitHub.\n";
-            return true;
+            applier.LogStatus(parsed);
+            if (applier.Validate(parsed)) {
+                std::cout << "[+] Offsets updated from GitHub.\n";
+                return true;
+            }
+            std::cout << "[!] GitHub offsets failed validation.\n";
+            return false;
         }
 
         std::cout << "[!] Failed to load valid offsets from GitHub.\n";
@@ -70,8 +76,8 @@ bool OffsetLoader::ReloadOffsets() {
     if (files.hasAny()) {
         auto parsed = parser.Parse(files);
         applier.Apply(parsed);
-        applier.LogStatus();
-        if (applier.Validate()) {
+        applier.LogStatus(parsed);
+        if (applier.Validate(parsed)) {
             std::cout << "[+] Offsets reloaded successfully.\n";
             return true;
         } else {
@@ -92,7 +98,7 @@ bool OffsetLoader::ForceUpdateFromGitHub() {
         if (HasRequiredOffsets(parsed)) {
             fileLoader.SaveToCacheDir(ghFiles.offsetsJson, ghFiles.clientJson);
             applier.Apply(parsed);
-            applier.LogStatus();
+            applier.LogStatus(parsed);
             std::cout << "[+] Offsets updated from GitHub!\n";
             return true;
         }

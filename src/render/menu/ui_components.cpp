@@ -1,6 +1,7 @@
 #include "ui_components.h"
-#include "config/config_manager.h"
 #include <imgui_internal.h>
+#include <algorithm>
+#include <cstring>
 #include <cstdio>
 #include <windows.h>
 
@@ -11,9 +12,12 @@ static const char *KeyLabel(int vk) {
   case 0x04: return "MMB";
   case 0x05: return "Mouse4"; // XButton1
   case 0x06: return "Mouse5"; // XButton2
-  case 0x10: return "Shift";
-  case 0x11: return "Ctrl";
-  case 0x12: return "Alt";
+  case VK_LSHIFT: return "Shift";
+  case VK_RSHIFT: return "Shift";
+  case VK_LCONTROL: return "Ctrl";
+  case VK_RCONTROL: return "Ctrl";
+  case VK_LMENU: return "Alt";
+  case VK_RMENU: return "Alt";
   case VK_INSERT: return "Insert";
   case VK_END: return "End";
   case 'Z': return "Z";
@@ -29,6 +33,162 @@ static const char *KeyLabel(int vk) {
 
 namespace UI {
 
+namespace {
+
+void DrawNavIcon(ImDrawList *drawList, const ImVec2 &center, const ImVec4 &color,
+                 int iconKind) {
+  const ImU32 col = ImGui::ColorConvertFloat4ToU32(color);
+  switch (iconKind) {
+  case 0:
+    drawList->AddCircle(center, 7.0f, col, 20, 1.4f);
+    drawList->AddLine(ImVec2(center.x - 6.0f, center.y + 6.0f),
+                      ImVec2(center.x + 6.0f, center.y - 6.0f), col, 1.4f);
+    break;
+  case 1:
+    drawList->AddRect(ImVec2(center.x - 6.0f, center.y - 5.0f),
+                      ImVec2(center.x + 6.0f, center.y + 5.0f), col, 3.0f, 0, 1.4f);
+    drawList->AddLine(ImVec2(center.x, center.y - 7.0f),
+                      ImVec2(center.x, center.y + 7.0f), col, 1.4f);
+    break;
+  case 2:
+    drawList->AddRect(ImVec2(center.x - 7.0f, center.y - 7.0f),
+                      ImVec2(center.x + 7.0f, center.y + 7.0f), col, 3.0f, 0, 1.4f);
+    drawList->AddLine(ImVec2(center.x - 4.0f, center.y),
+                      ImVec2(center.x + 4.0f, center.y), col, 1.4f);
+    drawList->AddLine(ImVec2(center.x, center.y - 4.0f),
+                      ImVec2(center.x, center.y + 4.0f), col, 1.4f);
+    break;
+  default:
+    drawList->AddRect(ImVec2(center.x - 6.5f, center.y - 6.5f),
+                      ImVec2(center.x + 6.5f, center.y + 6.5f), col, 3.0f, 0, 1.4f);
+    drawList->AddCircle(center, 2.0f, col, 12, 1.4f);
+    break;
+  }
+}
+
+int IconKindForTitle(const char *title) {
+  if (!title) return 0;
+  if (strcmp(title, "Players") == 0) return 0;
+  if (strcmp(title, "Combat") == 0) return 1;
+  if (strcmp(title, "Utility") == 0) return 2;
+  return 3;
+}
+
+} // namespace
+
+bool NavTile(const char *title, const char *description, bool selected, float height) {
+  ImGuiWindow *window = ImGui::GetCurrentWindow();
+  if (window->SkipItems) return false;
+
+  ImGuiContext &g = *GImGui;
+  const ImGuiStyle &style = g.Style;
+  const ImGuiID id = window->GetID(title);
+
+  ImVec2 pos = window->DC.CursorPos;
+  ImVec2 avail = ImGui::GetContentRegionAvail();
+  ImRect bb(pos, ImVec2(pos.x + avail.x, pos.y + height));
+  ImGui::ItemSize(bb, style.FramePadding.y);
+  if (!ImGui::ItemAdd(bb, id)) return false;
+
+  bool hovered = false;
+  bool held = false;
+  bool pressed = ImGui::ButtonBehavior(bb, id, &hovered, &held);
+
+  ImVec4 accent = style.Colors[ImGuiCol_Button];
+  ImVec4 accentHover = style.Colors[ImGuiCol_ButtonHovered];
+  ImVec4 text = style.Colors[ImGuiCol_Text];
+  ImVec4 muted = style.Colors[ImGuiCol_TextDisabled];
+
+  float anim = selected ? 1.0f : 0.0f;
+  float hoverAnim = hovered ? 1.0f : 0.0f;
+  ImGuiStorage *storage = ImGui::GetStateStorage();
+  ImGuiID animId = id ^ 0x91E10D4F;
+  ImGuiID hoverId = id ^ 0x41A0F1B1;
+  float currentAnim = storage->GetFloat(animId, anim);
+  float currentHover = storage->GetFloat(hoverId, hoverAnim);
+  float dt = g.IO.DeltaTime * 12.0f;
+  currentAnim = ImLerp(currentAnim, anim, std::clamp(dt, 0.0f, 1.0f));
+  currentHover = ImLerp(currentHover, hoverAnim, std::clamp(dt, 0.0f, 1.0f));
+  storage->SetFloat(animId, currentAnim);
+  storage->SetFloat(hoverId, currentHover);
+
+  ImU32 bg = ImGui::GetColorU32(ImVec4(
+      style.Colors[ImGuiCol_ChildBg].x * 0.92f + accent.x * (0.04f + 0.12f * currentAnim + 0.05f * currentHover),
+      style.Colors[ImGuiCol_ChildBg].y * 0.92f + accent.y * (0.04f + 0.12f * currentAnim + 0.05f * currentHover),
+      style.Colors[ImGuiCol_ChildBg].z * 0.92f + accent.z * (0.04f + 0.12f * currentAnim + 0.05f * currentHover),
+      1.0f));
+
+  ImVec2 pad(12.0f, 10.0f);
+  window->DrawList->AddRectFilled(bb.Min, bb.Max, bg, 9.0f);
+  window->DrawList->AddRect(
+      bb.Min, bb.Max,
+      ImGui::GetColorU32(ImVec4(style.Colors[ImGuiCol_Border].x,
+                                style.Colors[ImGuiCol_Border].y,
+                                style.Colors[ImGuiCol_Border].z,
+                                selected ? 0.95f : 0.75f)),
+      9.0f, 0, 1.0f);
+  if (selected || hovered) {
+    window->DrawList->AddRect(bb.Min, bb.Max, ImGui::GetColorU32(ImVec4(accentHover.x, accentHover.y, accentHover.z, 0.20f + 0.20f * currentAnim)), 9.0f, 0, 1.0f);
+  }
+
+  window->DrawList->AddRectFilled(
+      ImVec2(bb.Min.x + 1.0f, bb.Min.y + 6.0f),
+      ImVec2(bb.Min.x + 4.0f, bb.Max.y - 6.0f),
+      ImGui::GetColorU32(ImVec4(accent.x, accent.y, accent.z, 0.20f + 0.55f * currentAnim)), 1.0f);
+
+  const ImVec2 iconCenter(bb.Min.x + 22.0f, (bb.Min.y + bb.Max.y) * 0.5f);
+  DrawNavIcon(window->DrawList, iconCenter,
+              selected ? accentHover : ImVec4(muted.x, muted.y, muted.z, 0.95f),
+              IconKindForTitle(title));
+
+  ImGui::PushStyleColor(ImGuiCol_Text, selected ? ImVec4(text.x, text.y, text.z, 1.0f) : ImVec4(text.x, text.y, text.z, 0.92f));
+  ImGui::SetCursorScreenPos(ImVec2(bb.Min.x + 40.0f, bb.Min.y + pad.y - 1.0f));
+  ImGui::TextUnformatted(title);
+  if (description && description[0] != '\0') {
+    ImGui::PushStyleColor(ImGuiCol_Text, muted);
+    ImGui::SetCursorScreenPos(ImVec2(bb.Min.x + 40.0f, bb.Min.y + pad.y + 20.0f));
+    ImGui::TextWrapped("%s", description);
+    ImGui::PopStyleColor();
+  }
+  ImGui::PopStyleColor();
+
+  return pressed;
+}
+
+void StatChip(const char *label, const char *value) {
+  ImGuiStyle &style = ImGui::GetStyle();
+  ImVec4 accent = style.Colors[ImGuiCol_Button];
+  ImVec2 textSize = ImGui::CalcTextSize(value);
+  float width = std::max(120.0f, textSize.x + 28.0f);
+
+  ImGui::BeginGroup();
+  ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(
+      style.Colors[ImGuiCol_ChildBg].x * 0.90f + accent.x * 0.04f,
+      style.Colors[ImGuiCol_ChildBg].y * 0.90f + accent.y * 0.04f,
+      style.Colors[ImGuiCol_ChildBg].z * 0.90f + accent.z * 0.04f,
+      1.0f));
+  ImGui::BeginChild(label, ImVec2(width, 38.0f), true, ImGuiWindowFlags_NoScrollbar);
+  ImGui::SetCursorPos(ImVec2(12.0f, 7.0f));
+  ImGui::PushStyleColor(ImGuiCol_Text, style.Colors[ImGuiCol_TextDisabled]);
+  ImGui::TextUnformatted(label);
+  ImGui::PopStyleColor();
+  ImGui::SetCursorPos(ImVec2(12.0f, 20.0f));
+  ImGui::TextUnformatted(value);
+  ImGui::EndChild();
+  ImGui::PopStyleColor();
+  ImGui::EndGroup();
+}
+
+bool ColorRow(const char *label, float *color) {
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted(label);
+  ImGui::SameLine();
+  ImGui::PushID(label);
+  bool changed = SettingColor("##color", color);
+  ImGui::PopID();
+  return changed;
+}
+
 bool BeginCard(const char *title, ImVec2 size) {
   ImGuiStyle &style = ImGui::GetStyle();
   ImVec4 accent = style.Colors[ImGuiCol_Button];
@@ -43,7 +203,7 @@ bool BeginCard(const char *title, ImVec2 size) {
   ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 10.0f));
 
-  bool ret = ImGui::BeginChild(title, size, true);
+  bool ret = ImGui::BeginChild(title, size, true, ImGuiWindowFlags_NoScrollbar);
 
   ImGui::PopStyleVar(2);
   ImGui::PopStyleColor();
@@ -126,7 +286,6 @@ bool SettingToggle(const char *label, bool *v) {
   if (pressed) {
     *v = !(*v);
     ImGui::MarkItemEdited(id);
-    Config::ConfigManager::ApplySettings();
   }
 
   float t = *v ? 1.0f : 0.0f;
@@ -158,6 +317,12 @@ bool SettingToggle(const char *label, bool *v) {
 
   ImU32 bg_color = ImGui::GetColorU32(ImLerp(col_off, col_on, t_anim));
   window->DrawList->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height), bg_color, height * 0.5f);
+  window->DrawList->AddRect(
+      pos, ImVec2(pos.x + width, pos.y + height),
+      ImGui::GetColorU32(ImVec4(style.Colors[ImGuiCol_Border].x,
+                                style.Colors[ImGuiCol_Border].y,
+                                style.Colors[ImGuiCol_Border].z, 1.0f)),
+      height * 0.5f, 0, 1.0f);
 
   if (hovered) {
     window->DrawList->AddRect(pos, ImVec2(pos.x + width, pos.y + height),
@@ -188,7 +353,13 @@ bool SettingToggle(const char *label, bool *v) {
 }
 
 bool SettingColor(const char *label, float *color) {
-  ImGui::SameLine(ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() * 1.8f);
+  float pickerSize = ImGui::GetFrameHeight() * 1.8f;
+  float cursorX = ImGui::GetCursorPosX();
+  float contentWidth = ImGui::GetContentRegionAvail().x;
+  float targetX = contentWidth - pickerSize;
+  if (targetX > cursorX) {
+    ImGui::SetCursorPosX(targetX);
+  }
   ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 4.0f));
   bool ret = ImGui::ColorEdit4(
@@ -196,12 +367,11 @@ bool SettingColor(const char *label, float *color) {
       ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel |
           ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_AlphaPreviewHalf);
   ImGui::PopStyleVar(2);
-  if (ret) Config::ConfigManager::ApplySettings();
   return ret;
 }
 
 bool SettingHotkey(const char* label, int& keyTarget) {
-  static int *s_listening = nullptr;
+  static int s_listeningId = -1;
   bool changed = false;
 
   ImGuiStyle &style = ImGui::GetStyle();
@@ -209,7 +379,10 @@ bool SettingHotkey(const char* label, int& keyTarget) {
   char btnLabel[64];
   snprintf(btnLabel, sizeof(btnLabel), "%s", label);
 
-  bool listening = (s_listening == &keyTarget);
+  ImGuiID widgetId = ImGui::GetID(label);
+  int myId = static_cast<int>(widgetId & 0x7FFFFFFF);
+
+  bool listening = (s_listeningId == myId);
 
   ImGui::TextUnformatted(btnLabel);
   ImGui::SameLine();
@@ -223,16 +396,21 @@ bool SettingHotkey(const char* label, int& keyTarget) {
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.9f, 0.35f, 0.05f, 1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
     if (ImGui::Button("... Press key ...", ImVec2(160, 0))) {
-      s_listening = nullptr;
+      s_listeningId = -1;
     }
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(2);
 
+    // NOTE: Direct GetAsyncKeyState() here is intentional and safe.
+    // This is a UI-only hotkey picker — it needs live polling of all
+    // VK codes, which is outside the scope of InputManager::keyStates[]
+    // (that array only contains feature-relevant keys). Runs on render
+    // thread, no cross-thread races.
     if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
-      s_listening = nullptr;
+      s_listeningId = -1;
     } else {
       static const int candidateVKs[] = {
-          0x01, 0x02, 0x04, 0x05, 0x06, VK_SHIFT, VK_CONTROL, VK_MENU, VK_INSERT, VK_END, VK_HOME, VK_DELETE,
+          0x01, 0x02, 0x04, 0x05, 0x06, VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, VK_INSERT, VK_END, VK_HOME, VK_DELETE,
           VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9,
           VK_F10, VK_F11, VK_F12, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'Z', 'X', 'C', 'V', 'F',
           'G', 'H', 'R', 'T', 'B',
@@ -240,9 +418,8 @@ bool SettingHotkey(const char* label, int& keyTarget) {
       for (int v : candidateVKs) {
         if (GetAsyncKeyState(v) & 0x8000) {
           keyTarget = v;
-          s_listening = nullptr;
+          s_listeningId = -1;
           changed = true;
-          Config::ConfigManager::ApplySettings();
           break;
         }
       }
@@ -252,7 +429,7 @@ bool SettingHotkey(const char* label, int& keyTarget) {
     char keyLabel[32];
     snprintf(keyLabel, sizeof(keyLabel), "[ %s ]", KeyLabel(keyTarget));
     if (ImGui::Button(keyLabel, ImVec2(100, 0)))
-      s_listening = &keyTarget;
+      s_listeningId = myId;
     ImGui::PopStyleVar();
   }
   return changed;

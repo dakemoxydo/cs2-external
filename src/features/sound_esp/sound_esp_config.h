@@ -2,7 +2,7 @@
 
 namespace Features {
 
-struct FootstepsEspConfig {
+struct SoundEspConfig {
   bool enabled = false;
   bool showTeammates = false;
 

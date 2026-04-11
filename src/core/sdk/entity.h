@@ -68,6 +68,12 @@ struct Entity {
 
   bool onScreen = false; // true if entity is within screen bounds (+margin)
 
+  // Movement state (read from memory thread, consumed by render-thread features)
+  uint32_t flags = 0;             // m_fFlags — FL_ONGROUND etc.
+  Vector3 velocity = {0, 0, 0};   // m_vecVelocity
+  bool isOnGround = false;        // Derived from flags & 1
+  float speed = 0.0f;             // Derived from velocity magnitude
+
   bool IsValid() const { return address != 0; }
   bool IsAlive() const { return health > 0 && health <= 100; }
 };
@@ -75,6 +81,9 @@ struct Entity {
 struct BombInfo {
   bool isPlanted = false;
   float timeLeft = 0.0f;
+  float totalTime = 40.0f; // from m_flTimerLength, fallback 40s
+  bool isBeingDefused = false;
+  float defuseTimeLeft = 0.0f;
   int site = -1; // 0 = A, 1 = B, -1 = None
 };
 } // namespace SDK

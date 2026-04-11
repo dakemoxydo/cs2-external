@@ -1,43 +1,30 @@
 #pragma once
 #include "offset_loader.h"
-#include <future>
+#include <atomic>
+#include <memory>
 
 namespace SDK {
 
+struct OffsetUpdateJobState;
+
+class OffsetUpdateJob {
+public:
+  OffsetUpdateJob() = default;
+  explicit OffsetUpdateJob(std::shared_ptr<OffsetUpdateJobState> state);
+
+  bool IsValid() const;
+  bool IsReady() const;
+  bool Succeeded() const;
+
+private:
+  std::shared_ptr<OffsetUpdateJobState> state_;
+};
+
 class Updater {
 public:
-    static std::future<bool> UpdateOffsets() {
-        return std::async(std::launch::async, []() {
-            try {
-                static OffsetLoader loader;
-                return loader.LoadOffsets();
-            } catch (...) {
-                return false;
-            }
-        });
-    }
-
-    static std::future<bool> ForceUpdateOffsets() {
-        return std::async(std::launch::async, []() {
-            try {
-                static OffsetLoader loader;
-                return loader.ForceUpdateFromGitHub();
-            } catch (...) {
-                return false;
-            }
-        });
-    }
-
-    static std::future<bool> ReloadOffsets() {
-        return std::async(std::launch::async, []() {
-            try {
-                static OffsetLoader loader;
-                return loader.ReloadOffsets();
-            } catch (...) {
-                return false;
-            }
-        });
-    }
+  static OffsetUpdateJob UpdateOffsets();
+  static OffsetUpdateJob ForceUpdateOffsets();
+  static OffsetUpdateJob ReloadOffsets();
 };
 
 } // namespace SDK

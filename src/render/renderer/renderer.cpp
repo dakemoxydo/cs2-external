@@ -1,17 +1,38 @@
 #include "renderer.h"
+#include <dxgi.h>
 
 namespace Render {
-ID3D11Device *Renderer::pDevice = nullptr;
-ID3D11DeviceContext *Renderer::pContext = nullptr;
-IDXGISwapChain *Renderer::pSwapChain = nullptr;
-ID3D11RenderTargetView *Renderer::pRenderTargetView = nullptr;
+
+using Microsoft::WRL::ComPtr;
+
+ComPtr<ID3D11Device> Renderer::pDevice;
+ComPtr<ID3D11DeviceContext> Renderer::pContext;
+ComPtr<IDXGISwapChain> Renderer::pSwapChain;
+ComPtr<ID3D11RenderTargetView> Renderer::pRenderTargetView;
 bool Renderer::s_vsyncEnabled = false;
+
+bool Renderer::CreateRenderTarget() {
+  if (!pSwapChain || !pDevice) {
+    return false;
+  }
+
+  ComPtr<ID3D11Texture2D> backBuffer;
+  if (FAILED(pSwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)))) {
+    return false;
+  }
+
+  return SUCCEEDED(
+      pDevice->CreateRenderTargetView(backBuffer.Get(), nullptr, &pRenderTargetView));
+}
+
+void Renderer::ReleaseRenderTarget() {
+  pRenderTargetView.Reset();
+}
 
 bool Renderer::Init(HWND hwnd) {
   Shutdown();
 
-  DXGI_SWAP_CHAIN_DESC sd;
-  ZeroMemory(&sd, sizeof(sd));
+  DXGI_SWAP_CHAIN_DESC sd = {};
   sd.BufferCount = 1;
   sd.BufferDesc.Width = 0;
   sd.BufferDesc.Height = 0;
@@ -27,67 +48,85 @@ bool Renderer::Init(HWND hwnd) {
   sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
   UINT createDeviceFlags = 0;
-  D3D_FEATURE_LEVEL featureLevel;
+  D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
   const D3D_FEATURE_LEVEL featureLevelArray[2] = {
       D3D_FEATURE_LEVEL_11_0,
       D3D_FEATURE_LEVEL_10_0,
   };
 
-  if (D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-                                    createDeviceFlags, featureLevelArray, 2,
-                                    D3D11_SDK_VERSION, &sd, &pSwapChain,
-                                    &pDevice, &featureLevel, &pContext) != S_OK)
+  if (FAILED(D3D11CreateDeviceAndSwapChain(
+          nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags,
+          featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &pSwapChain, &pDevice,
+          &featureLevel, &pContext))) {
+    Shutdown();
     return false;
+  }
 
-  ID3D11Texture2D *pBackBuffer = nullptr;
-  if (pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer)) != S_OK) {
+  if (!CreateRenderTarget()) {
     Shutdown();
     return false;
   }
-  if (pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &pRenderTargetView) != S_OK) {
-    pBackBuffer->Release();
-    Shutdown();
-    return false;
-  }
-  pBackBuffer->Release();
 
   return true;
 }
 
+bool Renderer::HandleResize(int width, int height) {
+  if (!pSwapChain || !pContext || width <= 0 || height <= 0) {
+    return false;
+  }
+
+  pContext->OMSetRenderTargets(0, nullptr, nullptr);
+  ReleaseRenderTarget();
+
+  if (FAILED(pSwapChain->ResizeBuffers(0, static_cast<UINT>(width),
+                                       static_cast<UINT>(height),
+                                       DXGI_FORMAT_UNKNOWN, 0))) {
+    CreateRenderTarget();
+    return false;
+  }
+
+  return CreateRenderTarget();
+}
+
 void Renderer::Shutdown() {
-  if (pRenderTargetView) {
-    pRenderTargetView->Release();
-    pRenderTargetView = nullptr;
-  }
-  if (pSwapChain) {
-    pSwapChain->Release();
-    pSwapChain = nullptr;
-  }
+  ReleaseRenderTarget();
+
   if (pContext) {
-    pContext->Release();
-    pContext = nullptr;
+    pContext->ClearState();
+    pContext->Flush();
   }
-  if (pDevice) {
-    pDevice->Release();
-    pDevice = nullptr;
-  }
+
+  pSwapChain.Reset();
+  pContext.Reset();
+  pDevice.Reset();
 }
 
 void Renderer::BeginFrame() {
-  if (!pContext || !pRenderTargetView) return;
-  const float clear_color_with_alpha[4] = {0.f, 0.f, 0.f, 0.f};
-  pContext->OMSetRenderTargets(1, &pRenderTargetView, nullptr);
-  pContext->ClearRenderTargetView(pRenderTargetView, clear_color_with_alpha);
+  if (!pContext || !pRenderTargetView) {
+    return;
+  }
+
+  const float clearColorWithAlpha[4] = {0.f, 0.f, 0.f, 0.f};
+  ID3D11RenderTargetView *renderTarget = pRenderTargetView.Get();
+  pContext->OMSetRenderTargets(1, &renderTarget, nullptr);
+  pContext->ClearRenderTargetView(renderTarget, clearColorWithAlpha);
 }
 
 void Renderer::EndFrame() {
-  if (!pSwapChain) return;
+  if (!pSwapChain) {
+    return;
+  }
+
   pSwapChain->Present(s_vsyncEnabled ? 1 : 0, 0);
 }
 
-ID3D11Device *Renderer::GetDevice() { return pDevice; }
+ID3D11Device *Renderer::GetDevice() {
+  return pDevice.Get();
+}
 
-ID3D11DeviceContext *Renderer::GetContext() { return pContext; }
+ID3D11DeviceContext *Renderer::GetContext() {
+  return pContext.Get();
+}
 
 void Renderer::SetVSync(bool enabled) {
   s_vsyncEnabled = enabled;
@@ -96,4 +135,5 @@ void Renderer::SetVSync(bool enabled) {
 bool Renderer::IsVSyncEnabled() {
   return s_vsyncEnabled;
 }
+
 } // namespace Render

@@ -8,6 +8,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # nlohmann::json via FetchContent
 include(FetchContent)
+
+# CMP0135: Use actual file timestamp for extracted content (avoid warning)
+cmake_policy(SET CMP0135 NEW)
 FetchContent_Declare(nlohmann_json
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
 )

@@ -10,7 +10,9 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Core {
 
@@ -41,34 +43,39 @@ float ComputeDistanceSquared(const SDK::Vector3 &from, const SDK::Vector3 &to,
   return dx * dx + dy * dy + dz * dz;
 }
 
+void PruneCaches(const std::unordered_set<uintptr_t> &activeAddresses,
+                 const std::unordered_set<uint32_t> &activeHandles) {
+  for (auto it = s_prevPositions.begin(); it != s_prevPositions.end();) {
+    if (activeAddresses.find(it->first) == activeAddresses.end()) {
+      it = s_prevPositions.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  for (auto it = s_nameCache.begin(); it != s_nameCache.end();) {
+    if (activeHandles.find(it->first) == activeHandles.end()) {
+      it = s_nameCache.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
 } // namespace
 
-std::shared_mutex GameManager::stateMutex;
-SDK::Matrix4x4 GameManager::cachedViewMatrix = {};
-
-std::vector<SDK::Entity> GameManager::playerBuffers[2];
-std::atomic<int> GameManager::activeBufferIndex{0};
-std::mutex GameManager::bufferMutex;
-
+std::atomic<std::shared_ptr<const GameSnapshot>> GameManager::s_snapshot{
+    std::make_shared<GameSnapshot>()};
 std::atomic<bool> GameManager::s_readBones{false};
 std::atomic<bool> GameManager::s_readWeapons{false};
-float GameManager::s_interpolationFactor{0.98f};
-SDK::Vector3 GameManager::cachedLocalPos = {};
-SDK::Vector3 GameManager::cachedLocalEyePos = {};
-SDK::Vector2 GameManager::cachedLocalAngles = {};
-SDK::Vector2 GameManager::cachedLocalAimPunch = {};
-int GameManager::cachedLocalShotsFired = 0;
-int GameManager::cachedLocalTeam = 0;
-bool GameManager::cachedLocalScoped = false;
-uint32_t GameManager::cachedLocalCrosshairHandle = 0;
-uintptr_t GameManager::cachedLocalPawn = 0;
-uintptr_t GameManager::cachedEntityList = 0;
-SDK::BombInfo GameManager::cachedBombInfo = {};
+std::atomic<float> GameManager::s_interpolationFactor{0.98f};
+std::atomic<int> GameManager::s_screenWidth{1920};
+std::atomic<int> GameManager::s_screenHeight{1080};
+std::unordered_map<int, int> GameManager::s_invalidSlotCache;
 
-SDK::Matrix4x4 GameManager::viewMatrix = {};
 uintptr_t GameManager::clientBase = 0;
+SDK::Matrix4x4 GameManager::viewMatrix = {};
 std::vector<SDK::Entity> GameManager::players;
-
 SDK::Vector3 GameManager::localPos = {};
 SDK::Vector3 GameManager::localEyePos = {};
 SDK::Vector2 GameManager::localAngles = {};
@@ -80,18 +87,11 @@ uint32_t GameManager::localCrosshairHandle = 0;
 uintptr_t GameManager::localPawn = 0;
 uintptr_t GameManager::entityList = 0;
 SDK::BombInfo GameManager::bombInfo = {};
-
-std::unordered_map<int, int> GameManager::s_invalidSlotCache;
-int GameManager::s_screenWidth = 1920;
-int GameManager::s_screenHeight = 1080;
+std::string GameManager::localWeaponName;
 
 bool GameManager::Init() {
-  const uintptr_t base = Module::GetBaseAddress(L"client.dll");
-  {
-    std::unique_lock<std::shared_mutex> lock(stateMutex);
-    clientBase = base;
-  }
-  return base != 0;
+  clientBase = Module::GetBaseAddress(L"client.dll");
+  return clientBase != 0;
 }
 
 void GameManager::Update() {
@@ -105,25 +105,42 @@ void GameManager::Update() {
     return;
   }
 
-  viewMatrix =
-      MemoryManager::Read<SDK::Matrix4x4>(clientBase + SDK::Offsets::dwViewMatrix);
+  const SDK::OffsetSet offsets = SDK::Offsets::GetCopy();
+  if (!offsets.HasRequired()) {
+    ClearFrameState(false);
+    return;
+  }
+
+  viewMatrix = MemoryManager::Read<SDK::Matrix4x4>(clientBase + offsets.dwViewMatrix);
 
   players.clear();
   players.reserve(16);
 
-  FrameContext context{SDK::CEntityList(0), SDK::CPlayerPawn(0)};
-  if (!BuildFrameContext(context)) {
+  FrameContext context{SDK::CEntityList(0, &offsets), SDK::CPlayerPawn(0, &offsets),
+                       &offsets};
+  if (!BuildFrameContext(context, offsets)) {
     ClearFrameState(false);
     return;
   }
 
   ResetLocalState();
-  UpdateLocalState(context.localPlayer);
-  UpdateBombState();
+  UpdateLocalState(context.localPlayer, offsets);
+  UpdateBombState(context.localPlayer, offsets);
 
   const int localSlot = FindLocalSlot(context);
   DecrementInvalidSlotCache();
-  RebuildPlayers(context, localSlot);
+  RebuildPlayers(context, localSlot, offsets);
+
+  std::unordered_set<uintptr_t> activeAddresses;
+  std::unordered_set<uint32_t> activeHandles;
+  activeAddresses.reserve(players.size());
+  activeHandles.reserve(players.size());
+  for (const auto &player : players) {
+    activeAddresses.insert(player.address);
+    activeHandles.insert(player.pawnHandle);
+  }
+  PruneCaches(activeAddresses, activeHandles);
+
   PublishFrameState();
 
 #ifdef DEBUG
@@ -143,17 +160,6 @@ void GameManager::Update() {
     std::cout << "[DEBUG] Local Team: " << localTeam << "\n";
     std::cout << "[DEBUG] Local Pos: " << localPos.x << ", " << localPos.y
               << ", " << localPos.z << "\n";
-
-    for (size_t i = 0; i < players.size(); ++i) {
-      const auto &p = players[i];
-      std::cout << "  Player[" << i << "]: addr=0x" << std::hex << p.address
-                << " hp=" << std::dec << p.health << " team=" << p.team
-                << " dist=" << p.distance << "m"
-                << " name=" << p.name << " weapon=" << p.weapon
-                << " spotted=" << p.isSpotted
-                << " bones=" << p.bonePositions.size() << "\n";
-    }
-    std::cout << std::endl;
   }
 #endif
 }
@@ -166,7 +172,6 @@ void GameManager::ClearFrameState(bool clearClientBase) {
   bombInfo = {};
 
   if (clearClientBase) {
-    std::unique_lock<std::shared_mutex> lock(stateMutex);
     clientBase = 0;
     s_invalidSlotCache.clear();
     InvalidateCachedEntityData();
@@ -185,9 +190,11 @@ void GameManager::ResetLocalState() {
   localScoped = false;
   localCrosshairHandle = 0;
   localPawn = 0;
+  localWeaponName.clear();
 }
 
-void GameManager::UpdateLocalState(const SDK::CPlayerPawn &currentLocalPlayer) {
+void GameManager::UpdateLocalState(const SDK::CPlayerPawn &currentLocalPlayer,
+                                   const SDK::OffsetSet &offsets) {
   localPawn = currentLocalPlayer.GetAddress();
   if (!currentLocalPlayer.IsValid()) {
     return;
@@ -201,18 +208,41 @@ void GameManager::UpdateLocalState(const SDK::CPlayerPawn &currentLocalPlayer) {
   localShotsFired = currentLocalPlayer.GetShotsFired();
   localScoped = currentLocalPlayer.IsScoped();
   localCrosshairHandle = currentLocalPlayer.GetCrosshairEntityHandle();
-}
 
-void GameManager::UpdateBombState() {
-  bombInfo = {};
-  bombInfo.site = -1;
-
-  if (SDK::Offsets::dwPlantedC4 == 0) {
+  uintptr_t clippingWeapon =
+      MemoryManager::Read<uintptr_t>(currentLocalPlayer.GetAddress() + offsets.m_pClippingWeapon);
+  if (clippingWeapon <= Constants::MIN_VALID_ADDRESS) {
+    localWeaponName.clear();
     return;
   }
 
-  uintptr_t c4Ptr =
-      MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwPlantedC4);
+  uintptr_t weaponPtr = MemoryManager::Read<uintptr_t>(clippingWeapon + 0x10);
+  uintptr_t namePtr = weaponPtr > Constants::MIN_VALID_ADDRESS
+                          ? MemoryManager::Read<uintptr_t>(weaponPtr + 0x20)
+                          : 0;
+  if (namePtr <= Constants::MIN_VALID_ADDRESS) {
+    localWeaponName.clear();
+    return;
+  }
+
+  char weaponBuffer[64] = {};
+  MemoryManager::ReadRaw(namePtr, weaponBuffer, sizeof(weaponBuffer) - 1);
+  localWeaponName = weaponBuffer;
+  if (localWeaponName.rfind("weapon_", 0) == 0) {
+    localWeaponName = localWeaponName.substr(7);
+  }
+}
+
+void GameManager::UpdateBombState(const SDK::CPlayerPawn &currentLocalPlayer,
+                                  const SDK::OffsetSet &offsets) {
+  bombInfo = {};
+  bombInfo.site = -1;
+
+  if (offsets.dwPlantedC4 == 0) {
+    return;
+  }
+
+  uintptr_t c4Ptr = MemoryManager::Read<uintptr_t>(clientBase + offsets.dwPlantedC4);
   if (c4Ptr <= Constants::MIN_VALID_ADDRESS) {
     return;
   }
@@ -222,24 +252,45 @@ void GameManager::UpdateBombState() {
     c4Addr = c4Ptr;
   }
 
-  SDK::CPlantedC4 c4(c4Addr);
+  SDK::CPlantedC4 c4(c4Addr, &offsets);
   if (!c4.IsTicking()) {
     return;
   }
 
   bombInfo.isPlanted = true;
   bombInfo.site = c4.GetSite();
-  bombInfo.timeLeft = c4.GetTimeLeft();
+  bombInfo.totalTime = c4.GetTimerLength();
+  if (bombInfo.totalTime <= 0.0f) {
+    bombInfo.totalTime = 40.0f;
+  }
+
+  const float currentGameTime =
+      currentLocalPlayer.IsValid() ? currentLocalPlayer.GetSimulationTime() : 0.0f;
+  const float blowTime = c4.GetBlowTime();
+  if (currentGameTime > 0.0f && blowTime > currentGameTime) {
+    bombInfo.timeLeft = std::max(0.0f, blowTime - currentGameTime);
+  } else {
+    bombInfo.timeLeft = bombInfo.totalTime;
+  }
+
+  bombInfo.isBeingDefused = c4.IsBeingDefused();
+  if (bombInfo.isBeingDefused) {
+    const float defuseEndTime = c4.GetDefuseCountDown();
+    if (currentGameTime > 0.0f && defuseEndTime > currentGameTime) {
+      bombInfo.defuseTimeLeft = std::max(0.0f, defuseEndTime - currentGameTime);
+    }
+  }
 }
 
-bool GameManager::BuildFrameContext(FrameContext &context) {
-  entityList =
-      MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwEntityList);
+bool GameManager::BuildFrameContext(FrameContext &context,
+                                    const SDK::OffsetSet &offsets) {
+  entityList = MemoryManager::Read<uintptr_t>(clientBase + offsets.dwEntityList);
   if (!entityList) {
     return false;
   }
 
-  context.entityListObj = SDK::CEntityList(entityList);
+  context.entityListObj = SDK::CEntityList(entityList, &offsets);
+  context.offsets = &offsets;
 
   static uintptr_t s_lastFirstChunk = 0;
   const uintptr_t currentFirstChunk = context.entityListObj.GetListEntry(0);
@@ -249,7 +300,7 @@ bool GameManager::BuildFrameContext(FrameContext &context) {
   }
 
   context.localPlayer = SDK::CPlayerPawn(
-      MemoryManager::Read<uintptr_t>(clientBase + SDK::Offsets::dwLocalPlayerPawn));
+      MemoryManager::Read<uintptr_t>(clientBase + offsets.dwLocalPlayerPawn), &offsets);
 
   uintptr_t listEntry = MemoryManager::Read<uintptr_t>(
       entityList + Constants::ENTITY_LIST_HEADER_OFFSET);
@@ -268,7 +319,7 @@ bool GameManager::BuildFrameContext(FrameContext &context) {
 
 int GameManager::FindLocalSlot(const FrameContext &context) {
   for (uintptr_t controllerPtr : context.controllerPointers) {
-    SDK::CPlayerController controller(controllerPtr);
+    SDK::CPlayerController controller(controllerPtr, context.offsets);
     if (!controller.IsValid()) {
       continue;
     }
@@ -293,12 +344,13 @@ void GameManager::DecrementInvalidSlotCache() {
   }
 }
 
-void GameManager::RebuildPlayers(const FrameContext &context, int localSlot) {
+void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
+                                 const SDK::OffsetSet &offsets) {
   constexpr float maxDistSq =
       Constants::ESP_MAX_DISTANCE_UNITS * Constants::ESP_MAX_DISTANCE_UNITS;
 
   for (uintptr_t controllerPtr : context.controllerPointers) {
-    SDK::CPlayerController controller(controllerPtr);
+    SDK::CPlayerController controller(controllerPtr, &offsets);
     if (!controller.IsValid()) {
       continue;
     }
@@ -363,7 +415,7 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot) {
     entity.isTeammate = (localTeam != 0 && team == localTeam);
     entity.position = position;
 
-    const float interpFactor = s_interpolationFactor;
+    const float interpFactor = s_interpolationFactor.load(std::memory_order_relaxed);
     const auto prevIt = s_prevPositions.find(entity.address);
     if (prevIt != s_prevPositions.end()) {
       entity.prevPosition = prevIt->second;
@@ -396,8 +448,13 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot) {
       s_nameCache[pawnHandle] = controller.GetPlayerName();
     }
     entity.name = s_nameCache[pawnHandle];
-
     entity.distance = std::sqrt(distSq) / 100.0f;
+
+    entity.flags = MemoryManager::Read<uint32_t>(entity.address + offsets.m_fFlags);
+    entity.velocity = MemoryManager::Read<SDK::Vector3>(entity.address + offsets.m_vecVelocity);
+    entity.isOnGround = (entity.flags & 1) != 0;
+    const SDK::Vector3 &vel = entity.velocity;
+    entity.speed = std::sqrtf(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
 
     if (!tooFar && s_readWeapons.load(std::memory_order_relaxed)) {
       entity.weapon = pawn.GetWeaponName();
@@ -407,7 +464,7 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot) {
       const uintptr_t gameScene = pawn.GetGameSceneNode();
       if (gameScene > Constants::MIN_VALID_ADDRESS) {
         const uintptr_t boneArray = MemoryManager::Read<uintptr_t>(
-            gameScene + SDK::Offsets::m_boneArrayOffset);
+            gameScene + offsets.m_boneArrayOffset);
         if (boneArray > Constants::MIN_VALID_ADDRESS) {
           BoneData rawBones[BONE_COUNT];
           if (MemoryManager::ReadRaw(boneArray, rawBones, sizeof(rawBones))) {
@@ -426,28 +483,24 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot) {
 }
 
 void GameManager::PublishFrameState() {
-  const int writeIdx = activeBufferIndex.load(std::memory_order_relaxed) ^ 1;
-  {
-    std::lock_guard<std::mutex> lock(bufferMutex);
-    playerBuffers[writeIdx] = players;
-  }
-  activeBufferIndex.store(writeIdx, std::memory_order_release);
-
-  {
-    std::unique_lock<std::shared_mutex> lock(stateMutex);
-    cachedViewMatrix = viewMatrix;
-    cachedLocalPos = localPos;
-    cachedLocalEyePos = localEyePos;
-    cachedLocalAngles = localAngles;
-    cachedLocalAimPunch = localAimPunch;
-    cachedLocalShotsFired = localShotsFired;
-    cachedLocalTeam = localTeam;
-    cachedLocalScoped = localScoped;
-    cachedLocalCrosshairHandle = localCrosshairHandle;
-    cachedLocalPawn = localPawn;
-    cachedEntityList = entityList;
-    cachedBombInfo = bombInfo;
-  }
+  auto snapshot = std::make_shared<GameSnapshot>();
+  snapshot->clientBase = clientBase;
+  snapshot->entityList = entityList;
+  snapshot->viewMatrix = viewMatrix;
+  snapshot->players = players;
+  snapshot->localPos = localPos;
+  snapshot->localEyePos = localEyePos;
+  snapshot->localAngles = localAngles;
+  snapshot->localAimPunch = localAimPunch;
+  snapshot->localShotsFired = localShotsFired;
+  snapshot->localTeam = localTeam;
+  snapshot->localScoped = localScoped;
+  snapshot->localCrosshairHandle = localCrosshairHandle;
+  snapshot->localPawn = localPawn;
+  snapshot->bombInfo = bombInfo;
+  snapshot->localWeaponName = localWeaponName;
+  s_snapshot.store(std::static_pointer_cast<const GameSnapshot>(snapshot),
+                   std::memory_order_release);
 }
 
 void GameManager::EnableBoneRead(bool enable) {
@@ -459,12 +512,12 @@ void GameManager::EnableWeaponRead(bool enable) {
 }
 
 void GameManager::SetInterpolationFactor(float factor) {
-  s_interpolationFactor = factor;
+  s_interpolationFactor.store(factor, std::memory_order_relaxed);
 }
 
 void GameManager::SetScreenSize(int width, int height) {
-  s_screenWidth = width;
-  s_screenHeight = height;
+  s_screenWidth.store(width, std::memory_order_relaxed);
+  s_screenHeight.store(height, std::memory_order_relaxed);
 }
 
 bool GameManager::IsOnScreen(const SDK::Vector3 &worldPos) {
@@ -482,10 +535,12 @@ bool GameManager::IsOnScreen(const SDK::Vector3 &worldPos) {
 
   const float ndcX = clipX / clipW;
   const float ndcY = clipY / clipW;
-  return (ndcX >= -1.0f - FRUSTUM_MARGIN / s_screenWidth &&
-          ndcX <= 1.0f + FRUSTUM_MARGIN / s_screenWidth &&
-          ndcY >= -1.0f - FRUSTUM_MARGIN / s_screenHeight &&
-          ndcY <= 1.0f + FRUSTUM_MARGIN / s_screenHeight);
+  const int width = s_screenWidth.load(std::memory_order_relaxed);
+  const int height = s_screenHeight.load(std::memory_order_relaxed);
+  return (ndcX >= -1.0f - FRUSTUM_MARGIN / width &&
+          ndcX <= 1.0f + FRUSTUM_MARGIN / width &&
+          ndcY >= -1.0f - FRUSTUM_MARGIN / height &&
+          ndcY <= 1.0f + FRUSTUM_MARGIN / height);
 }
 
 } // namespace Core

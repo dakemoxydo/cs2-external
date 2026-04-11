@@ -8,7 +8,17 @@
 
 
 namespace Render {
+namespace {
+bool s_initialized = false;
+}
+
 bool ImGuiManager::Init() {
+  // Guard against double-initialization: if an ImGuiContext already exists,
+  // clean it up first to prevent leaks on re-init.
+  if (ImGui::GetCurrentContext()) {
+    Shutdown();
+  }
+
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
@@ -78,27 +88,45 @@ bool ImGuiManager::Init() {
   colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.55f, 0.50f, 0.95f, 1.00f);
   colors[ImGuiCol_NavHighlight] = ImVec4(0.45f, 0.40f, 0.85f, 0.80f);
 
-  if (!ImGui_ImplWin32_Init(Overlay::GetWindowHandle()))
+  if (!ImGui_ImplWin32_Init(Overlay::GetWindowHandle())) {
+    Shutdown();
     return false;
-  if (!ImGui_ImplDX11_Init(Renderer::GetDevice(), Renderer::GetContext()))
+  }
+  if (!ImGui_ImplDX11_Init(Renderer::GetDevice(), Renderer::GetContext())) {
+    Shutdown();
     return false;
+  }
 
+  s_initialized = true;
   return true;
 }
 
 void ImGuiManager::Shutdown() {
+  if (!s_initialized) {
+    return;
+  }
+
   ImGui_ImplDX11_Shutdown();
   ImGui_ImplWin32_Shutdown();
-  ImGui::DestroyContext();
+  if (ImGui::GetCurrentContext()) {
+    ImGui::DestroyContext();
+  }
+  s_initialized = false;
 }
 
 void ImGuiManager::NewFrame() {
+  if (!s_initialized) {
+    return;
+  }
   ImGui_ImplDX11_NewFrame();
   ImGui_ImplWin32_NewFrame();
   ImGui::NewFrame();
 }
 
 void ImGuiManager::Render() {
+  if (!s_initialized) {
+    return;
+  }
   ImGui::Render();
   ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 }

@@ -1,184 +1,231 @@
-# QWEN Project Guide For `cs2overlay`
+# CS2 Overlay - Project Context
 
-This file is a compact AI-oriented working guide for the current project state.
+## Project Overview
 
-Primary source of truth:
-- `Structure.md`
+CS2 External Overlay — a C++20 external overlay application for Counter-Strike 2 built with ImGui and DirectX 11. It provides game enhancement features such as ESP, Aimbot, Triggerbot, RCS, Radar, and more via external memory reading.
 
-If this file conflicts with `Structure.md`, update this file and follow `Structure.md`.
+### Architecture Summary
 
-## 1. What This Project Is
+- **Dual-threaded runtime**: Render thread (ImGui, DirectX 11, UI, input) + Memory thread (process attach, game state reads, GameManager updates)
+- **Two entry points**: `src/main.cpp` (legacy direct bootstrap) and `src/core/application/application.cpp` (structured `Core::Application` object). Both must stay behaviorally aligned.
+- **Offset-driven**: Loads game offsets from JSON/HPP files produced by a CS2 dumper. The offset pipeline caches files in `build/Release/cache_offsets/`.
+- **Layered design**: Core (process/memory/game/SDK) → Features (ESP, aimbot, etc.) → Render (overlay/renderer/menu/ImGui) → Config/ Input layers.
 
-`cs2overlay` is a C++20 external CS2 overlay application with:
-- Win32 process management
-- DX11 transparent overlay rendering
-- ImGui menu
-- async offset loading
-- separate memory and render loops
+### Key Technologies
 
-The codebase contains two startup flows:
-- `src/main.cpp`
-- `src/core/application/application.cpp`
+- **C++20** with MSVC (Visual Studio 2019/2022)
+- **CMake 3.20+** for build configuration
+- **ImGui** (embedded, in `external/imgui/`)
+- **DirectX 11** for rendering
+- **WinHTTP / WinINet** for network operations (offset downloads)
+- **nlohmann/json** for JSON parsing (fetched via CMake FetchContent)
+- **Windows API** for process/memory access, stealth, and overlay window management
 
-They must stay behaviorally aligned until one is intentionally removed.
+---
 
-## 2. High-Level Architecture
+## Directory Structure (High-Level)
 
-Dependency direction:
-
-```text
-config -> used by almost every runtime layer
-core   -> no dependency on render/features business logic
-features -> depend on core and render/draw
-render -> may coordinate features, but should not own game-memory logic
+```
+cs2overlay/
+├── CMakeLists.txt          # Build configuration
+├── build.bat               # Automated build script (Windows)
+├── Structure.md            # Architecture documentation (PRIMARY REFERENCE)
+├── QWEN.md                 # This file — AI agent context
+├── offsets/
+│   └── output/             # CS2 dumper output (offsets.json, client_dll.json, etc.)
+├── external/
+│   └── imgui/              # ImGui library (embedded)
+├── scripts/
+│   └── mutate_signature.ps1  # Post-build EXE signature mutation
+├── src/
+│   ├── main.cpp            # Legacy entry point
+│   ├── config/             # ConfigManager, settings, serialization
+│   ├── core/
+│   │   ├── application/    # Structured Application class (alternative entry)
+│   │   ├── game/           # GameManager, entity lists, local player
+│   │   ├── math/           # Math utilities
+│   │   ├── memory/         # Memory manager, pattern scanner
+│   │   ├── process/        # Process attach/detach, module lookup, stealth
+│   │   └── sdk/            # Offset loading, parsing, application, SDK structs
+│   ├── features/           # Game features (aimbot, esp, radar, rcs, triggerbot, etc.)
+│   ├── input/              # Input manager, keybinds, synthetic mouse
+│   ├── render/
+│   │   ├── draw/           # Draw list, world-to-screen
+│   │   ├── menu/           # ImGui menu UI (tabs, components, theme)
+│   │   ├── overlay/        # Transparent overlay window management
+│   │   └── renderer/       # D3D11 device/swapchain, ImGui integration
+│   └── utils/              # Logger, math, string utilities, timer
+└── build/                  # CMake build output (gitignored)
 ```
 
-Hard rules:
-- Do not move render concerns into `core/`.
-- Do not move game-memory traversal into `render/`.
-- Do not make features read CS2 memory ad hoc if `GameManager` or SDK wrappers should own that data.
+For the full canonical structure, see `Structure.md`.
 
-## 3. Thread Ownership
+---
 
-### Render Thread
+## Building and Running
 
-Owns:
-- Windows message pump
-- input polling
-- menu open/close
-- `FeatureManager::UpdateAll()`
-- all `SendInput` / `GetAsyncKeyState` driven logic
-- overlay rendering
+### Prerequisites
 
-Rule:
-- Anything involving synthetic input or real-time key checks stays on the render thread.
+- **Windows** (x64)
+- **Visual Studio 2019 or 2022** with C++ Desktop Development workload
+- **CMake 3.20+** in PATH
+- **CS2 offset files** from a dumper (placed in `offsets/output/`)
 
-### Memory Thread
+### Quick Build (Recommended)
 
-Owns:
-- attach retry loop
-- game memory reads
-- entity rebuild
-- `GameManager::Update()`
+Run the provided build script:
 
-Rule:
-- If process state becomes invalid, publish empty frame state instead of keeping stale values alive.
-
-## 4. Critical Runtime Rules
-
-### Startup / Shutdown
-
-- Every early return after attach must detach the process.
-- Every early return after overlay creation must destroy the overlay.
-- Every partial renderer failure must release D3D resources.
-- `main.cpp` and `Application::Initialize()` must stay in sync on cleanup behavior.
-
-### Process Recovery
-
-- A CS2 restart is a normal runtime event, not a fatal one.
-- Old `PID` and `HANDLE` values must never survive failed attach or dead process state.
-- Reattach must replace old handles instead of stacking new state on top.
-
-### Game State Publication
-
-- `GameManager` is responsible for publishing render-safe state.
-- If entity list rebuild fails, render-visible state must be cleared.
-- Never rely on "no update happened" as permission to keep old data visible.
-
-## 5. Config Rules
-
-Configs live next to the executable in:
-
-```text
-configs/
+```bat
+build.bat
 ```
 
-Rules:
-- `default` and `default.json` must resolve to the same config file.
-- Missing config file must fall back to defaults, not hard fail.
-- Invalid config content must reset to defaults safely.
-- Any user-facing setting that should persist must be added to `BuildRegistry()` in `src/config/config_manager.cpp`.
+This script will:
+1. Copy offset files from `offsets/output/` to `build/Release/cache_offsets/`
+2. Detect Visual Studio version and configure CMake
+3. Build the Release target
+4. Run post-build EXE signature mutation
 
-If you add a setting and forget `BuildRegistry()`, that is a bug.
+The output executable: `build/Release/cs2overlay.exe`
 
-## 6. Feature Rules
+### Manual Build
 
-Features live under:
-
-```text
-src/features/<feature_name>/
+```bat
+mkdir build && cd build
+cmake -G "Visual Studio 17 2022" -A x64 ..
+cmake --build . --config Release
 ```
 
-Current feature set:
-- Aimbot
-- Bomb
-- DebugOverlay
-- ESP
-- FootstepsEsp
-- Misc
-- Radar
-- RCSSystem
-- Triggerbot
+### Runtime Expectations
 
-Rules:
-- Each feature must fit the `IFeature` lifecycle.
-- `FeatureManager::RegisterAll()` must stay idempotent.
-- Feature enable/disable logic must remain compatible with `ConfigManager::ApplySettings()`.
-- Persistent feature settings must be represented in both:
-  - `settings.h`
-  - `BuildRegistry()`
+- The overlay looks for `cs2.exe` process and attaches automatically
+- If CS2 is not running, it retries every 5 seconds
+- Config files stored in `build/Release/configs/`
+- Offset cache stored in `build/Release/cache_offsets/`
+- Press **INSERT** to toggle the menu
+- Press **END** to exit the application
 
-## 7. Memory And Offset Rules
+---
 
-Use:
-- `MemoryManager::Read<T>()`
-- `MemoryManager::ReadOptional<T>()`
-- `MemoryManager::ReadChain<T>()`
-- `MemoryManager::ReadRaw()`
+## Development Conventions
 
-Do not:
-- call `NtReadVirtualMemory` directly outside `MemoryManager`
-- hardcode dumper offsets inside feature logic
+### Code Style
 
-Offset pipeline:
-1. read from `cache_offsets/`
-2. if invalid, try GitHub
-3. parse JSON first, HPP second
-4. apply into `SDK::Offsets`
+- C++20, MSVC `/W4` warnings
+- Snake case for files, PascalCase for classes/namespaces, camelCase for functions/variables
+- Headers use `#pragma once`
+- Namespaced design: `Core::`, `Render::`, `Features::`, `Config::`, `Input::`, `SDK::`
 
-Critical offsets:
-- `dwEntityList`
-- `dwLocalPlayerPawn`
-- `dwViewMatrix`
+### Critical Rules (From Structure.md)
 
-If these are missing, do not assume ESP data is valid.
+These are non-negotiable and were added after actual bugs:
 
-## 8. Render And Overlay Rules
+1. **Startup/Shutdown**: Every early return after successful resource acquisition must clean up that resource. Process attach → overlay creation → renderer init all must have matching teardown on failure.
+2. **Process Recovery**: CS2 restart is a normal event. Losing the process clears runtime state. Reattach replaces old handles (never stacks).
+3. **Config Safety**: Missing default config falls back to defaults. Missing non-default config reports failure. Broken configs reset to defaults. `LastError` cleared after successful operations.
+4. **State Publication**: When backend has no valid frame, explicitly publish empty state — never assume "no new data" means "keep old data".
+5. **Idempotent Registration**: `FeatureManager::RegisterAll()` must be idempotent. Never duplicate registrations.
+6. **Two Entry Paths**: Changes to startup, shutdown, config loading, or error handling in one entry path must be applied to the other.
 
-Overlay:
-- must tolerate CS2 window disappearing
-- must not leak registered window classes on failure
-- must support repeated create/destroy cycles safely
+### When Adding New Features
 
-Renderer:
-- must be safe after partial init failure
-- must release partially created resources immediately on failure
+1. Add feature files under `src/features/<feature_name>/`
+2. Register in `FeatureManager::RegisterAll()` (keep it idempotent)
+3. Wire enabled flag into `ConfigManager::ApplySettings()`
+4. Add persistent settings to config registry (`BuildRegistry()`)
+5. Ensure menu reads/writes the config
 
-## 9. Rules That Prevent Recently Fixed Bugs
+### When Adding New Config Fields
 
-- Do not keep stale process state after CS2 exits.
-- Do not keep stale players or local state after frame reconstruction fails.
-- Do not add persistent UI settings without serialization support.
-- Do not register features twice.
-- Do not leave pending UI state stuck after future completion.
-- Do not read array-backed input state without key bounds checks.
+1. Add field to the appropriate config struct in `settings.h` or feature config
+2. Register in `BuildRegistry()` in `config_manager.cpp`
+3. Ensure menu reads/writes it
+4. Define a sensible default value
 
-## 10. Change Checklist
+### Thread Safety
 
-Before finishing a change, verify:
-- startup and shutdown are symmetrical
-- process recovery still works conceptually
-- config persistence still matches visible settings
-- render thread still owns input logic
-- memory thread still owns game-memory reconstruction
-- `Structure.md`, `QWEN.md`, and `GEMINI.md` remain aligned if rules changed
+- `Config::SettingsMutex` (shared_mutex) protects all config reads/writes
+- GameManager uses double-buffered render data with mutex protection
+- Input helpers (`GetAsyncKeyState()`, `SendInput()`) must stay on the **render thread only**
+- Memory reads happen on the **memory thread**
+
+---
+
+## Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `Structure.md` | **Primary architecture reference** — update this on any structural change |
+| `CMakeLists.txt` | Build config: ImGui sources, dependencies (nlohmann/json), linking, post-build mutation |
+| `build.bat` | Automated build: offset copying, VS detection, CMake configure + build |
+| `src/main.cpp` | Legacy direct bootstrap entry point |
+| `src/core/application/` | Structured Application class (alternative bootstrap) |
+| `src/config/config_manager.cpp` | Config serialization/deserialization, `BuildRegistry()` |
+| `src/config/settings.h` | Global settings struct, feature configs, performance settings |
+| `src/features/feature_manager.h` | Feature registration, lazy initialization, update/render dispatch |
+| `src/core/process/process.cpp` | Process attach/detach, handle management, CS2 discovery |
+| `src/core/sdk/offset_loader.cpp` | Offset file loading (JSON → HPP parsing) |
+| `src/render/overlay/overlay.cpp` | Transparent overlay window, CS2 window tracking |
+| `src/render/renderer/renderer.cpp` | D3D11 device/swapchain, frame begin/end, VSync |
+
+---
+
+## Feature List
+
+| Feature | Description |
+|---------|-------------|
+| **ESP** | Entity visualization (boxes, health, weapons, bones, distance) |
+| **Aimbot** | Aim assistance with configurable smoothing and FOV |
+| **Triggerbot** | Auto-fire when crosshair is on target |
+| **RCS** | Recoil Control System (automatic mouse compensation) |
+| **Radar** | 2D minimap overlay showing entity positions |
+| **Bomb** | Bomb timer and placement tracking |
+| **FootstepsEsp** | Audio-based footsteps visualization |
+| **Misc** | Miscellaneous utilities (bhop, crosshair, etc.) |
+| **DebugOverlay** | Debug information overlay (FPS, UPS, process state) |
+
+---
+
+## Useful Commands
+
+```bat
+:: Build the project
+build.bat
+
+:: Clean rebuild (delete build/ first)
+rmdir /s /q build && build.bat
+
+:: Run CMake configuration only
+cd build && cmake --build . --config Release
+
+:: Check CMake version
+cmake --version
+
+:: Find Visual Studio installation
+where /R "C:\Program Files\Microsoft Visual Studio" vcvars64.bat
+```
+
+---
+
+## Common Issues
+
+| Problem | Solution |
+|---------|----------|
+| CMake not found | Install CMake and add to PATH |
+| Visual Studio not detected | Install VS 2019/2022 with C++ Desktop Development |
+| Missing offsets | Place dumper output in `offsets/output/` or run build.bat |
+| EXE signature mutation fails | Check `scripts/mutate_signature.ps1` execution policy |
+| Process attach fails | Ensure CS2 is running and overlay has appropriate permissions |
+
+---
+
+## Documentation Rule
+
+If any of the following change, update `Structure.md` in the same task:
+- Folder layout
+- Startup flow
+- Process lifecycle
+- Config persistence rules
+- Feature registration rules
+- Render or memory thread ownership
+- Offset loading pipeline
+- Menu architecture

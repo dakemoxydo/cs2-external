@@ -7,8 +7,9 @@
 #include "../features/radar/radar_config.h"
 #include "../features/triggerbot/triggerbot_config.h"
 #include "../features/rcs/rcs_config.h"
-#include "../features/footsteps_esp/footsteps_esp_config.h"
+#include "../features/sound_esp/sound_esp_config.h"
 #include "settings.h"
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -66,7 +67,7 @@ static std::vector<ConfigEntry> BuildRegistry() {
   auto &P = Settings.performance;
   auto &D = Settings.debug;
   auto &RCS = Settings.rcs;
-  auto &FE = Settings.footstepsEsp;
+  auto &SE = Settings.soundEsp;
 
   return {
       // ESP
@@ -130,7 +131,6 @@ static std::vector<ConfigEntry> BuildRegistry() {
       {"tb_delayMin", ConfigEntry::INT, &T.delayMin},
       {"tb_delayMax", ConfigEntry::INT, &T.delayMax},
       {"tb_teamCheck", ConfigEntry::BOOL, &T.teamCheck},
-      {"tb_fov", ConfigEntry::FLOAT, &T.fov},
       // Standalone RCS
       {"rcs_enabled", ConfigEntry::BOOL, &RCS.enabled},
       {"rcs_pitch", ConfigEntry::FLOAT, &RCS.pitchStrength},
@@ -153,19 +153,19 @@ static std::vector<ConfigEntry> BuildRegistry() {
       // Debug
       {"debug_enabled", ConfigEntry::BOOL, &D.enabled},
       {"debug_devMode", ConfigEntry::BOOL, &D.devMode},
-      // Footsteps ESP
-      {"footstepsEsp_enabled", ConfigEntry::BOOL, &FE.enabled},
-      {"footstepsEsp_showTeammates", ConfigEntry::BOOL, &FE.showTeammates},
-      {"footstepsEsp_footstepColor", ConfigEntry::COLOR, FE.footstepColor},
-      {"footstepsEsp_jumpColor", ConfigEntry::COLOR, FE.jumpColor},
-      {"footstepsEsp_landColor", ConfigEntry::COLOR, FE.landColor},
-      {"footstepsEsp_footstepMaxRadius", ConfigEntry::FLOAT, &FE.footstepMaxRadius},
-      {"footstepsEsp_jumpMaxRadius", ConfigEntry::FLOAT, &FE.jumpMaxRadius},
-      {"footstepsEsp_landMaxRadius", ConfigEntry::FLOAT, &FE.landMaxRadius},
-      {"footstepsEsp_expandDuration", ConfigEntry::FLOAT, &FE.expandDuration},
-      {"footstepsEsp_fadeDuration", ConfigEntry::FLOAT, &FE.fadeDuration},
-      {"footstepsEsp_thickness", ConfigEntry::FLOAT, &FE.thickness},
-      {"footstepsEsp_segments", ConfigEntry::INT, &FE.segments},
+      // Sound ESP
+      {"soundEsp_enabled", ConfigEntry::BOOL, &SE.enabled},
+      {"soundEsp_showTeammates", ConfigEntry::BOOL, &SE.showTeammates},
+      {"soundEsp_footstepColor", ConfigEntry::COLOR, SE.footstepColor},
+      {"soundEsp_jumpColor", ConfigEntry::COLOR, SE.jumpColor},
+      {"soundEsp_landColor", ConfigEntry::COLOR, SE.landColor},
+      {"soundEsp_footstepMaxRadius", ConfigEntry::FLOAT, &SE.footstepMaxRadius},
+      {"soundEsp_jumpMaxRadius", ConfigEntry::FLOAT, &SE.jumpMaxRadius},
+      {"soundEsp_landMaxRadius", ConfigEntry::FLOAT, &SE.landMaxRadius},
+      {"soundEsp_expandDuration", ConfigEntry::FLOAT, &SE.expandDuration},
+      {"soundEsp_fadeDuration", ConfigEntry::FLOAT, &SE.fadeDuration},
+      {"soundEsp_thickness", ConfigEntry::FLOAT, &SE.thickness},
+      {"soundEsp_segments", ConfigEntry::INT, &SE.segments},
   };
 }
 
@@ -207,12 +207,18 @@ bool ConfigManager::Save(const std::string &name) {
 bool ConfigManager::Load(const std::string &name) {
   std::unique_lock<std::shared_mutex> lock(SettingsMutex);
 
+  const std::string normalizedName = NormalizeConfigName(name);
   std::ifstream f(ConfigPath(name));
   if (!f) {
-    LastError.clear();
-    Settings = GlobalSettings{};
-    ApplySettings();
-    return true;
+    if (normalizedName == "default") {
+      LastError.clear();
+      Settings = GlobalSettings{};
+      ApplySettings();
+      return true;
+    }
+
+    LastError = "Config file not found: " + ConfigPath(name).string();
+    return false;
   }
   
   try {
@@ -258,6 +264,31 @@ bool ConfigManager::Load(const std::string &name) {
 }
 
 // ─── ApplySettings ───────────────────────────────────────────────────────────
+// NOTE: This function is called with SettingsMutex already held (unique_lock)
+// from Load()/Save(). It applies the current settings to feature enable state.
+// The mapping from config fields → feature names is intentional coupling;
+// a full decoupling would require a coordinator/service layer (future work).
+static bool IsFeatureEnabled(std::string_view name) {
+    if (name == "ESP") return Settings.esp.enabled;
+    if (name == "Aimbot") return Settings.aimbot.enabled;
+    if (name == "Triggerbot") return Settings.triggerbot.enabled;
+    if (name == "Misc") return Settings.misc.awpCrosshair;
+    if (name == "Bomb") return Settings.bomb.enabled;
+    if (name == "Radar") return Settings.radar.enabled;
+    if (name == "DebugOverlay") return Settings.debug.enabled;
+    if (name == "RCSSystem") return Settings.rcs.enabled;
+    if (name == "SoundEsp") return Settings.soundEsp.enabled;
+    return false;
+}
+
+namespace Detail {
+
+void ApplySettingsUnderLock() {
+  ConfigManager::ApplySettings();
+}
+
+} // namespace Detail
+
 void ConfigManager::ApplySettings() {
   // Lazy-init features when their enabled state changes to true
   if (Settings.esp.enabled)
@@ -276,27 +307,23 @@ void ConfigManager::ApplySettings() {
     Features::FeatureManager::EnsureFeatureInitialized("DebugOverlay");
   if (Settings.rcs.enabled)
     Features::FeatureManager::EnsureFeatureInitialized("RCSSystem");
-  if (Settings.footstepsEsp.enabled)
-    Features::FeatureManager::EnsureFeatureInitialized("FootstepsEsp");
+  if (Settings.soundEsp.enabled)
+    Features::FeatureManager::EnsureFeatureInitialized("SoundEsp");
 
   // Also handle disabling for already-initialized features
   for (auto &slot : Features::FeatureManager::featureSlots) {
     if (!slot.instance) continue;
     std::string n(slot.instance->GetName());
-    bool shouldBeEnabled = false;
-    if (n == "ESP") shouldBeEnabled = Settings.esp.enabled;
-    else if (n == "Aimbot") shouldBeEnabled = Settings.aimbot.enabled;
-    else if (n == "Triggerbot") shouldBeEnabled = Settings.triggerbot.enabled;
-    else if (n == "Misc") shouldBeEnabled = Settings.misc.awpCrosshair;
-    else if (n == "Bomb") shouldBeEnabled = Settings.bomb.enabled;
-    else if (n == "Radar") shouldBeEnabled = Settings.radar.enabled;
-    else if (n == "DebugOverlay") shouldBeEnabled = Settings.debug.enabled;
-    else if (n == "RCSSystem") shouldBeEnabled = Settings.rcs.enabled;
-    else if (n == "FootstepsEsp") shouldBeEnabled = Settings.footstepsEsp.enabled;
-
+    bool shouldBeEnabled = IsFeatureEnabled(n);
     if (!shouldBeEnabled && slot.instance->IsEnabled())
       slot.instance->SetEnabled(false);
   }
+}
+
+// ─── ApplySettingsThreadSafe ─────────────────────────────────────────────────
+void ConfigManager::ApplySettingsThreadSafe() {
+  std::unique_lock<std::shared_mutex> lock(SettingsMutex);
+  Detail::ApplySettingsUnderLock();
 }
 
 // ─── ListConfigs ─────────────────────────────────────────────────────────────
@@ -307,6 +334,7 @@ std::vector<std::string> ConfigManager::ListConfigs() {
     if (e.path().extension().string() == ".json")
       names.push_back(e.path().stem().string());
   }
+  std::sort(names.begin(), names.end());
   return names;
 }
 

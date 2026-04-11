@@ -10,7 +10,7 @@ public:
   static bool Create();
   static void Destroy();
   static HWND GetWindowHandle();
-  static void UpdatePosition();
+  static bool UpdatePosition();
   static int GetGameWidth();
   static int GetGameHeight();
 

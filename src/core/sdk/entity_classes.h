@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <string>
 #include "../memory/memory_manager.h"
 #include "offsets.h"
@@ -10,8 +11,15 @@ namespace SDK {
 class CEntityInstance {
 protected:
   uintptr_t address;
+  const OffsetSet* offsets;
+
+  const OffsetSet& GetOffsets() const {
+    static const OffsetSet emptyOffsets{};
+    return offsets ? *offsets : emptyOffsets;
+  }
 public:
-  CEntityInstance(uintptr_t addr = 0) : address(addr) {}
+  CEntityInstance(uintptr_t addr = 0, const OffsetSet* offsetSet = nullptr)
+      : address(addr), offsets(offsetSet) {}
   bool IsValid() const {
     return address > 0x10000 && address < 0x7FFFFFFFFFFFFFFF;
   }
@@ -23,55 +31,62 @@ public:
   using CEntityInstance::CEntityInstance;
 
   int GetHealth() const {
-    return Core::MemoryManager::Read<int>(address + Offsets::m_iHealth);
+    return Core::MemoryManager::Read<int>(address + GetOffsets().m_iHealth);
   }
   
   int GetTeam() const {
-    return Core::MemoryManager::Read<int>(address + Offsets::m_iTeamNum);
+    return Core::MemoryManager::Read<int>(address + GetOffsets().m_iTeamNum);
   }
   
   Vector3 GetOldOrigin() const {
-    return Core::MemoryManager::Read<Vector3>(address + Offsets::m_vOldOrigin);
+    return Core::MemoryManager::Read<Vector3>(address + GetOffsets().m_vOldOrigin);
   }
   
   Vector3 GetCameraPos() const {
     Vector3 origin = GetOldOrigin();
-    Vector3 viewOffset = Core::MemoryManager::Read<Vector3>(address + Offsets::m_vecViewOffset);
+    Vector3 viewOffset =
+        Core::MemoryManager::Read<Vector3>(address + GetOffsets().m_vecViewOffset);
     return { origin.x + viewOffset.x, origin.y + viewOffset.y, origin.z + viewOffset.z };
   }
   
   Vector2 GetEyeAngles() const {
-    return Core::MemoryManager::Read<Vector2>(address + Offsets::m_angEyeAngles);
+    return Core::MemoryManager::Read<Vector2>(address + GetOffsets().m_angEyeAngles);
   }
 
   bool IsScoped() const {
-    return Core::MemoryManager::Read<bool>(address + Offsets::m_bIsScoped);
+    return Core::MemoryManager::Read<bool>(address + GetOffsets().m_bIsScoped);
   }
 
   Vector2 GetAimPunch() const {
-    return Core::MemoryManager::Read<Vector2>(address + Offsets::m_aimPunchAngle);
+    return Core::MemoryManager::Read<Vector2>(address + GetOffsets().m_aimPunchAngle);
   }
 
   uint32_t GetCrosshairEntityHandle() const {
-    return Core::MemoryManager::Read<uint32_t>(address + Offsets::m_iIDEntIndex);
+    return Core::MemoryManager::Read<uint32_t>(address + GetOffsets().m_iIDEntIndex);
   }
 
   int GetShotsFired() const {
-    return Core::MemoryManager::Read<int>(address + Offsets::m_iShotsFired);
+    return Core::MemoryManager::Read<int>(address + GetOffsets().m_iShotsFired);
+  }
+
+  float GetSimulationTime() const {
+    return Core::MemoryManager::Read<float>(address + GetOffsets().m_flSimulationTime);
   }
 
   uint32_t GetSpottedStateMask() const {
-    return Core::MemoryManager::Read<uint32_t>(address + Offsets::m_entitySpottedState +
-                                               Offsets::m_bSpottedByMaskOffset);
+    const auto& O = GetOffsets();
+    return Core::MemoryManager::Read<uint32_t>(address + O.m_entitySpottedState +
+                                               O.m_bSpottedByMaskOffset);
   }
 
   uintptr_t GetGameSceneNode() const {
-    return Core::MemoryManager::Read<uintptr_t>(address + Offsets::m_pGameSceneNode);
+    return Core::MemoryManager::Read<uintptr_t>(address + GetOffsets().m_pGameSceneNode);
   }
 
   std::string GetWeaponName() const {
+    const auto& O = GetOffsets();
     uintptr_t nPtr = Core::MemoryManager::ReadChain<uintptr_t>(
-        address, {(uintptr_t)Offsets::m_pClippingWeapon, 0x10, 0x20});
+        address, {(uintptr_t)O.m_pClippingWeapon, 0x10, 0x20});
     if (nPtr > 0x10000) {
       char wb[64] = {};
       Core::MemoryManager::ReadRaw(nPtr, wb, sizeof(wb) - 1);
@@ -89,17 +104,17 @@ public:
   using CEntityInstance::CEntityInstance;
 
   uint32_t GetPawnHandle() const {
-    return Core::MemoryManager::Read<uint32_t>(address + Offsets::m_hPawn);
+    return Core::MemoryManager::Read<uint32_t>(address + GetOffsets().m_hPawn);
   }
   
   bool IsLocalPlayerController() const {
-    return Core::MemoryManager::Read<bool>(address + Offsets::m_bIsLocalPlayerController);
+    return Core::MemoryManager::Read<bool>(address + GetOffsets().m_bIsLocalPlayerController);
   }
   
   std::string GetPlayerName() const {
     char nameBuffer[128] = {};
-    Core::MemoryManager::ReadRaw(address + Offsets::m_iszPlayerName, nameBuffer,
-                                 sizeof(nameBuffer) - 1);
+    Core::MemoryManager::ReadRaw(address + GetOffsets().m_iszPlayerName,
+                                 nameBuffer, sizeof(nameBuffer) - 1);
     return std::string(nameBuffer);
   }
 };
@@ -114,20 +129,20 @@ public:
 
   CPlayerController GetController(int index) const {
     uintptr_t listEntry = GetListEntry(0);
-    if (!listEntry) return CPlayerController(0);
+    if (!listEntry) return CPlayerController(0, offsets);
     uintptr_t ptr = Core::MemoryManager::Read<uintptr_t>(listEntry + (index + 1) * 0x70);
-    return CPlayerController(ptr);
+    return CPlayerController(ptr, offsets);
   }
 
   CPlayerPawn GetPawnFromHandle(uint32_t handle, uintptr_t cachedListEntry = 0) const {
-    if (!handle || handle == 0xFFFFFFFF) return CPlayerPawn(0);
+    if (!handle || handle == 0xFFFFFFFF) return CPlayerPawn(0, offsets);
     
     int chunkIdx = (int)((handle & 0x7FFF) >> 9);
     uintptr_t entry = cachedListEntry ? cachedListEntry : GetListEntry(chunkIdx);
-    if (!entry) return CPlayerPawn(0);
+    if (!entry) return CPlayerPawn(0, offsets);
 
     uintptr_t pawnAddr = Core::MemoryManager::Read<uintptr_t>(entry + (handle & 0x1FF) * 0x70);
-    return CPlayerPawn(pawnAddr);
+    return CPlayerPawn(pawnAddr, offsets);
   }
 };
 
@@ -136,13 +151,22 @@ public:
   using CEntityInstance::CEntityInstance;
 
   bool IsTicking() const {
-    return Core::MemoryManager::Read<bool>(address + Offsets::m_bBombTicking);
+    return Core::MemoryManager::Read<bool>(address + GetOffsets().m_bBombTicking);
   }
   int GetSite() const {
-    return Core::MemoryManager::Read<int>(address + Offsets::m_nBombSite);
+    return Core::MemoryManager::Read<int>(address + GetOffsets().m_nBombSite);
   }
-  float GetTimeLeft() const {
-    return Core::MemoryManager::Read<float>(address + Offsets::m_flTimerLength);
+  float GetTimerLength() const {
+    return Core::MemoryManager::Read<float>(address + GetOffsets().m_flTimerLength);
+  }
+  float GetBlowTime() const {
+    return Core::MemoryManager::Read<float>(address + GetOffsets().m_flC4Blow);
+  }
+  bool IsBeingDefused() const {
+    return Core::MemoryManager::Read<bool>(address + GetOffsets().m_bBeingDefused);
+  }
+  float GetDefuseCountDown() const {
+    return Core::MemoryManager::Read<float>(address + GetOffsets().m_flDefuseCountDown);
   }
 };
 

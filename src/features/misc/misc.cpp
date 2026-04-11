@@ -7,22 +7,35 @@
 #include "render/draw/draw_list.h"
 #include "render/overlay/overlay.h"
 #include <imgui.h>
+#include <shared_mutex>
 #include <windows.h>
 
 namespace Features {
 
 void Misc::Update() {
-
   // Future: bhop, auto-strafe, etc.
 }
 
 void Misc::Render(Render::DrawList &drawList) {
-  if (!Config::Settings.misc.awpCrosshair)
-    return;
+  // Snapshot misc settings atomically
+  struct S {
+    bool awpCrosshair, crosshairGap;
+    int crosshairStyle;
+    float crosshairSize, crosshairThickness, crosshairColor[4];
+  };
+  S s;
+  {
+    std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
+    auto &M = Config::Settings.misc;
+    s = {M.awpCrosshair, M.crosshairGap, M.crosshairStyle,
+         M.crosshairSize, M.crosshairThickness};
+    std::copy(std::begin(M.crosshairColor), std::end(M.crosshairColor), s.crosshairColor);
+  }
+
+  if (!s.awpCrosshair) return;
 
   bool isScoped = Core::GameManager::IsLocalScoped();
-  if (isScoped)
-    return;
+  if (isScoped) return;
 
   std::string weaponName = Core::GameManager::GetLocalWeaponName();
   if (weaponName.find("awp") == std::string::npos &&
@@ -36,11 +49,11 @@ void Misc::Render(Render::DrawList &drawList) {
 
   float cx = gameW / 2.0f;
   float cy = gameH / 2.0f;
-  float sz = Config::Settings.misc.crosshairSize;
-  float th = Config::Settings.misc.crosshairThickness;
-  float gap = Config::Settings.misc.crosshairGap ? sz * 0.4f : 0.0f;
-  float *col = Config::Settings.misc.crosshairColor;
-  int style = Config::Settings.misc.crosshairStyle;
+  float sz = s.crosshairSize;
+  float th = s.crosshairThickness;
+  float gap = s.crosshairGap ? sz * 0.4f : 0.0f;
+  float *col = s.crosshairColor;
+  int style = s.crosshairStyle;
 
   // 0 = dot (small circle)
   if (style == 0 || style == 3) {
@@ -58,5 +71,7 @@ void Misc::Render(Render::DrawList &drawList) {
     drawList.DrawCircle(cx, cy, sz * 1.5f, col, 32, th);
   }
 }
+
+void Misc::RenderUI() {}
 
 } // namespace Features

@@ -15,6 +15,8 @@
 #include <imgui.h>
 #include "../../render/draw/draw_list.h"
 #include "../../render/overlay/overlay.h"
+#include "../../render/menu/menu.h"
+#include <shared_mutex>
 
 namespace Features {
 
@@ -36,9 +38,9 @@ static thread_local std::uniform_real_distribution<float> s_noiseDist(-0.5f, 0.5
 static thread_local std::uniform_int_distribution<int> s_microDelayDist(0, 9);
 
 // ── Mouse movement using mouse_event (less detectable than SendInput)
-static void SendMouse(float dpitch, float dyaw) {
+static void SendMouse(float dpitch, float dyaw, float sensitivity) {
   // COUNTS_PER_DEG depends on user's in-game sensitivity setting
-  const float sens = fmaxf(0.001f, Config::Settings.aimbot.sensitivity);
+  const float sens = fmaxf(0.001f, sensitivity);
   const float countsPerDeg = 1.0f / (0.022f * sens);
 
   float fx = -dyaw * countsPerDeg + s_dxRemainder;
@@ -72,32 +74,44 @@ static void SendMouse(float dpitch, float dyaw) {
 std::string_view Aimbot::GetName() { return "Aimbot"; }
 
 void Aimbot::Update() {
-  if (!Config::Settings.aimbot.enabled) {
-    s_lastTarget = 0;
-    return;
+  // Snapshot settings once for consistency and future thread-safety
+  struct S {
+    bool enabled, teamCheck, onlyScoped, targetLock, visibleOnly;
+    int hotkey, targetBone;
+    float fov, smooth, jitter, sensitivity;
+    bool rcsEnabled;
+    float rcsPitch, rcsYaw;
+    int rcsStartBullet;
+  };
+  S s;
+  {
+    std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
+    auto &A = Config::Settings.aimbot;
+    auto &R = Config::Settings.rcs;
+    s = {A.enabled, A.teamCheck, A.onlyScoped, A.targetLock, A.visibleOnly,
+         A.hotkey, A.targetBone, A.fov, A.smooth, A.jitter, A.sensitivity,
+         R.enabled, R.pitchStrength, R.yawStrength, R.startBullet};
   }
 
-  // Check hotkey
-  if (!(GetAsyncKeyState(Config::Settings.aimbot.hotkey) & 0x8000)) {
-    s_lastTarget = 0;
-    return;
-  }
+  if (!s.enabled) { s_lastTarget = 0; return; }
+  if (Render::Menu::IsOpen()) { s_lastTarget = 0; return; }
+  if (!Input::InputManager::IsKeyDown(s.hotkey)) { s_lastTarget = 0; return; }
+  if (s.onlyScoped && !Core::GameManager::IsLocalScoped()) { s_lastTarget = 0; return; }
 
-  SDK::Vector3 eyePos = Core::GameManager::GetLocalEyePos();
-  SDK::Vector2 eyeAngles = Core::GameManager::GetLocalAngles();
-  SDK::Vector2 aimPunch = Core::GameManager::GetLocalAimPunch();
-  int shotsFired = Core::GameManager::GetLocalShotsFired();
-  std::string weapon = Core::GameManager::GetLocalWeaponName();
+  const auto snapshot = Core::GameManager::GetSnapshot();
+  SDK::Vector3 eyePos = snapshot->localEyePos;
+  SDK::Vector2 eyeAngles = snapshot->localAngles;
+  SDK::Vector2 aimPunch = snapshot->localAimPunch;
+  int shotsFired = snapshot->localShotsFired;
+  const std::string &weapon = snapshot->localWeaponName;
 
-  // RCS state check
-  bool rcsActive = RCSSystem::IsWeaponSupported(weapon) && 
-                   shotsFired >= Config::Settings.rcs.startBullet;
+  bool rcsActive = RCSSystem::IsWeaponSupported(weapon) && shotsFired >= s.rcsStartBullet;
 
-  auto players = Core::GameManager::GetRenderPlayers();
+  const auto &players = snapshot->players;
   if (players.empty()) return;
 
   const SDK::Entity *bestTarget = nullptr;
-  float bestAngleDelta = Config::Settings.aimbot.fov;
+  float bestAngleDelta = s.fov;
 
   bool retryWithoutLock = false;
   int retryCount = 0;
@@ -105,69 +119,46 @@ void Aimbot::Update() {
 
   do {
     retryWithoutLock = false;
-
     for (const auto &p : players) {
       if (p.health <= 0 || p.health > 100) continue;
-      // Local player and team check
-      if (Config::Settings.aimbot.teamCheck && p.isTeammate) continue;
-      
-      if (Config::Settings.aimbot.visibleOnly && !p.isSpotted)
-        continue;
+      if (s.teamCheck && p.isTeammate) continue;
+      if (s.visibleOnly && !p.isSpotted) continue;
+      if (s_lastTarget != 0 && p.address != s_lastTarget && s.targetLock) continue;
+      if (p.bonePositions.empty() || s.targetBone >= (int)p.bonePositions.size()) continue;
 
-      // Target Lock Logic
-      if (s_lastTarget != 0 && p.address != s_lastTarget && Config::Settings.aimbot.targetLock)
-        continue;
-
-      if (p.bonePositions.empty() ||
-          Config::Settings.aimbot.targetBone >= (int)p.bonePositions.size())
-        continue;
-
-      SDK::Vector3 bonePos = p.bonePositions[Config::Settings.aimbot.targetBone];
+      SDK::Vector3 bonePos = p.bonePositions[s.targetBone];
       SDK::Vector2 targetAngles = Core::Math::CalcAngle(eyePos, bonePos);
 
-      // RCS Prediction for target selection
-      if (rcsActive && Config::Settings.rcs.enabled) {
-        targetAngles.x -= aimPunch.x * Config::Settings.rcs.pitchStrength * 2.0f;
-        targetAngles.y -= aimPunch.y * Config::Settings.rcs.yawStrength * 2.0f;
+      if (rcsActive && s.rcsEnabled) {
+        targetAngles.x -= aimPunch.x * s.rcsPitch * 2.0f;
+        targetAngles.y -= aimPunch.y * s.rcsYaw * 2.0f;
       }
 
       float dp = Core::Math::DeltaAngle(eyeAngles.x, targetAngles.x);
       float dy = Core::Math::DeltaAngle(eyeAngles.y, targetAngles.y);
       float delta = sqrtf(dp * dp + dy * dy);
-
-      if (delta < bestAngleDelta) {
-        bestAngleDelta = delta;
-        bestTarget = &p;
-      }
+      if (delta < bestAngleDelta) { bestAngleDelta = delta; bestTarget = &p; }
     }
 
-    if (!bestTarget && Config::Settings.aimbot.targetLock && s_lastTarget != 0) {
+    if (!bestTarget && s.targetLock && s_lastTarget != 0) {
       s_lastTarget = 0;
       retryCount++;
-      if (retryCount <= MAX_RETRIES) {
-        retryWithoutLock = true;
-        continue;
-      }
+      if (retryCount <= MAX_RETRIES) { retryWithoutLock = true; continue; }
     }
-
     if (!bestTarget) return;
 
-    // ── Mouse Fighting Protection ───────────────────────────────────────────
     static float s_lastTotalDelta = 0.0f;
     static ULONGLONG s_pauseUntil = 0;
 
-    SDK::Vector3 targetPos = bestTarget->bonePositions[Config::Settings.aimbot.targetBone];
-    
-    // Add micro-jitter for humanity
-    float jBase = s_jitterTable[s_jitterIdx & 15] * Config::Settings.aimbot.jitter * 40.0f;
+    SDK::Vector3 targetPos = bestTarget->bonePositions[s.targetBone];
+    float jBase = s_jitterTable[s_jitterIdx & 15] * s.jitter * 40.0f;
     s_jitterIdx = (s_jitterIdx + 1) & 15;
     targetPos.z += jBase;
 
     SDK::Vector2 finalTargetAngles = Core::Math::CalcAngle(eyePos, targetPos);
-
-    if (rcsActive && Config::Settings.rcs.enabled) {
-      finalTargetAngles.x -= aimPunch.x * Config::Settings.rcs.pitchStrength * 2.0f;
-      finalTargetAngles.y -= aimPunch.y * Config::Settings.rcs.yawStrength * 2.0f;
+    if (rcsActive && s.rcsEnabled) {
+      finalTargetAngles.x -= aimPunch.x * s.rcsPitch * 2.0f;
+      finalTargetAngles.y -= aimPunch.y * s.rcsYaw * 2.0f;
     }
 
     float dp = Core::Math::DeltaAngle(eyeAngles.x, finalTargetAngles.x);
@@ -175,42 +166,34 @@ void Aimbot::Update() {
     float totalDelta = sqrtf(dp * dp + dyw * dyw);
 
     if (s_lastTarget == bestTarget->address) {
-       if (totalDelta > s_lastTotalDelta + 1.0f) { // User physically swiped away
-           s_pauseUntil = GetTickCount64() + 350;
-       }
+      if (totalDelta > s_lastTotalDelta + 1.0f) s_pauseUntil = GetTickCount64() + 350;
     }
     s_lastTotalDelta = totalDelta;
+    if (GetTickCount64() < s_pauseUntil) { s_lastTarget = bestTarget->address; return; }
 
-    if (GetTickCount64() < s_pauseUntil) {
-      s_lastTarget = bestTarget->address;
-      return;
-    }
-
-    // ── Smoothing Logic ───────────────────────────────────────────
-    float baseSmooth = fmaxf(1.0f, Config::Settings.aimbot.smooth);
+    float baseSmooth = fmaxf(1.0f, s.smooth);
     float step = totalDelta / baseSmooth;
-    
-    // Near-target slowdown (REMOVES SHAKE COMPLETELY)
-    if (totalDelta < 0.15f) {
-        step *= 0.2f; 
-    } else {
-        float minVel = 0.35f / baseSmooth;
-        if (step < minVel) step = minVel;
-    }
-    
+    if (totalDelta < 0.15f) { step *= 0.2f; }
+    else { float minVel = 0.35f / baseSmooth; if (step < minVel) step = minVel; }
     if (step > totalDelta) step = totalDelta;
-
     float ratio = (totalDelta > 0.001f) ? (step / totalDelta) : 1.0f;
 
-    SendMouse(dp * ratio, dyw * ratio);
+    SendMouse(dp * ratio, dyw * ratio, s.sensitivity);
     s_lastTarget = bestTarget->address;
-
   } while (retryWithoutLock);
 }
 
 void Aimbot::Render(Render::DrawList &drawList) {
-  if (!Config::Settings.aimbot.enabled || !Config::Settings.aimbot.showFov)
-    return;
+  // Snapshot settings for render
+  bool isEnabled, showFov;
+  float fov;
+  {
+    std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
+    isEnabled = Config::Settings.aimbot.enabled;
+    showFov = Config::Settings.aimbot.showFov;
+    fov = Config::Settings.aimbot.fov;
+  }
+  if (!isEnabled || !showFov) return;
 
   int gameW = Render::Overlay::GetGameWidth();
   int gameH = Render::Overlay::GetGameHeight();
@@ -218,12 +201,12 @@ void Aimbot::Render(Render::DrawList &drawList) {
 
   float cx = gameW * 0.5f;
   float cy = gameH * 0.5f;
-
   constexpr float CS2_HFOV = 106.0f;
-  float radiusPx = (Config::Settings.aimbot.fov / CS2_HFOV) * gameW;
-
+  float radiusPx = (fov / CS2_HFOV) * gameW;
   float circleCol[4] = {1.0f, 1.0f, 1.0f, 0.35f};
   drawList.DrawCircle(cx, cy, radiusPx, circleCol, 64, 1.0f);
 }
+
+void Aimbot::RenderUI() {}
 
 } // namespace Features

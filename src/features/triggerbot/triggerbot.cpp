@@ -3,11 +3,13 @@
 #include "core/game/game_manager.h"
 #include "core/memory/memory_manager.h"
 #include "core/sdk/offsets.h"
+#include "render/menu/menu.h"
 #include "render/draw/draw_list.h"
 #include "input/input_manager.h"
 #include "triggerbot_config.h"
 #include <chrono>
 #include <random>
+#include <shared_mutex>
 #include <windows.h>
 
 namespace Features {
@@ -37,65 +39,56 @@ static std::chrono::steady_clock::time_point s_timer;
 static int s_delayMs = 0;
 
 void Triggerbot::Update() {
-  if (!Config::Settings.triggerbot.enabled) {
-    s_state = TBState::IDLE;
-    return;
+  // Snapshot triggerbot settings atomically
+  struct S {
+    bool enabled, teamCheck;
+    int hotkey, delayMin, delayMax;
+  };
+  S s;
+  {
+    std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
+    auto &TB = Config::Settings.triggerbot;
+    s = {TB.enabled, TB.teamCheck, TB.hotkey, TB.delayMin, TB.delayMax};
   }
 
-  bool keyHeld =
-      (GetAsyncKeyState(Config::Settings.triggerbot.hotkey) & 0x8000) != 0;
-  if (!keyHeld) {
-    s_state = TBState::IDLE;
-    return;
-  }
+  if (!s.enabled) { s_state = TBState::IDLE; return; }
+  if (Render::Menu::IsOpen()) { s_state = TBState::IDLE; return; }
 
-  uint32_t crossHairHandle = Core::GameManager::GetLocalCrosshairEntityHandle();
+  bool keyHeld = Input::InputManager::IsKeyDown(s.hotkey);
+  if (!keyHeld) { s_state = TBState::IDLE; return; }
+
+  const auto snapshot = Core::GameManager::GetSnapshot();
+  uint32_t crossHairHandle = snapshot->localCrosshairHandle;
 
   bool onEnemy = false;
   if (crossHairHandle != 0 && crossHairHandle != 0xFFFFFFFF) {
-    for (const auto &p : Core::GameManager::GetRenderPlayers()) {
-      if (!p.IsValid() || !p.IsAlive())
-        continue;
-      if (Config::Settings.triggerbot.teamCheck && p.isTeammate)
-        continue;
-
-      if (p.pawnHandle == crossHairHandle) {
-        onEnemy = true;
-        break;
-      }
+    for (const auto &p : snapshot->players) {
+      if (!p.IsValid() || !p.IsAlive()) continue;
+      if (s.teamCheck && p.isTeammate) continue;
+      if (p.pawnHandle == crossHairHandle) { onEnemy = true; break; }
     }
   }
 
   switch (s_state) {
   case TBState::IDLE:
     if (onEnemy) {
-      s_delayMs = RandRange(Config::Settings.triggerbot.delayMin,
-                            Config::Settings.triggerbot.delayMax);
+      s_delayMs = RandRange(s.delayMin, s.delayMax);
       s_timer = NowMs();
       s_state = TBState::TARGET_FOUND;
     }
     break;
-
   case TBState::TARGET_FOUND:
-    if (!onEnemy) {
-      s_state = TBState::IDLE;
-      break;
-    }
+    if (!onEnemy) { s_state = TBState::IDLE; break; }
     s_state = TBState::WAITING;
     break;
-
   case TBState::WAITING:
-    if (!onEnemy) {
-      s_state = TBState::IDLE;
-      break;
-    }
+    if (!onEnemy) { s_state = TBState::IDLE; break; }
     if (ElapsedMs(s_timer) >= s_delayMs) {
       Input::InputManager::SendMouseClick(true);
       s_timer = NowMs();
       s_state = TBState::SHOOTING;
     }
     break;
-
   case TBState::SHOOTING:
     if (ElapsedMs(s_timer) >= 25) {
       Input::InputManager::SendMouseClick(false);
@@ -103,16 +96,15 @@ void Triggerbot::Update() {
       s_state = TBState::COOLDOWN;
     }
     break;
-
   case TBState::COOLDOWN:
-    if (ElapsedMs(s_timer) >= RandRange(80, 200)) {
-      s_state = TBState::IDLE;
-    }
+    if (ElapsedMs(s_timer) >= RandRange(80, 200)) { s_state = TBState::IDLE; }
     break;
   }
 }
 
 void Triggerbot::Render(Render::DrawList &) {
 }
+
+void Triggerbot::RenderUI() {}
 
 } // namespace Features

@@ -52,19 +52,50 @@ void Process::ResolveNtFunctions() {
 NTSTATUS Process::NtRead(void *address, void *buffer, size_t size) {
   if (!s_ntRvm)
     return (NTSTATUS)0xC000000DL;
-  HANDLE h;
+
+  // Duplicate the handle to protect against Detach() closing it concurrently.
+  // Without this, there's a use-after-free: we copy hProcess under lock,
+  // release the lock, then another thread calls Detach() which closes the
+  // handle before we reach s_ntRvm below.
+  HANDLE h = nullptr;
   {
     std::lock_guard lock(s_mutex);
-    h = hProcess;
+    if (!hProcess)
+      return (NTSTATUS)0xC000000DL;
+    if (!DuplicateHandle(GetCurrentProcess(), hProcess, GetCurrentProcess(),
+                         &h, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+      return (NTSTATUS)0xC000000DL;
+    }
   }
-  if (!h)
-    return (NTSTATUS)0xC000000DL;
+
   SIZE_T read = 0;
   NTSTATUS status = s_ntRvm(h, address, buffer, (SIZE_T)size, &read);
+  CloseHandle(h);
+
   if (status != 0 || read != size) {
     // Read failed — expected behavior for invalid entity pointers
   }
   return status;
+}
+
+// ─── NtWrite ─────────────────────────────────────────────────────────────────
+bool Process::NtWrite(void *address, const void *buffer, size_t size) {
+  // Duplicate the handle to protect against Detach() closing it concurrently.
+  HANDLE h = nullptr;
+  {
+    std::lock_guard lock(s_mutex);
+    if (!hProcess)
+      return false;
+    if (!DuplicateHandle(GetCurrentProcess(), hProcess, GetCurrentProcess(),
+                         &h, PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, 0)) {
+      return false;
+    }
+  }
+
+  SIZE_T written = 0;
+  BOOL ok = WriteProcessMemory(h, address, buffer, size, &written);
+  CloseHandle(h);
+  return ok && written == size;
 }
 
 // ─── TryStealHandle ─────────────────────────────────────────────────────────
@@ -218,15 +249,6 @@ void Process::Detach() {
   processId = 0;
 }
 
-HANDLE Process::GetHandle() {
-  std::lock_guard lock(s_mutex);
-  if (hProcess && !IsHandleAlive(hProcess)) {
-    CloseHandle(hProcess);
-    hProcess = nullptr;
-    processId = 0;
-  }
-  return hProcess;
-}
 DWORD Process::GetProcessId() {
   std::lock_guard lock(s_mutex);
 

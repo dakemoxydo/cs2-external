@@ -7,8 +7,6 @@
 
 namespace Features {
 
-extern DebugConfig debugConfig;
-
 class DebugOverlay : public IFeature {
 public:
   std::string_view GetName() override { return "DebugOverlay"; }

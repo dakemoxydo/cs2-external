@@ -23,6 +23,7 @@
 #include <chrono>
 #include <exception>
 #include <iostream>
+#include <shared_mutex>
 
 namespace Core {
 
@@ -42,10 +43,18 @@ bool Application::Initialize() {
     // Offsets — with timeout to avoid infinite blocking
     std::cout << "[App] Updating offsets...\n";
     Utils::Logger::Info("Updating offsets...");
-    auto offsetsFuture = SDK::Updater::UpdateOffsets();
-    if (offsetsFuture.wait_for(std::chrono::seconds(15)) == std::future_status::timeout) {
+    auto offsetJob = SDK::Updater::UpdateOffsets();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+    while (offsetJob.IsValid() && !offsetJob.IsReady() &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    if (offsetJob.IsValid() && !offsetJob.IsReady()) {
         Utils::Logger::Warn("Offset loading timed out (15s), continuing anyway");
         std::cout << "[App] Offset loading timed out, continuing...\n";
+    } else if (!offsetJob.Succeeded()) {
+        Utils::Logger::Warn("Offset loading failed, continuing with cached/default data");
+        std::cout << "[App] Offset loading failed, continuing...\n";
     } else {
         std::cout << "[App] Offsets updated\n";
     }
@@ -84,7 +93,15 @@ bool Application::Initialize() {
     std::cout << "[App] Renderer initialized\n";
 
     std::cout << "[App] Initializing ImGuiManager...\n";
-    Render::ImGuiManager::Init();
+    if (!Render::ImGuiManager::Init()) {
+        Utils::Logger::Error("Failed to initialize ImGuiManager");
+        std::cout << "[App] ImGuiManager init FAILED\n";
+        Render::Renderer::Shutdown();
+        Render::Overlay::Destroy();
+        Process::Detach();
+        return false;
+    }
+    std::cout << "[App] ImGuiManager initialized\n";
     std::cout << "[App] Registering features...\n";
     Features::FeatureManager::RegisterAll();
     std::cout << "[App] Loading config...\n";
@@ -106,6 +123,12 @@ void Application::Run() {
 }
 
 void Application::Shutdown() {
+    // Guard against double shutdown
+    bool expected = false;
+    if (!shutdownCalled_.compare_exchange_strong(expected, true)) {
+        return; // Already shutting down
+    }
+
     Utils::Logger::Info("Shutting down...");
     state_.running = false;
     state_.shouldClose = true;
@@ -138,12 +161,15 @@ void Application::MemoryThreadLoop() {
             GameManager::Update();
 
             int ups;
-            if (Config::Settings.performance.vsyncEnabled) {
-                float frameTimeMS = overlayFrameTimeMs_.load();
-                ups = frameTimeMS > 0 ? std::min(256, (int)(1000.0f / frameTimeMS)) : 64;
-            } else {
-                ups = Config::Settings.performance.upsLimit;
-                if (ups <= 0) ups = Constants::DEFAULT_UPS_LIMIT;
+            {
+                std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
+                if (Config::Settings.performance.vsyncEnabled) {
+                    float frameTimeMS = overlayFrameTimeMs_.load();
+                    ups = frameTimeMS > 0 ? std::min(256, (int)(1000.0f / frameTimeMS)) : 64;
+                } else {
+                    ups = Config::Settings.performance.upsLimit;
+                    if (ups <= 0) ups = Constants::DEFAULT_UPS_LIMIT;
+                }
             }
 
             auto frameTimeTarget = std::chrono::milliseconds(1000 / ups);
@@ -183,14 +209,26 @@ void Application::RenderLoop() {
 
             ProcessInput();
 
-            bool readBones = Config::Settings.esp.showBones || Config::Settings.aimbot.enabled;
-            bool readWeapons = Config::Settings.esp.showWeapon;
-            GameManager::EnableBoneRead(readBones);
-            GameManager::EnableWeaponRead(readWeapons);
+            // Read config settings under shared_lock to avoid data race with
+            // MemoryThread and ConfigManager::Load/Save which write under unique_lock.
+            {
+                std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
+                bool readBones = Config::Settings.esp.showBones || Config::Settings.aimbot.enabled;
+                bool readWeapons = Config::Settings.esp.showWeapon;
+                Core::GameManager::EnableBoneRead(readBones);
+                Core::GameManager::EnableWeaponRead(readWeapons);
+            }
 
             Features::FeatureManager::UpdateAll();
 
-            Render::Overlay::UpdatePosition();
+            // Update frustum culling screen size
+            Core::GameManager::SetScreenSize(Render::Overlay::GetGameWidth(), Render::Overlay::GetGameHeight());
+
+            // Update overlay position if CS2 window moved/resized
+            if (Render::Overlay::UpdatePosition()) {
+                Render::Renderer::HandleResize(Render::Overlay::GetGameWidth(),
+                                              Render::Overlay::GetGameHeight());
+            }
 
             Render::Renderer::BeginFrame();
             Render::ImGuiManager::NewFrame();
@@ -206,10 +244,24 @@ void Application::RenderLoop() {
             float frameTimeMs = std::chrono::duration<float, std::milli>(frameEnd - frameStart).count();
             overlayFrameTimeMs_.store(frameTimeMs);
 
-            Render::Renderer::SetVSync(Config::Settings.performance.vsyncEnabled);
+            // Read VSync/fps settings under shared_lock
+            bool vsyncEnabled;
+            int fpsLimit;
+            {
+                std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
+                vsyncEnabled = Config::Settings.performance.vsyncEnabled;
+                fpsLimit = Config::Settings.performance.fpsLimit;
+            }
 
-            if (!Config::Settings.performance.vsyncEnabled) {
-                int fps = Config::Settings.performance.fpsLimit;
+            // Apply VSync only when state changes
+            if (!vsyncInitialized_ || vsyncEnabled != vsyncEnabled_) {
+                Render::Renderer::SetVSync(vsyncEnabled);
+                vsyncEnabled_ = vsyncEnabled;
+                vsyncInitialized_ = true;
+            }
+
+            if (!vsyncEnabled) {
+                int fps = fpsLimit;
                 if (fps <= 0) fps = Constants::DEFAULT_FPS_LIMIT;
 
                 auto frameTimeTarget = std::chrono::milliseconds(1000 / fps);

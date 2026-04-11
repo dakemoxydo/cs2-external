@@ -1,22 +1,13 @@
 #include "feature_manager.h"
 #include "aimbot/aimbot.h"
-#include "aimbot/aimbot_ui.h"
 #include "bomb/bomb.h"
-#include "bomb/bomb_ui.h"
 #include "debug_overlay/debug_overlay.h"
-#include "debug_overlay/debug_overlay_ui.h"
 #include "esp/esp.h"
-#include "esp/esp_ui.h"
 #include "misc/misc.h"
-#include "misc/misc_ui.h"
 #include "radar/radar.h"
-#include "radar/radar_ui.h"
 #include "triggerbot/triggerbot.h"
-#include "triggerbot/triggerbot_ui.h"
 #include "rcs/rcs.h"
-#include "rcs/rcs_ui.h"
-#include "footsteps_esp/footsteps_esp.h"
-#include "footsteps_esp/footsteps_esp_ui.h"
+#include "sound_esp/sound_esp.h"
 #include "feature_base.h"
 #include <memory>
 #include <string>
@@ -43,7 +34,7 @@ void FeatureManager::RegisterAll() {
   RegisterFeature("Radar", []() { return std::make_unique<Radar>(); });
   RegisterFeature("DebugOverlay", []() { return std::make_unique<DebugOverlay>(); });
   RegisterFeature("RCSSystem", []() { return std::make_unique<RCSSystem>(); });
-  RegisterFeature("FootstepsEsp", []() { return std::make_unique<FootstepsEsp>(); });
+  RegisterFeature("SoundEsp", []() { return std::make_unique<SoundEsp>(); });
 }
 
 void FeatureManager::UpdateAll() {

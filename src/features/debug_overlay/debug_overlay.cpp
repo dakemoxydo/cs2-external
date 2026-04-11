@@ -5,22 +5,17 @@
 #include "render/overlay/overlay.h"
 #include <chrono>
 #include <imgui.h>
+#include <shared_mutex>
 #include <sstream>
 #include <windows.h>
 
 
 namespace Features {
 
-DebugConfig debugConfig;
-
 using Clock = std::chrono::steady_clock;
 
 static Clock::time_point s_lastFrame = Clock::now();
 static float s_fps = 0.0f;
-static float s_espMs = 0.0f;
-
-// Called from esp.cpp to report render time
-void DebugOverlay_SetEspMs(float ms) { s_espMs = ms; }
 
 void DebugOverlay::Update() {
   auto now = Clock::now();
@@ -31,12 +26,15 @@ void DebugOverlay::Update() {
 }
 
 void DebugOverlay::Render(Render::DrawList & /*drawList*/) {
-  if (!Config::Settings.debug.enabled)
-    return;
+  bool isEnabled, devMode;
+  {
+    std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
+    isEnabled = Config::Settings.debug.enabled;
+    devMode = Config::Settings.debug.devMode;
+  }
+  if (!isEnabled) return;
 
   const float PAD = 8.0f;
-  ImGuiIO &io = ImGui::GetIO();
-
   ImGui::SetNextWindowPos(ImVec2(PAD, PAD), ImGuiCond_Always);
   ImGui::SetNextWindowBgAlpha(0.55f);
   ImGui::SetNextWindowSize(ImVec2(210.0f, 0.0f), ImGuiCond_Always);
@@ -56,15 +54,15 @@ void DebugOverlay::Render(Render::DrawList & /*drawList*/) {
   ImVec4 white = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
   ImVec4 cyan = ImVec4(0.0f, 0.9f, 1.0f, 1.0f);
 
-  // в”Ђв”Ђ Normal mode (always visible) в”Ђв”Ђ
+  // ── Normal mode (always visible) ──
   ImGui::TextColored(yellow, "FPS");
   ImGui::SameLine(60);
   ImGui::TextColored(white, "%.0f", s_fps);
 
-  auto players = Core::GameManager::GetRenderPlayers();
+  const auto snapshot = Core::GameManager::GetSnapshot();
   ImGui::TextColored(yellow, "Entities");
   ImGui::SameLine(60);
-  ImGui::TextColored(white, "%zu", players.size());
+  ImGui::TextColored(white, "%zu", snapshot->players.size());
 
   int gameW = Render::Overlay::GetGameWidth();
   int gameH = Render::Overlay::GetGameHeight();
@@ -72,16 +70,13 @@ void DebugOverlay::Render(Render::DrawList & /*drawList*/) {
   ImGui::SameLine(60);
   ImGui::TextColored(grey, "%dx%d", gameW, gameH);
 
-  // в”Ђв”Ђ Developer mode (extra data) в”Ђв”Ђ
-  if (Config::Settings.debug.devMode) {
+  // ── Developer mode (extra data) ──
+  if (devMode) {
     ImGui::Separator();
     ImGui::TextColored(cyan, "-- DEV --");
 
-    ImGui::TextColored(yellow, "ESP ms");
-    ImGui::SameLine(60);
-    ImGui::TextColored(white, "%.2f", s_espMs);
-
-    uintptr_t base = Core::GameManager::GetClientBase();
+    uintptr_t base = snapshot->clientBase;
+    const auto offsets = SDK::Offsets::GetCopy();
     ImGui::TextColored(yellow, "client.dll");
     ImGui::SameLine(60);
     ImGui::TextColored(grey, "0x%llX", (unsigned long long)base);
@@ -89,15 +84,17 @@ void DebugOverlay::Render(Render::DrawList & /*drawList*/) {
     ImGui::TextColored(yellow, "EntityList");
     ImGui::SameLine(60);
     ImGui::TextColored(grey, "0x%llX",
-                       (unsigned long long)SDK::Offsets::dwEntityList);
+                       (unsigned long long)offsets.dwEntityList);
 
     ImGui::TextColored(yellow, "ViewMatrix");
     ImGui::SameLine(60);
     ImGui::TextColored(grey, "0x%llX",
-                       (unsigned long long)SDK::Offsets::dwViewMatrix);
+                       (unsigned long long)offsets.dwViewMatrix);
   }
 
   ImGui::End();
 }
+
+void DebugOverlay::RenderUI() {}
 
 } // namespace Features

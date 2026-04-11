@@ -33,9 +33,7 @@ public:
     if (address < Constants::MIN_VALID_ADDRESS || address > Constants::MAX_VALID_ADDRESS) {
       return false;
     }
-    return WriteProcessMemory(Process::GetHandle(),
-                              reinterpret_cast<LPVOID>(address), &value,
-                              sizeof(T), nullptr) != 0;
+    return Process::NtWrite(reinterpret_cast<void *>(address), &value, sizeof(T));
   }
 
   template <typename T>
