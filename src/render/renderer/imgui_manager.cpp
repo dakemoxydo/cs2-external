@@ -4,17 +4,18 @@
 #include "backends/imgui_impl_dx11.h"
 #include "backends/imgui_impl_win32.h"
 #include <imgui.h>
-#include <imgui_internal.h>
-
 
 namespace Render {
 namespace {
 bool s_initialized = false;
-}
+ImFont *s_regularFont = nullptr;
+ImFont *s_semiboldFont = nullptr;
+
+constexpr const char *kSegoeRegular = "C:\\Windows\\Fonts\\segoeui.ttf";
+constexpr const char *kSegoeSemibold = "C:\\Windows\\Fonts\\segoeuib.ttf";
+} // namespace
 
 bool ImGuiManager::Init() {
-  // Guard against double-initialization: if an ImGuiContext already exists,
-  // clean it up first to prevent leaks on re-init.
   if (ImGui::GetCurrentContext()) {
     Shutdown();
   }
@@ -24,17 +25,28 @@ bool ImGuiManager::Init() {
   ImGuiIO &io = ImGui::GetIO();
   (void)io;
 
-  // Настраиваем шрифт — увеличенный размер для лучшей читаемости
-  ImFontConfig fontConfig;
-  fontConfig.SizePixels = 15.0f;
-  io.Fonts->AddFontDefault(&fontConfig);
+  ImFontConfig regularConfig;
+  regularConfig.FontDataOwnedByAtlas = false;
+  s_regularFont = io.Fonts->AddFontFromFileTTF(kSegoeRegular, 16.0f, &regularConfig);
 
-  // Современная тёмная тема как база
+  ImFontConfig semiboldConfig;
+  semiboldConfig.FontDataOwnedByAtlas = false;
+  s_semiboldFont = io.Fonts->AddFontFromFileTTF(kSegoeSemibold, 16.0f, &semiboldConfig);
+
+  if (!s_regularFont) {
+    ImFontConfig fallbackConfig;
+    fallbackConfig.SizePixels = 16.0f;
+    s_regularFont = io.Fonts->AddFontDefault(&fallbackConfig);
+  }
+  if (!s_semiboldFont) {
+    s_semiboldFont = s_regularFont;
+  }
+  io.FontDefault = s_regularFont;
+
   ImGui::StyleColorsDark();
   ImGuiStyle &style = ImGui::GetStyle();
   ImVec4 *colors = style.Colors;
 
-  // Базовые скругления и отступы
   style.WindowRounding = 16.0f;
   style.ChildRounding = 12.0f;
   style.FrameRounding = 8.0f;
@@ -54,7 +66,6 @@ bool ImGuiManager::Init() {
   style.IndentSpacing = 16.0f;
   style.ScrollbarSize = 8.0f;
 
-  // Улучшенная цветовая схема (Midnight-подобная)
   colors[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.05f, 0.06f, 0.98f);
   colors[ImGuiCol_ChildBg] = ImVec4(0.08f, 0.08f, 0.10f, 1.00f);
   colors[ImGuiCol_PopupBg] = ImVec4(0.06f, 0.06f, 0.07f, 0.96f);
@@ -111,6 +122,8 @@ void ImGuiManager::Shutdown() {
   if (ImGui::GetCurrentContext()) {
     ImGui::DestroyContext();
   }
+  s_regularFont = nullptr;
+  s_semiboldFont = nullptr;
   s_initialized = false;
 }
 
@@ -130,4 +143,8 @@ void ImGuiManager::Render() {
   ImGui::Render();
   ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 }
+
+ImFont *ImGuiManager::GetRegularFont() { return s_regularFont; }
+ImFont *ImGuiManager::GetSemiboldFont() { return s_semiboldFont; }
+
 } // namespace Render

@@ -7,6 +7,7 @@
 #include "tab_misc.h"
 #include "tab_settings.h"
 #include "tab_visuals.h"
+#include "../renderer/imgui_manager.h"
 #include "ui_components.h"
 #include <algorithm>
 #include <imgui.h>
@@ -22,6 +23,21 @@ static int s_lastAppliedTheme = -1;
 static int s_previewAffinity = 0;
 
 namespace {
+
+constexpr float kFrameRadius = 10.0f;
+constexpr float kPanelGap = 12.0f;
+constexpr float kTopBarHeight = 72.0f;
+constexpr float kNavWidthRatio = 0.16f;
+constexpr float kPreviewWidthRatio = 0.34f;
+constexpr float kNavItemHeight = 52.0f;
+constexpr float kPreviewTabWidth = 92.0f;
+constexpr float kPreviewTabHeight = 24.0f;
+constexpr float kPreviewGridStep = 24.0f;
+constexpr float kMinNavWidth = 170.0f;
+constexpr float kMaxNavWidth = 220.0f;
+constexpr float kMinPreviewWidth = 260.0f;
+constexpr float kMaxPreviewWidth = 420.0f;
+constexpr float kMinSettingsWidth = 430.0f;
 
 void RestoreOverlayTransparency() {
   HWND hwnd = Render::Overlay::GetWindowHandle();
@@ -65,19 +81,6 @@ const char *GetTabLabel(int tab) {
   }
 }
 
-const char *GetTabHint(int tab) {
-  switch (tab) {
-  case 0:
-    return "ESP, radar, sound";
-  case 1:
-    return "Aim, trigger, recoil";
-  case 2:
-    return "Crosshair, alerts";
-  default:
-    return "Theme, profiles, perf";
-  }
-}
-
 void DrawAppFrame(ImDrawList *drawList, const ImVec2 &pos, const ImVec2 &size,
                   const ImVec4 &accent) {
   const ImU32 outer = ImGui::GetColorU32(ImVec4(0.06f, 0.07f, 0.09f, 0.98f));
@@ -85,8 +88,8 @@ void DrawAppFrame(ImDrawList *drawList, const ImVec2 &pos, const ImVec2 &size,
   const ImU32 glow = ImGui::GetColorU32(ImVec4(accent.x, accent.y, accent.z, 0.08f));
   const ImU32 glowSoft = ImGui::GetColorU32(ImVec4(accent.x, accent.y, accent.z, 0.03f));
 
-  drawList->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), outer, 10.0f);
-  drawList->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), border, 10.0f, 0, 1.0f);
+  drawList->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), outer, kFrameRadius);
+  drawList->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), border, kFrameRadius, 0, 1.0f);
   drawList->AddCircleFilled(ImVec2(pos.x + size.x * 0.33f, pos.y + 110.0f), 160.0f, glowSoft, 72);
   drawList->AddCircleFilled(ImVec2(pos.x + size.x * 0.74f, pos.y + size.y - 120.0f), 220.0f, glowSoft, 72);
   drawList->AddRectFilledMultiColor(
@@ -99,24 +102,34 @@ void DrawAppFrame(ImDrawList *drawList, const ImVec2 &pos, const ImVec2 &size,
 }
 
 void DrawTopBar(const Config::GlobalSettings &settings, const ImVec2 &contentSize) {
-  ImGuiStyle &style = ImGui::GetStyle();
-  const ImVec4 accent = style.Colors[ImGuiCol_ButtonActive];
-  const ImVec4 muted = style.Colors[ImGuiCol_TextDisabled];
+  ImGui::BeginChild("MenuTopBar", ImVec2(0, kTopBarHeight), false, ImGuiWindowFlags_NoScrollbar);
+  ImGui::SetCursorPos(ImVec2(6.0f, 4.0f));
+  if (ImFont *titleFont = Render::ImGuiManager::GetSemiboldFont()) {
+    ImGui::PushFont(titleFont);
+    ImGui::TextColored(ImVec4(1, 1, 1, 1), "CS2 External");
+    ImGui::PopFont();
+  } else {
+    ImGui::TextColored(ImVec4(1, 1, 1, 1), "CS2 External");
+  }
 
-  ImGui::BeginChild("MenuTopBar", ImVec2(0, 64), false, ImGuiWindowFlags_NoScrollbar);
-  ImGui::SetCursorPos(ImVec2(8.0f, 4.0f));
-  ImGui::TextColored(ImVec4(1, 1, 1, 1), "Visual Control");
-  ImGui::SetCursorPos(ImVec2(8.0f, 24.0f));
-  ImGui::PushStyleColor(ImGuiCol_Text, muted);
-  ImGui::TextUnformatted("Clean layout with live in-game style preview");
-  ImGui::PopStyleColor();
+  const float closeWidth = 28.0f;
+  const float clusterGap = 8.0f;
+  const float themeWidth = UI::GetStatChipWidth(GetThemeName(settings.misc.menuTheme));
+  const float pacingWidth =
+      UI::GetStatChipWidth(settings.performance.vsyncEnabled ? "VSync" : "Manual");
+  const float clusterWidth =
+      themeWidth + clusterGap + pacingWidth + clusterGap + closeWidth;
+  const float minClusterX = 170.0f;
+  const float clusterStartX =
+      (std::max)(minClusterX, contentSize.x - clusterWidth - 8.0f);
 
-  ImGui::SetCursorPos(ImVec2(contentSize.x - 272.0f, 10.0f));
+  ImGui::SetCursorPos(ImVec2(clusterStartX, 8.0f));
   UI::StatChip("Theme", GetThemeName(settings.misc.menuTheme));
-  ImGui::SameLine();
+  ImGui::SameLine(0.0f, 8.0f);
   UI::StatChip("Pacing", settings.performance.vsyncEnabled ? "VSync" : "Manual");
 
-  ImGui::SetCursorPos(ImVec2(contentSize.x - 36.0f, 16.0f));
+  ImGui::SetCursorPos(ImVec2(clusterStartX + themeWidth + clusterGap + pacingWidth + clusterGap,
+                             14.0f));
   ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.18f, 0.21f, 1.0f));
   ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.23f, 0.27f, 1.0f));
   ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.26f, 0.30f, 0.35f, 1.0f));
@@ -126,7 +139,7 @@ void DrawTopBar(const Config::GlobalSettings &settings, const ImVec2 &contentSiz
   }
   ImGui::PopStyleColor(3);
 
-  ImGui::SetCursorPos(ImVec2(0.0f, 63.0f));
+  ImGui::SetCursorPos(ImVec2(0.0f, kTopBarHeight - 1.0f));
   ImGui::Separator();
   ImGui::EndChild();
 }
@@ -139,16 +152,28 @@ void DrawPreviewTabs() {
 
   for (int i = 0; i < 2; ++i) {
     if (i != 0) {
-      ImGui::SameLine(0.0f, 20.0f);
+      ImGui::SameLine(0.0f, 8.0f);
     }
-    if (ImGui::InvisibleButton(labels[i], ImVec2(84.0f, 20.0f))) {
+    if (ImGui::InvisibleButton(labels[i], ImVec2(kPreviewTabWidth, kPreviewTabHeight))) {
       s_previewAffinity = i;
     }
 
     ImVec2 min = ImGui::GetItemRectMin();
     ImVec2 max = ImGui::GetItemRectMax();
     ImDrawList *drawList = ImGui::GetWindowDrawList();
-    drawList->AddText(min, ImGui::GetColorU32(i == s_previewAffinity ? accent : muted), labels[i]);
+    drawList->AddRectFilled(min, max,
+                            ImGui::GetColorU32(ImVec4(0.11f, 0.13f, 0.16f, 1.0f)), 8.0f);
+    drawList->AddRect(min, max,
+                      ImGui::GetColorU32(ImVec4(0.17f, 0.19f, 0.23f, 1.0f)), 8.0f, 0, 1.0f);
+    if (i == s_previewAffinity) {
+      drawList->AddRectFilled(min, max, ImGui::GetColorU32(ImVec4(accent.x, accent.y, accent.z, 0.16f)), 8.0f);
+      drawList->AddRect(min, max, ImGui::GetColorU32(accent), 8.0f, 0, 1.0f);
+    }
+    const ImVec2 textSize = ImGui::CalcTextSize(labels[i]);
+    const ImVec2 textPos(min.x + (kPreviewTabWidth - textSize.x) * 0.5f,
+                         min.y + (kPreviewTabHeight - textSize.y) * 0.5f - 1.0f);
+    drawList->AddText(textPos, ImGui::GetColorU32(i == s_previewAffinity ? ImVec4(1, 1, 1, 1) : muted),
+                      labels[i]);
     if (i == s_previewAffinity) {
       drawList->AddLine(ImVec2(min.x, max.y + 4.0f), ImVec2(max.x, max.y + 4.0f),
                         ImGui::GetColorU32(accent), 2.0f);
@@ -266,12 +291,63 @@ void DrawPreviewEspOverlay(ImDrawList *drawList, const Config::GlobalSettings &s
     drawList->AddLine(ImVec2(center.x, boxMax.y + 72.0f), ImVec2(center.x, boxMax.y),
                       ImGui::GetColorU32(ImVec4(snap[0], snap[1], snap[2], snap[3])), 1.2f);
   }
+
+  if (settings.esp.showBulletTracers) {
+    const float *tracer = settings.esp.bulletTracerColor;
+    const float *impact = settings.esp.bulletTracerImpactColor;
+    const ImVec2 tracerStart(center.x + 18.0f * scale, center.y - 48.0f * scale);
+    const ImVec2 tracerEnd(center.x + 126.0f * scale, center.y - 118.0f * scale);
+    const ImVec2 dir(tracerEnd.x - tracerStart.x, tracerEnd.y - tracerStart.y);
+    const float len = std::max(1.0f, sqrtf(dir.x * dir.x + dir.y * dir.y));
+    const ImVec2 normal(-(dir.y / len), dir.x / len);
+    const float sideOffset = settings.esp.bulletTracerThickness * 1.25f;
+    drawList->AddLine(
+        tracerStart, tracerEnd,
+        ImGui::GetColorU32(
+            ImVec4(tracer[0], tracer[1], tracer[2], tracer[3] * 0.28f)),
+        settings.esp.bulletTracerThickness + 3.5f);
+    drawList->AddLine(
+        ImVec2(tracerStart.x + normal.x * sideOffset, tracerStart.y + normal.y * sideOffset),
+        ImVec2(tracerEnd.x + normal.x * sideOffset, tracerEnd.y + normal.y * sideOffset),
+        ImGui::GetColorU32(
+            ImVec4(tracer[0], tracer[1], tracer[2], tracer[3] * 0.18f)),
+        settings.esp.bulletTracerThickness);
+    drawList->AddLine(
+        ImVec2(tracerStart.x - normal.x * sideOffset, tracerStart.y - normal.y * sideOffset),
+        ImVec2(tracerEnd.x - normal.x * sideOffset, tracerEnd.y - normal.y * sideOffset),
+        ImGui::GetColorU32(
+            ImVec4(tracer[0], tracer[1], tracer[2], tracer[3] * 0.18f)),
+        settings.esp.bulletTracerThickness);
+    drawList->AddLine(
+        tracerStart, tracerEnd,
+        ImGui::GetColorU32(ImVec4(tracer[0], tracer[1], tracer[2], tracer[3])),
+        settings.esp.bulletTracerThickness);
+    drawList->AddCircle(tracerEnd, settings.esp.bulletTracerImpactRadius * scale,
+                        ImGui::GetColorU32(
+                            ImVec4(impact[0], impact[1], impact[2], impact[3])),
+                        24, settings.esp.bulletTracerImpactThickness);
+  }
+
+  if (settings.esp.showHitmarker) {
+    const float *hit = settings.esp.hitmarkerColor;
+    const ImU32 hitCol = ImGui::GetColorU32(ImVec4(hit[0], hit[1], hit[2], hit[3]));
+    const ImVec2 hmCenter(center.x + 8.0f * scale, center.y - 18.0f * scale);
+    const float outer = 13.0f * scale;
+    const float inner = 5.0f * scale;
+    drawList->AddLine(ImVec2(hmCenter.x - outer, hmCenter.y - outer),
+                      ImVec2(hmCenter.x - inner, hmCenter.y - inner), hitCol, 1.8f);
+    drawList->AddLine(ImVec2(hmCenter.x + outer, hmCenter.y - outer),
+                      ImVec2(hmCenter.x + inner, hmCenter.y - inner), hitCol, 1.8f);
+    drawList->AddLine(ImVec2(hmCenter.x - outer, hmCenter.y + outer),
+                      ImVec2(hmCenter.x - inner, hmCenter.y + inner), hitCol, 1.8f);
+    drawList->AddLine(ImVec2(hmCenter.x + outer, hmCenter.y + outer),
+                      ImVec2(hmCenter.x + inner, hmCenter.y + inner), hitCol, 1.8f);
+  }
 }
 
 void DrawPreviewPanel(const Config::GlobalSettings &settings) {
   ImGuiStyle &style = ImGui::GetStyle();
   const ImVec4 accent = style.Colors[ImGuiCol_ButtonActive];
-  const ImVec4 muted = style.Colors[ImGuiCol_TextDisabled];
   const ImVec2 panelPos = ImGui::GetCursorScreenPos();
   const ImVec2 panelSize = ImGui::GetContentRegionAvail();
   ImDrawList *drawList = ImGui::GetWindowDrawList();
@@ -287,11 +363,11 @@ void DrawPreviewPanel(const Config::GlobalSettings &settings) {
       ImGui::GetColorU32(ImVec4(0.00f, 0.00f, 0.00f, 0.08f)),
       ImGui::GetColorU32(ImVec4(0.00f, 0.00f, 0.00f, 0.14f)));
 
-  for (float x = panelPos.x + 18.0f; x < panelPos.x + panelSize.x; x += 24.0f) {
+  for (float x = panelPos.x + 18.0f; x < panelPos.x + panelSize.x; x += kPreviewGridStep) {
     drawList->AddLine(ImVec2(x, panelPos.y + 48.0f), ImVec2(x, panelPos.y + panelSize.y - 18.0f),
                       ImGui::GetColorU32(ImVec4(0.14f, 0.16f, 0.20f, 0.22f)), 1.0f);
   }
-  for (float y = panelPos.y + 64.0f; y < panelPos.y + panelSize.y; y += 24.0f) {
+  for (float y = panelPos.y + 64.0f; y < panelPos.y + panelSize.y; y += kPreviewGridStep) {
     drawList->AddLine(ImVec2(panelPos.x + 18.0f, y), ImVec2(panelPos.x + panelSize.x - 18.0f, y),
                       ImGui::GetColorU32(ImVec4(0.14f, 0.16f, 0.20f, 0.18f)), 1.0f);
   }
@@ -305,14 +381,7 @@ void DrawPreviewPanel(const Config::GlobalSettings &settings) {
   const ImVec2 boxMax(center.x + 70.0f * scale, center.y + 104.0f * scale);
   DrawPreviewFigure(drawList, center, scale, accent);
 
-  drawList->AddText(ImVec2(boxMin.x - 56.0f, boxMin.y + 10.0f),
-                    ImGui::GetColorU32(ImVec4(1.0f, 0.60f, 0.35f, 1.0f)), "BOMB");
-  drawList->AddText(ImVec2(boxMax.x + 12.0f, boxMin.y + 36.0f),
-                    ImGui::GetColorU32(ImVec4(0.00f, 0.83f, 1.00f, 1.0f)), "PLANTING");
   DrawPreviewEspOverlay(drawList, settings, center, scale);
-
-  drawList->AddText(ImVec2(panelPos.x + 22.0f, panelPos.y + panelSize.y - 34.0f),
-                    ImGui::GetColorU32(muted), "ESP PREVIEW");
 }
 
 void RenderSettingsColumn(int currentTab) {
@@ -376,31 +445,35 @@ void Menu::Render() {
     DrawTopBar(settings, ImGui::GetContentRegionAvail());
 
     const float fullWidth = ImGui::GetContentRegionAvail().x;
-    const float navWidth = fullWidth * 0.15f;
+    const float navWidth = std::clamp(fullWidth * kNavWidthRatio, kMinNavWidth, kMaxNavWidth);
     const bool showPreview = s_currentTab == 0;
-    const float previewWidth = showPreview ? fullWidth * 0.50f : 0.0f;
+    float previewWidth = 0.0f;
+    if (showPreview) {
+      const float available = fullWidth - navWidth - kPanelGap * 2.0f;
+      previewWidth =
+          std::clamp(available * kPreviewWidthRatio, kMinPreviewWidth, kMaxPreviewWidth);
+      if (available - previewWidth < kMinSettingsWidth) {
+        previewWidth = (std::max)(220.0f, available - kMinSettingsWidth);
+      }
+    }
     const float settingsWidth =
-        fullWidth - navWidth - (showPreview ? previewWidth + 24.0f : 12.0f);
+        fullWidth - navWidth - (showPreview ? previewWidth + kPanelGap * 2.0f : kPanelGap);
     const float contentHeight = ImGui::GetContentRegionAvail().y;
 
     ImGui::BeginChild("NavPanel", ImVec2(navWidth, contentHeight), false,
                       ImGuiWindowFlags_NoScrollbar);
-    ImGui::TextColored(ImVec4(1, 1, 1, 1), "Navigation");
-    ImGui::Dummy(ImVec2(0, 8));
-
     for (int i = 0; i < 4; ++i) {
-      if (UI::NavTile(GetTabLabel(i), GetTabHint(i), s_currentTab == i, 52.0f)) {
+      if (UI::NavTile(GetTabLabel(i), s_currentTab == i, kNavItemHeight)) {
         s_currentTab = i;
       }
-      ImGui::Dummy(ImVec2(0, 6));
+      ImGui::Dummy(ImVec2(0, 8));
     }
 
-    ImGui::Dummy(ImVec2(0, 14));
-    ImGui::Separator();
     ImGui::Dummy(ImVec2(0, 12));
-    ImGui::TextColored(muted, "Shortcuts");
-    ImGui::TextUnformatted("INSERT");
-    ImGui::TextUnformatted("END");
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, 10));
+    UI::StatChip("Menu", "INSERT");
+    UI::StatChip("Exit", "END");
     ImGui::EndChild();
 
     if (showPreview) {
@@ -415,10 +488,14 @@ void Menu::Render() {
     }
 
     ImGui::BeginChild("SettingsPanel", ImVec2(settingsWidth, contentHeight), false,
-                      ImGuiWindowFlags_NoScrollbar);
-    ImGui::TextColored(ImVec4(1, 1, 1, 1), "%s", GetTabLabel(s_currentTab));
-    ImGui::SameLine();
-    ImGui::TextColored(muted, "| %s", GetTabHint(s_currentTab));
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+    if (ImFont *titleFont = Render::ImGuiManager::GetSemiboldFont()) {
+      ImGui::PushFont(titleFont);
+      ImGui::TextColored(ImVec4(1, 1, 1, 1), "%s", GetTabLabel(s_currentTab));
+      ImGui::PopFont();
+    } else {
+      ImGui::TextColored(ImVec4(1, 1, 1, 1), "%s", GetTabLabel(s_currentTab));
+    }
     ImGui::Dummy(ImVec2(0, 6));
     ImGui::Separator();
     ImGui::Dummy(ImVec2(0, 8));

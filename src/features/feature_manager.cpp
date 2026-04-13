@@ -1,6 +1,7 @@
 #include "feature_manager.h"
 #include "aimbot/aimbot.h"
 #include "bomb/bomb.h"
+#include "chams/chams.h"
 #include "debug_overlay/debug_overlay.h"
 #include "esp/esp.h"
 #include "misc/misc.h"
@@ -27,6 +28,7 @@ void FeatureManager::RegisterAll() {
   }
 
   RegisterFeature("ESP", []() { return std::make_unique<Esp>(); });
+  RegisterFeature("Chams", []() { return std::make_unique<Chams>(); });
   RegisterFeature("Aimbot", []() { return std::make_unique<Aimbot>(); });
   RegisterFeature("Triggerbot", []() { return std::make_unique<Triggerbot>(); });
   RegisterFeature("Misc", []() { return std::make_unique<Misc>(); });

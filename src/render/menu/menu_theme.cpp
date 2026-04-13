@@ -34,10 +34,10 @@ void ApplyMenuTheme(int theme) {
   const ImVec4 accentMid = ImVec4(accent.x, accent.y, accent.z, 0.55f);
 
   style.WindowPadding = ImVec2(18.0f, 18.0f);
-  style.FramePadding = ImVec2(10.0f, 8.0f);
+  style.FramePadding = ImVec2(10.0f, 7.0f);
   style.CellPadding = ImVec2(8.0f, 8.0f);
-  style.ItemSpacing = ImVec2(12.0f, 12.0f);
-  style.ItemInnerSpacing = ImVec2(8.0f, 8.0f);
+  style.ItemSpacing = ImVec2(10.0f, 10.0f);
+  style.ItemInnerSpacing = ImVec2(8.0f, 6.0f);
   style.ScrollbarSize = 10.0f;
   style.GrabMinSize = 24.0f;
 
@@ -58,7 +58,7 @@ void ApplyMenuTheme(int theme) {
   colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
   colors[ImGuiCol_TextDisabled] = ImVec4(0.54f, 0.56f, 0.60f, 1.00f);
   colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.07f, 0.09f, 0.98f);
-  colors[ImGuiCol_ChildBg] = ImVec4(0.10f, 0.11f, 0.14f, 1.00f);
+  colors[ImGuiCol_ChildBg] = ImVec4(0.09f, 0.10f, 0.13f, 1.00f);
   colors[ImGuiCol_PopupBg] = ImVec4(0.10f, 0.11f, 0.14f, 0.98f);
   colors[ImGuiCol_Border] = ImVec4(0.16f, 0.18f, 0.21f, 1.00f);
   colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);

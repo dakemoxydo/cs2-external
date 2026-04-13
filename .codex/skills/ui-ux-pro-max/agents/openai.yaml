@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI/UX Pro Max"
+  short_description: "Design intelligence for polished UI and UX"
+  default_prompt: "Use $ui-ux-pro-max to design or review a UI with strong layout, color, typography, accessibility, and responsive behavior."

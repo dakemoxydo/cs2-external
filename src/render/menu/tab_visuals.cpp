@@ -29,7 +29,7 @@ void CopyColor(TargetColor &dst, const float (&src)[4]) {
 void RenderTabVisuals() {
   Config::GlobalSettings settings = Config::CopySettings();
 
-  if (UI::BeginCard("Player ESP")) {
+  if (UI::BeginCard("EspCore")) {
     UI::SectionHeader("Visibility");
 
     bool espEnabled = settings.esp.enabled;
@@ -69,7 +69,8 @@ void RenderTabVisuals() {
 
         if (settings.esp.boxStyle == Features::BoxStyle::Filled) {
           float fillBoxAlpha = settings.esp.fillBoxAlpha;
-          if (ImGui::SliderFloat("Fill Alpha", &fillBoxAlpha, 0.02f, 0.5f, "%.2f")) {
+          if (ImGui::SliderFloat("Fill Alpha", &fillBoxAlpha, 0.02f, 0.5f,
+                                 "%.2f")) {
             Commit([&](auto &state) { state.esp.fillBoxAlpha = fillBoxAlpha; });
             settings.esp.fillBoxAlpha = fillBoxAlpha;
           }
@@ -95,7 +96,8 @@ void RenderTabVisuals() {
 
         bool showHealthText = settings.esp.showHealthText;
         if (UI::SettingToggle("Show Health Text", &showHealthText)) {
-          Commit([&](auto &state) { state.esp.showHealthText = showHealthText; });
+          Commit(
+              [&](auto &state) { state.esp.showHealthText = showHealthText; });
           settings.esp.showHealthText = showHealthText;
         }
       }
@@ -125,7 +127,8 @@ void RenderTabVisuals() {
         float weaponColor[4];
         CopyColor(weaponColor, settings.esp.weaponColor);
         if (UI::ColorRow("Weapon Color", weaponColor)) {
-          Commit([&](auto &state) { CopyColor(state.esp.weaponColor, weaponColor); });
+          Commit(
+              [&](auto &state) { CopyColor(state.esp.weaponColor, weaponColor); });
           CopyColor(settings.esp.weaponColor, weaponColor);
         }
       }
@@ -146,61 +149,260 @@ void RenderTabVisuals() {
         float snapLineColor[4];
         CopyColor(snapLineColor, settings.esp.snapLineColor);
         if (UI::ColorRow("Snap Color", snapLineColor)) {
-          Commit([&](auto &state) { CopyColor(state.esp.snapLineColor, snapLineColor); });
+          Commit([&](auto &state) {
+            CopyColor(state.esp.snapLineColor, snapLineColor);
+          });
           CopyColor(settings.esp.snapLineColor, snapLineColor);
         }
       }
 
-      UI::SectionHeader("Skeleton");
+      UI::SectionHeader("Bullet Tracers");
 
-      bool showBones = settings.esp.showBones;
-      if (UI::SettingToggle("Draw Skeleton", &showBones)) {
-        Commit([&](auto &state) { state.esp.showBones = showBones; });
-        settings.esp.showBones = showBones;
+      bool showBulletTracers = settings.esp.showBulletTracers;
+      if (UI::SettingToggle("Enable Bullet Tracers", &showBulletTracers)) {
+        Commit([&](auto &state) {
+          state.esp.showBulletTracers = showBulletTracers;
+        });
+        settings.esp.showBulletTracers = showBulletTracers;
       }
 
-      if (settings.esp.showBones) {
-        float boneColor[4];
-        CopyColor(boneColor, settings.esp.boneColor);
-        if (UI::ColorRow("Bone Color", boneColor)) {
-          Commit([&](auto &state) { CopyColor(state.esp.boneColor, boneColor); });
-          CopyColor(settings.esp.boneColor, boneColor);
+      if (settings.esp.showBulletTracers) {
+        float tracerColor[4];
+        CopyColor(tracerColor, settings.esp.bulletTracerColor);
+        if (UI::ColorRow("Tracer Color", tracerColor)) {
+          Commit([&](auto &state) {
+            CopyColor(state.esp.bulletTracerColor, tracerColor);
+          });
+          CopyColor(settings.esp.bulletTracerColor, tracerColor);
         }
 
-        bool skeletonOutline = settings.esp.skeletonOutline;
-        if (UI::SettingToggle("Skeleton Outline", &skeletonOutline)) {
-          Commit([&](auto &state) { state.esp.skeletonOutline = skeletonOutline; });
-          settings.esp.skeletonOutline = skeletonOutline;
+        float tracerThickness = settings.esp.bulletTracerThickness;
+        if (ImGui::SliderFloat("Tracer Thickness", &tracerThickness, 1.0f, 5.0f,
+                               "%.1f")) {
+          Commit([&](auto &state) {
+            state.esp.bulletTracerThickness = tracerThickness;
+          });
+          settings.esp.bulletTracerThickness = tracerThickness;
         }
 
-        if (settings.esp.skeletonOutline) {
-          float outlineColor[4];
-          CopyColor(outlineColor, settings.esp.skeletonOutlineColor);
-          if (UI::ColorRow("Outline Color", outlineColor)) {
-            Commit([&](auto &state) {
-              CopyColor(state.esp.skeletonOutlineColor, outlineColor);
-            });
-            CopyColor(settings.esp.skeletonOutlineColor, outlineColor);
-          }
+        float tracerLife = settings.esp.bulletTracerLife;
+        if (ImGui::SliderFloat("Tracer Life", &tracerLife, 0.15f, 2.0f,
+                               "%.2f s")) {
+          Commit([&](auto &state) { state.esp.bulletTracerLife = tracerLife; });
+          settings.esp.bulletTracerLife = tracerLife;
         }
 
-        float skeletonMaxDistance = settings.esp.skeletonMaxDistance;
-        if (ImGui::SliderFloat("Skeleton Max Distance", &skeletonMaxDistance, 0.0f,
-                               100.0f, "%.0f m")) {
-          Commit([&](auto &state) { state.esp.skeletonMaxDistance = skeletonMaxDistance; });
-          settings.esp.skeletonMaxDistance = skeletonMaxDistance;
+        float impactColor[4];
+        CopyColor(impactColor, settings.esp.bulletTracerImpactColor);
+        if (UI::ColorRow("Impact Color", impactColor)) {
+          Commit([&](auto &state) {
+            CopyColor(state.esp.bulletTracerImpactColor, impactColor);
+          });
+          CopyColor(settings.esp.bulletTracerImpactColor, impactColor);
+        }
+
+        float impactRadius = settings.esp.bulletTracerImpactRadius;
+        if (ImGui::SliderFloat("Impact Radius", &impactRadius, 2.0f, 24.0f,
+                               "%.1f")) {
+          Commit([&](auto &state) {
+            state.esp.bulletTracerImpactRadius = impactRadius;
+          });
+          settings.esp.bulletTracerImpactRadius = impactRadius;
+        }
+
+        float impactThickness = settings.esp.bulletTracerImpactThickness;
+        if (ImGui::SliderFloat("Impact Thickness", &impactThickness, 1.0f, 5.0f,
+                               "%.1f")) {
+          Commit([&](auto &state) {
+            state.esp.bulletTracerImpactThickness = impactThickness;
+          });
+          settings.esp.bulletTracerImpactThickness = impactThickness;
+        }
+      }
+
+      bool showHitmarker = settings.esp.showHitmarker;
+      if (UI::SettingToggle("Enable Hitmarker", &showHitmarker)) {
+        Commit([&](auto &state) { state.esp.showHitmarker = showHitmarker; });
+        settings.esp.showHitmarker = showHitmarker;
+      }
+
+      if (settings.esp.showHitmarker) {
+        float hitmarkerColor[4];
+        CopyColor(hitmarkerColor, settings.esp.hitmarkerColor);
+        if (UI::ColorRow("Hitmarker Color", hitmarkerColor)) {
+          Commit([&](auto &state) {
+            CopyColor(state.esp.hitmarkerColor, hitmarkerColor);
+          });
+          CopyColor(settings.esp.hitmarkerColor, hitmarkerColor);
+        }
+
+        float hitmarkerLife = settings.esp.hitmarkerLife;
+        if (ImGui::SliderFloat("Hitmarker Life", &hitmarkerLife, 0.08f, 0.60f,
+                               "%.2f s")) {
+          Commit([&](auto &state) { state.esp.hitmarkerLife = hitmarkerLife; });
+          settings.esp.hitmarkerLife = hitmarkerLife;
         }
       }
     }
   }
   UI::EndCard();
 
-  if (UI::BeginCard("World And Motion")) {
+  if (UI::BeginCard("SkeletonWorld")) {
+    UI::SectionHeader("Skeleton");
+
+    bool showBones = settings.esp.showBones;
+    if (UI::SettingToggle("Draw Skeleton", &showBones)) {
+      Commit([&](auto &state) { state.esp.showBones = showBones; });
+      settings.esp.showBones = showBones;
+    }
+
+    if (settings.esp.showBones) {
+      float boneColor[4];
+      CopyColor(boneColor, settings.esp.boneColor);
+      if (UI::ColorRow("Bone Color", boneColor)) {
+        Commit([&](auto &state) { CopyColor(state.esp.boneColor, boneColor); });
+        CopyColor(settings.esp.boneColor, boneColor);
+      }
+
+      bool skeletonOutline = settings.esp.skeletonOutline;
+      if (UI::SettingToggle("Skeleton Outline", &skeletonOutline)) {
+        Commit([&](auto &state) {
+          state.esp.skeletonOutline = skeletonOutline;
+        });
+        settings.esp.skeletonOutline = skeletonOutline;
+      }
+
+      if (settings.esp.skeletonOutline) {
+        float outlineColor[4];
+        CopyColor(outlineColor, settings.esp.skeletonOutlineColor);
+        if (UI::ColorRow("Outline Color", outlineColor)) {
+          Commit([&](auto &state) {
+            CopyColor(state.esp.skeletonOutlineColor, outlineColor);
+          });
+          CopyColor(settings.esp.skeletonOutlineColor, outlineColor);
+        }
+      }
+
+      float skeletonMaxDistance = settings.esp.skeletonMaxDistance;
+      if (ImGui::SliderFloat("Skeleton Max Distance", &skeletonMaxDistance, 0.0f,
+                             100.0f, "%.0f m")) {
+        Commit([&](auto &state) {
+          state.esp.skeletonMaxDistance = skeletonMaxDistance;
+        });
+        settings.esp.skeletonMaxDistance = skeletonMaxDistance;
+      }
+    }
+
+    UI::SectionHeader("Chams");
+
+    bool chamsEnabled = settings.chams.enabled;
+    if (UI::SettingToggle("Enable Chams", &chamsEnabled)) {
+      Commit([&](auto &state) { state.chams.enabled = chamsEnabled; });
+      settings.chams.enabled = chamsEnabled;
+    }
+
+    if (settings.chams.enabled) {
+      bool chamsShowTeammates = settings.chams.showTeammates;
+      if (UI::SettingToggle("Show Teammates", &chamsShowTeammates)) {
+        Commit([&](auto &state) {
+          state.chams.showTeammates = chamsShowTeammates;
+        });
+        settings.chams.showTeammates = chamsShowTeammates;
+      }
+
+      bool chamsVisibleCheck = settings.chams.visibleCheck;
+      if (UI::SettingToggle("Visible Check Colors", &chamsVisibleCheck)) {
+        Commit([&](auto &state) { state.chams.visibleCheck = chamsVisibleCheck; });
+        settings.chams.visibleCheck = chamsVisibleCheck;
+      }
+
+      const char *materialItems[] = {"Flat", "Shaded", "Rim"};
+      int materialType = settings.chams.materialType;
+      if (ImGui::Combo("Material", &materialType, materialItems, 3)) {
+        Commit([&](auto &state) { state.chams.materialType = materialType; });
+        settings.chams.materialType = materialType;
+      }
+
+      float chamsAlpha = settings.chams.alpha;
+      if (ImGui::SliderFloat("Chams Alpha", &chamsAlpha, 0.10f, 1.0f, "%.2f")) {
+        Commit([&](auto &state) { state.chams.alpha = chamsAlpha; });
+        settings.chams.alpha = chamsAlpha;
+      }
+
+      bool chamsWireframe = settings.chams.wireframe;
+      if (UI::SettingToggle("Wireframe Overlay", &chamsWireframe)) {
+        Commit([&](auto &state) { state.chams.wireframe = chamsWireframe; });
+        settings.chams.wireframe = chamsWireframe;
+      }
+
+      if (settings.chams.wireframe) {
+        float chamsWireAmount = settings.chams.wireAmount;
+        if (ImGui::SliderFloat("Wire Amount", &chamsWireAmount, 0.10f, 1.0f,
+                               "%.2f")) {
+          Commit([&](auto &state) { state.chams.wireAmount = chamsWireAmount; });
+          settings.chams.wireAmount = chamsWireAmount;
+        }
+      }
+
+      float enemyChamsColor[4];
+      CopyColor(enemyChamsColor, settings.chams.fillColor);
+      if (UI::ColorRow(settings.chams.visibleCheck ? "Enemy Visible" : "Enemy Fill",
+                       enemyChamsColor)) {
+        Commit([&](auto &state) {
+          CopyColor(state.chams.fillColor, enemyChamsColor);
+        });
+        CopyColor(settings.chams.fillColor, enemyChamsColor);
+      }
+
+      if (settings.chams.visibleCheck) {
+        float enemyHiddenColor[4];
+        CopyColor(enemyHiddenColor, settings.chams.hiddenColor);
+        if (UI::ColorRow("Enemy Hidden", enemyHiddenColor)) {
+          Commit([&](auto &state) {
+            CopyColor(state.chams.hiddenColor, enemyHiddenColor);
+          });
+          CopyColor(settings.chams.hiddenColor, enemyHiddenColor);
+        }
+      }
+
+      float teamChamsColor[4];
+      CopyColor(teamChamsColor, settings.chams.fillColorTeam);
+      if (UI::ColorRow(settings.chams.visibleCheck ? "Team Visible" : "Team Fill",
+                       teamChamsColor)) {
+        Commit([&](auto &state) {
+          CopyColor(state.chams.fillColorTeam, teamChamsColor);
+        });
+        CopyColor(settings.chams.fillColorTeam, teamChamsColor);
+      }
+
+      if (settings.chams.visibleCheck) {
+        float teamHiddenColor[4];
+        CopyColor(teamHiddenColor, settings.chams.hiddenColorTeam);
+        if (UI::ColorRow("Team Hidden", teamHiddenColor)) {
+          Commit([&](auto &state) {
+            CopyColor(state.chams.hiddenColorTeam, teamHiddenColor);
+          });
+          CopyColor(settings.chams.hiddenColorTeam, teamHiddenColor);
+        }
+      }
+
+      float chamsWireColor[4];
+      CopyColor(chamsWireColor, settings.chams.wireColor);
+      if (UI::ColorRow("Wire Color", chamsWireColor)) {
+        Commit([&](auto &state) {
+          CopyColor(state.chams.wireColor, chamsWireColor);
+        });
+        CopyColor(settings.chams.wireColor, chamsWireColor);
+      }
+    }
+
     UI::SectionHeader("Frustum / Off-Screen");
 
     bool frustumCullingEnabled = settings.esp.frustumCullingEnabled;
     if (UI::SettingToggle("Frustum Culling", &frustumCullingEnabled)) {
-      Commit([&](auto &state) { state.esp.frustumCullingEnabled = frustumCullingEnabled; });
+      Commit([&](auto &state) {
+        state.esp.frustumCullingEnabled = frustumCullingEnabled;
+      });
       settings.esp.frustumCullingEnabled = frustumCullingEnabled;
     }
 
@@ -214,11 +416,16 @@ void RenderTabVisuals() {
       float offscreenColor[4];
       CopyColor(offscreenColor, settings.esp.offscreenColor);
       if (UI::ColorRow("Off-Screen Color", offscreenColor)) {
-        Commit([&](auto &state) { CopyColor(state.esp.offscreenColor, offscreenColor); });
+        Commit([&](auto &state) {
+          CopyColor(state.esp.offscreenColor, offscreenColor);
+        });
         CopyColor(settings.esp.offscreenColor, offscreenColor);
       }
     }
+  }
+  UI::EndCard();
 
+  if (UI::BeginCard("RadarPanel")) {
     UI::SectionHeader("Radar");
 
     bool radarEnabled = settings.radar.enabled;
@@ -236,7 +443,8 @@ void RenderTabVisuals() {
 
       bool radarShowTeammates = settings.radar.showTeammates;
       if (UI::SettingToggle("Show Teammates", &radarShowTeammates)) {
-        Commit([&](auto &state) { state.radar.showTeammates = radarShowTeammates; });
+        Commit(
+            [&](auto &state) { state.radar.showTeammates = radarShowTeammates; });
         settings.radar.showTeammates = radarShowTeammates;
       }
 
@@ -266,12 +474,16 @@ void RenderTabVisuals() {
       }
 
       float radarBgAlpha = settings.radar.bgAlpha;
-      if (ImGui::SliderFloat("Background Alpha", &radarBgAlpha, 0.05f, 1.0f, "%.2f")) {
+      if (ImGui::SliderFloat("Background Alpha", &radarBgAlpha, 0.05f, 1.0f,
+                             "%.2f")) {
         Commit([&](auto &state) { state.radar.bgAlpha = radarBgAlpha; });
         settings.radar.bgAlpha = radarBgAlpha;
       }
     }
+  }
+  UI::EndCard();
 
+  if (UI::BeginCard("AudioAlerts")) {
     UI::SectionHeader("Sound ESP");
 
     bool soundEspEnabled = settings.soundEsp.enabled;
@@ -283,7 +495,9 @@ void RenderTabVisuals() {
     if (settings.soundEsp.enabled) {
       bool soundEspShowTeammates = settings.soundEsp.showTeammates;
       if (UI::SettingToggle("Show Teammates", &soundEspShowTeammates)) {
-        Commit([&](auto &state) { state.soundEsp.showTeammates = soundEspShowTeammates; });
+        Commit([&](auto &state) {
+          state.soundEsp.showTeammates = soundEspShowTeammates;
+        });
         settings.soundEsp.showTeammates = soundEspShowTeammates;
       }
 
@@ -295,21 +509,30 @@ void RenderTabVisuals() {
       CopyColor(landColor, settings.soundEsp.landColor);
 
       if (UI::ColorRow("Footstep Color", footstepColor)) {
-        Commit([&](auto &state) { CopyColor(state.soundEsp.footstepColor, footstepColor); });
+        Commit([&](auto &state) {
+          CopyColor(state.soundEsp.footstepColor, footstepColor);
+        });
         CopyColor(settings.soundEsp.footstepColor, footstepColor);
       }
       if (UI::ColorRow("Jump Color", jumpColor)) {
-        Commit([&](auto &state) { CopyColor(state.soundEsp.jumpColor, jumpColor); });
+        Commit([&](auto &state) {
+          CopyColor(state.soundEsp.jumpColor, jumpColor);
+        });
         CopyColor(settings.soundEsp.jumpColor, jumpColor);
       }
       if (UI::ColorRow("Land Color", landColor)) {
-        Commit([&](auto &state) { CopyColor(state.soundEsp.landColor, landColor); });
+        Commit([&](auto &state) {
+          CopyColor(state.soundEsp.landColor, landColor);
+        });
         CopyColor(settings.soundEsp.landColor, landColor);
       }
 
       float footstepRadius = settings.soundEsp.footstepMaxRadius;
-      if (ImGui::SliderFloat("Footstep Radius", &footstepRadius, 10.0f, 60.0f, "%.0f")) {
-        Commit([&](auto &state) { state.soundEsp.footstepMaxRadius = footstepRadius; });
+      if (ImGui::SliderFloat("Footstep Radius", &footstepRadius, 10.0f, 60.0f,
+                             "%.0f")) {
+        Commit([&](auto &state) {
+          state.soundEsp.footstepMaxRadius = footstepRadius;
+        });
         settings.soundEsp.footstepMaxRadius = footstepRadius;
       }
 
@@ -326,14 +549,18 @@ void RenderTabVisuals() {
       }
 
       float expandDuration = settings.soundEsp.expandDuration;
-      if (ImGui::SliderFloat("Expand Time", &expandDuration, 0.1f, 2.0f, "%.1f s")) {
-        Commit([&](auto &state) { state.soundEsp.expandDuration = expandDuration; });
+      if (ImGui::SliderFloat("Expand Time", &expandDuration, 0.1f, 2.0f,
+                             "%.1f s")) {
+        Commit([&](auto &state) {
+          state.soundEsp.expandDuration = expandDuration;
+        });
         settings.soundEsp.expandDuration = expandDuration;
       }
 
       float fadeDuration = settings.soundEsp.fadeDuration;
       if (ImGui::SliderFloat("Fade Time", &fadeDuration, 0.3f, 3.0f, "%.1f s")) {
-        Commit([&](auto &state) { state.soundEsp.fadeDuration = fadeDuration; });
+        Commit(
+            [&](auto &state) { state.soundEsp.fadeDuration = fadeDuration; });
         settings.soundEsp.fadeDuration = fadeDuration;
       }
 
@@ -351,6 +578,7 @@ void RenderTabVisuals() {
     }
 
     UI::SectionHeader("Alerts");
+
     bool bombEnabled = settings.bomb.enabled;
     if (UI::SettingToggle("Bomb Timer", &bombEnabled)) {
       Commit([&](auto &state) { state.bomb.enabled = bombEnabled; });

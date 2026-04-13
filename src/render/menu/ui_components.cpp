@@ -1,6 +1,7 @@
 #include "ui_components.h"
 #include <imgui_internal.h>
 #include <algorithm>
+#include <vector>
 #include <cstring>
 #include <cstdio>
 #include <windows.h>
@@ -34,6 +35,19 @@ static const char *KeyLabel(int vk) {
 namespace UI {
 
 namespace {
+constexpr float kCardBodySpacing = 4.0f;
+constexpr float kSectionTopGap = 4.0f;
+constexpr float kSectionBottomGap = 6.0f;
+constexpr float kChipHeight = 38.0f;
+constexpr float kToggleHeight = 22.0f;
+constexpr float kToggleWidth = 40.0f;
+
+struct CardState {
+  ImDrawList *drawList = nullptr;
+  float indent = 12.0f;
+};
+
+std::vector<CardState> g_cardStack;
 
 void DrawNavIcon(ImDrawList *drawList, const ImVec2 &center, const ImVec4 &color,
                  int iconKind) {
@@ -68,15 +82,15 @@ void DrawNavIcon(ImDrawList *drawList, const ImVec2 &center, const ImVec4 &color
 
 int IconKindForTitle(const char *title) {
   if (!title) return 0;
-  if (strcmp(title, "Players") == 0) return 0;
-  if (strcmp(title, "Combat") == 0) return 1;
-  if (strcmp(title, "Utility") == 0) return 2;
+  if (strcmp(title, "Visuals") == 0) return 0;
+  if (strcmp(title, "Legit") == 0) return 1;
+  if (strcmp(title, "Misc") == 0) return 2;
   return 3;
 }
 
 } // namespace
 
-bool NavTile(const char *title, const char *description, bool selected, float height) {
+bool NavTile(const char *title, bool selected, float height) {
   ImGuiWindow *window = ImGui::GetCurrentWindow();
   if (window->SkipItems) return false;
 
@@ -97,8 +111,7 @@ bool NavTile(const char *title, const char *description, bool selected, float he
   ImVec4 accent = style.Colors[ImGuiCol_Button];
   ImVec4 accentHover = style.Colors[ImGuiCol_ButtonHovered];
   ImVec4 text = style.Colors[ImGuiCol_Text];
-  ImVec4 muted = style.Colors[ImGuiCol_TextDisabled];
-
+  const ImVec2 textSize = ImGui::CalcTextSize(title, nullptr, true);
   float anim = selected ? 1.0f : 0.0f;
   float hoverAnim = hovered ? 1.0f : 0.0f;
   ImGuiStorage *storage = ImGui::GetStateStorage();
@@ -118,7 +131,6 @@ bool NavTile(const char *title, const char *description, bool selected, float he
       style.Colors[ImGuiCol_ChildBg].z * 0.92f + accent.z * (0.04f + 0.12f * currentAnim + 0.05f * currentHover),
       1.0f));
 
-  ImVec2 pad(12.0f, 10.0f);
   window->DrawList->AddRectFilled(bb.Min, bb.Max, bg, 9.0f);
   window->DrawList->AddRect(
       bb.Min, bb.Max,
@@ -138,28 +150,29 @@ bool NavTile(const char *title, const char *description, bool selected, float he
 
   const ImVec2 iconCenter(bb.Min.x + 22.0f, (bb.Min.y + bb.Max.y) * 0.5f);
   DrawNavIcon(window->DrawList, iconCenter,
-              selected ? accentHover : ImVec4(muted.x, muted.y, muted.z, 0.95f),
+              selected ? accentHover : ImVec4(style.Colors[ImGuiCol_TextDisabled].x,
+                                               style.Colors[ImGuiCol_TextDisabled].y,
+                                               style.Colors[ImGuiCol_TextDisabled].z, 0.95f),
               IconKindForTitle(title));
 
   ImGui::PushStyleColor(ImGuiCol_Text, selected ? ImVec4(text.x, text.y, text.z, 1.0f) : ImVec4(text.x, text.y, text.z, 0.92f));
-  ImGui::SetCursorScreenPos(ImVec2(bb.Min.x + 40.0f, bb.Min.y + pad.y - 1.0f));
+  ImGui::SetCursorScreenPos(
+      ImVec2(bb.Min.x + 40.0f, bb.Min.y + (height - textSize.y) * 0.5f - 1.0f));
   ImGui::TextUnformatted(title);
-  if (description && description[0] != '\0') {
-    ImGui::PushStyleColor(ImGuiCol_Text, muted);
-    ImGui::SetCursorScreenPos(ImVec2(bb.Min.x + 40.0f, bb.Min.y + pad.y + 20.0f));
-    ImGui::TextWrapped("%s", description);
-    ImGui::PopStyleColor();
-  }
   ImGui::PopStyleColor();
 
   return pressed;
 }
 
+float GetStatChipWidth(const char *value) {
+  ImVec2 textSize = ImGui::CalcTextSize(value);
+  return std::max(120.0f, textSize.x + 28.0f);
+}
+
 void StatChip(const char *label, const char *value) {
   ImGuiStyle &style = ImGui::GetStyle();
   ImVec4 accent = style.Colors[ImGuiCol_Button];
-  ImVec2 textSize = ImGui::CalcTextSize(value);
-  float width = std::max(120.0f, textSize.x + 28.0f);
+  float width = GetStatChipWidth(value);
 
   ImGui::BeginGroup();
   ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(
@@ -167,7 +180,7 @@ void StatChip(const char *label, const char *value) {
       style.Colors[ImGuiCol_ChildBg].y * 0.90f + accent.y * 0.04f,
       style.Colors[ImGuiCol_ChildBg].z * 0.90f + accent.z * 0.04f,
       1.0f));
-  ImGui::BeginChild(label, ImVec2(width, 38.0f), true, ImGuiWindowFlags_NoScrollbar);
+  ImGui::BeginChild(label, ImVec2(width, kChipHeight), true, ImGuiWindowFlags_NoScrollbar);
   ImGui::SetCursorPos(ImVec2(12.0f, 7.0f));
   ImGui::PushStyleColor(ImGuiCol_Text, style.Colors[ImGuiCol_TextDisabled]);
   ImGui::TextUnformatted(label);
@@ -189,56 +202,85 @@ bool ColorRow(const char *label, float *color) {
   return changed;
 }
 
-bool BeginCard(const char *title, ImVec2 size) {
+bool BeginCard(const char *id, ImVec2 size) {
+  (void)size;
   ImGuiStyle &style = ImGui::GetStyle();
   ImVec4 accent = style.Colors[ImGuiCol_Button];
-  ImVec4 accentHover = style.Colors[ImGuiCol_ButtonHovered];
-
-  ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(
-      style.Colors[ImGuiCol_ChildBg].x * 0.85f + accent.x * 0.02f,
-      style.Colors[ImGuiCol_ChildBg].y * 0.85f + accent.y * 0.02f,
-      style.Colors[ImGuiCol_ChildBg].z * 0.85f + accent.z * 0.02f,
-      style.Colors[ImGuiCol_ChildBg].w
-  ));
-  ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
-  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 10.0f));
-
-  bool ret = ImGui::BeginChild(title, size, true, ImGuiWindowFlags_NoScrollbar);
-
-  ImGui::PopStyleVar(2);
-  ImGui::PopStyleColor();
-
   ImGuiWindow *window = ImGui::GetCurrentWindow();
-  ImVec2 pos = window->DC.CursorPos;
-  window->DrawList->AddRectFilled(
-      ImVec2(pos.x, pos.y + 2.0f),
-      ImVec2(pos.x + 3.0f, pos.y + ImGui::GetTextLineHeight() + 6.0f),
-      ImGui::GetColorU32(accent), 1.5f);
+  if (window->SkipItems) {
+    return false;
+  }
 
-  ImGui::SetCursorPosX(pos.x + 10.0f);
-  ImGui::TextColored(ImVec4(
-      accentHover.x * 0.7f + style.Colors[ImGuiCol_Text].x * 0.3f,
-      accentHover.y * 0.7f + style.Colors[ImGuiCol_Text].y * 0.3f,
-      accentHover.z * 0.7f + style.Colors[ImGuiCol_Text].z * 0.3f,
-      1.0f), title);
+  ImGui::PushID(id);
+  window->DrawList->ChannelsSplit(2);
+  window->DrawList->ChannelsSetCurrent(1);
 
-  ImGui::Spacing();
-  ImGui::Separator();
-  ImGui::Spacing();
+  g_cardStack.push_back({window->DrawList, 14.0f});
 
-  return ret;
+  ImGui::BeginGroup();
+  ImGui::Dummy(ImVec2(0.0f, 10.0f));
+  ImGui::Indent(g_cardStack.back().indent);
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 8.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 8.0f));
+  ImGui::PushStyleColor(ImGuiCol_FrameBg,
+                        ImVec4(style.Colors[ImGuiCol_FrameBg].x,
+                               style.Colors[ImGuiCol_FrameBg].y,
+                               style.Colors[ImGuiCol_FrameBg].z, 1.0f));
+  ImGui::PushStyleColor(ImGuiCol_Separator,
+                        ImVec4(accent.x, accent.y, accent.z, 0.22f));
+  return true;
 }
 
 void EndCard() {
-  ImGui::Spacing();
-  ImGui::EndChild();
+  if (g_cardStack.empty()) {
+    return;
+  }
+
+  CardState state = g_cardStack.back();
+  g_cardStack.pop_back();
+
+  ImGui::PopStyleColor(2);
+  ImGui::PopStyleVar(2);
+  ImGui::Unindent(state.indent);
+  ImGui::Dummy(ImVec2(0.0f, 10.0f));
+  ImGui::EndGroup();
+
+  ImGuiWindow *window = ImGui::GetCurrentWindow();
+  const ImVec2 itemMin = ImGui::GetItemRectMin();
+  const ImVec2 itemMax = ImGui::GetItemRectMax();
+  const ImVec2 contentMin = window->WorkRect.Min;
+  const ImVec2 contentMax = window->WorkRect.Max;
+  const ImRect cardRect(ImVec2(contentMin.x, itemMin.y),
+                        ImVec2(contentMax.x, itemMax.y));
+
+  state.drawList->ChannelsSetCurrent(0);
+  const ImGuiStyle &style = ImGui::GetStyle();
+  const ImVec4 accent = style.Colors[ImGuiCol_Button];
+  state.drawList->AddRectFilled(
+      cardRect.Min, cardRect.Max,
+      ImGui::GetColorU32(ImVec4(
+          style.Colors[ImGuiCol_ChildBg].x * 0.86f + accent.x * 0.02f,
+          style.Colors[ImGuiCol_ChildBg].y * 0.86f + accent.y * 0.02f,
+          style.Colors[ImGuiCol_ChildBg].z * 0.86f + accent.z * 0.02f, 1.0f)),
+      10.0f);
+  state.drawList->AddRect(
+      cardRect.Min, cardRect.Max,
+      ImGui::GetColorU32(
+          ImVec4(style.Colors[ImGuiCol_Border].x, style.Colors[ImGuiCol_Border].y,
+                 style.Colors[ImGuiCol_Border].z, 0.95f)),
+      10.0f, 0, 1.0f);
+  state.drawList->ChannelsSetCurrent(1);
+  state.drawList->ChannelsMerge();
+
+  ImGui::PopID();
+  ImGui::Dummy(ImVec2(0.0f, 4.0f));
 }
 
 void SectionHeader(const char *title, const char *description) {
   ImGuiStyle &style = ImGui::GetStyle();
   ImVec4 accent = style.Colors[ImGuiCol_ButtonHovered];
 
-  ImGui::Spacing();
+  ImGui::Dummy(ImVec2(0.0f, kSectionTopGap));
   ImGui::TextColored(accent, "%s", title);
   if (description && description[0] != '\0') {
     ImGui::PushStyleColor(ImGuiCol_Text, style.Colors[ImGuiCol_TextDisabled]);
@@ -247,9 +289,9 @@ void SectionHeader(const char *title, const char *description) {
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
   }
-  ImGui::Spacing();
+  ImGui::Dummy(ImVec2(0.0f, kSectionBottomGap));
   ImGui::Separator();
-  ImGui::Spacing();
+  ImGui::Dummy(ImVec2(0.0f, kCardBodySpacing));
 }
 
 void HelpText(const char *text) {
@@ -269,8 +311,8 @@ bool SettingToggle(const char *label, bool *v) {
   const ImGuiID id = window->GetID(label);
   const ImVec2 label_size = ImGui::CalcTextSize(label, NULL, true);
 
-  float height = 22.0f;
-  float width = height * 1.8f;
+  float height = kToggleHeight;
+  float width = kToggleWidth;
   float radius = height * 0.50f;
 
   const ImVec2 pos = window->DC.CursorPos;
@@ -346,7 +388,8 @@ bool SettingToggle(const char *label, bool *v) {
       circle_radius * 0.6f, IM_COL32(255, 255, 255, 40));
 
   if (label_size.x > 0.0f) {
-    ImGui::RenderText(ImVec2(pos.x + width + style.ItemInnerSpacing.x, pos.y + style.FramePadding.y), label);
+    ImGui::RenderText(ImVec2(pos.x + width + style.ItemInnerSpacing.x,
+                             pos.y + (height - label_size.y) * 0.5f - 1.0f), label);
   }
 
   return pressed;
@@ -384,6 +427,7 @@ bool SettingHotkey(const char* label, int& keyTarget) {
 
   bool listening = (s_listeningId == myId);
 
+  ImGui::AlignTextToFramePadding();
   ImGui::TextUnformatted(btnLabel);
   ImGui::SameLine();
 
@@ -395,7 +439,7 @@ bool SettingHotkey(const char* label, int& keyTarget) {
         1.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.9f, 0.35f, 0.05f, 1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
-    if (ImGui::Button("... Press key ...", ImVec2(160, 0))) {
+    if (ImGui::Button("... Press key ...", ImVec2(170, 0))) {
       s_listeningId = -1;
     }
     ImGui::PopStyleVar();
@@ -428,7 +472,7 @@ bool SettingHotkey(const char* label, int& keyTarget) {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
     char keyLabel[32];
     snprintf(keyLabel, sizeof(keyLabel), "[ %s ]", KeyLabel(keyTarget));
-    if (ImGui::Button(keyLabel, ImVec2(100, 0)))
+    if (ImGui::Button(keyLabel, ImVec2(110, 0)))
       s_listeningId = myId;
     ImGui::PopStyleVar();
   }

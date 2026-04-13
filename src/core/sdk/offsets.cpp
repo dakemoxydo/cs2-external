@@ -34,6 +34,7 @@ int OffsetSet::MissingCount() const {
   CHECK(m_iIDEntIndex);
   CHECK(m_bIsScoped);
   CHECK(m_iShotsFired);
+  CHECK(m_flRange);
   CHECK(m_nBombSite);
   CHECK(m_bBombTicking);
   CHECK(m_flTimerLength);

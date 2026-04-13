@@ -158,6 +158,12 @@ void RenderTabLegit() {
     }
 
     if (settings.rcs.enabled) {
+      int rcsKey = settings.rcs.key;
+      if (UI::SettingHotkey("RCS Hold Key", rcsKey)) {
+        Commit([&](auto &state) { state.rcs.key = rcsKey; });
+        settings.rcs.key = rcsKey;
+      }
+
       float pitchStrength = settings.rcs.pitchStrength;
       if (ImGui::SliderFloat("Pitch Strength", &pitchStrength, 0.0f, 2.0f, "%.2f")) {
         Commit([&](auto &state) { state.rcs.pitchStrength = pitchStrength; });
@@ -168,6 +174,12 @@ void RenderTabLegit() {
       if (ImGui::SliderFloat("Yaw Strength", &yawStrength, 0.0f, 2.0f, "%.2f")) {
         Commit([&](auto &state) { state.rcs.yawStrength = yawStrength; });
         settings.rcs.yawStrength = yawStrength;
+      }
+
+      float smooth = settings.rcs.smooth;
+      if (ImGui::SliderFloat("Smooth", &smooth, 1.0f, 100.0f, "%.1f")) {
+        Commit([&](auto &state) { state.rcs.smooth = smooth; });
+        settings.rcs.smooth = smooth;
       }
 
       int startBullet = settings.rcs.startBullet;

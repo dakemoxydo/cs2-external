@@ -7,7 +7,7 @@
 #include "render/menu/menu.h"
 #include <windows.h>
 #include <algorithm>
-#include <atomic>
+#include <cmath>
 #include <shared_mutex>
 
 namespace Features {
@@ -33,70 +33,77 @@ bool RCSSystem::IsWeaponSupported(const std::string& weaponName) {
     return true;
 }
 
-static SDK::Vector2 s_oldPunch = {0.0f, 0.0f};
+namespace {
+SDK::Vector2 s_prevPunch = {0.0f, 0.0f};
+float s_smoothX = 0.0f;
+float s_smoothY = 0.0f;
+
+void ResetRcsState() {
+    s_prevPunch = {0.0f, 0.0f};
+    s_smoothX = 0.0f;
+    s_smoothY = 0.0f;
+}
+}
 
 void RCSSystem::Update() {
-    // Snapshot settings once for consistency
     struct S {
-        bool enabled, aimbotEnabled;
-        int aimbotHotkey, startBullet;
-        float pitchStrength, yawStrength, sensitivity;
+        bool enabled;
+        int key, startBullet;
+        float pitchStrength, yawStrength, smooth, sensitivity;
     };
     S s;
     {
         std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
         auto &RCS = Config::Settings.rcs;
         auto &A = Config::Settings.aimbot;
-        s = {RCS.enabled, A.enabled, A.hotkey, RCS.startBullet,
-             RCS.pitchStrength, RCS.yawStrength, A.sensitivity};
+        s = {RCS.enabled, RCS.key, RCS.startBullet, RCS.pitchStrength,
+             RCS.yawStrength, RCS.smooth, A.sensitivity};
     }
 
-    if (!s.enabled) { s_oldPunch = {0.0f, 0.0f}; return; }
+    if (!s.enabled) { ResetRcsState(); return; }
+    if (Render::Menu::IsOpen()) { ResetRcsState(); return; }
+    if (!Input::InputManager::IsKeyDown(s.key)) { ResetRcsState(); return; }
 
-    // Do not apply RCS while the menu is open
-    if (Render::Menu::IsOpen()) { s_oldPunch = {0.0f, 0.0f}; return; }
+    const auto snapshot = Core::GameManager::GetSnapshot();
+    if (!snapshot || snapshot->localPawn == 0) { ResetRcsState(); return; }
 
-    uintptr_t clientBase = Core::GameManager::GetClientBase();
-    if (!clientBase) return;
+    const std::string &weapon = snapshot->localWeaponName;
+    if (!IsWeaponSupported(weapon)) { ResetRcsState(); return; }
 
-    std::string weapon = Core::GameManager::GetLocalWeaponName();
-    if (!IsWeaponSupported(weapon)) { s_oldPunch = {0.0f, 0.0f}; return; }
+    const int shotsFired = snapshot->localShotsFired;
+    const float punchX = snapshot->localAimPunch.x;
+    const float punchY = snapshot->localAimPunch.y;
 
-    int shotsFired = Core::GameManager::GetLocalShotsFired();
-    if (shotsFired < s.startBullet) { s_oldPunch = {0.0f, 0.0f}; return; }
-
-    SDK::Vector2 aimPunch = Core::GameManager::GetLocalAimPunch();
-    if (shotsFired == 0 || (aimPunch.x == 0 && aimPunch.y == 0)) {
-        s_oldPunch = {0.0f, 0.0f};
+    if (shotsFired <= 1 || shotsFired < s.startBullet) {
+        s_prevPunch = {punchX, punchY};
+        s_smoothX = 0.0f;
+        s_smoothY = 0.0f;
         return;
     }
 
-    bool isShooting = Input::InputManager::IsKeyDown(VK_LBUTTON);
-    bool isAimbotting = s.aimbotEnabled && Input::InputManager::IsKeyDown(s.aimbotHotkey);
+    const float sensitivity = (s.sensitivity > 0.0f) ? s.sensitivity : 1.0f;
+    const float deltaX = (punchX - s_prevPunch.x) * -1.0f;
+    const float deltaY = (punchY - s_prevPunch.y) * -1.0f;
 
-    if (isShooting && !isAimbotting) {
-        if (s_oldPunch.x != 0 || s_oldPunch.y != 0) {
-            SDK::Vector2 punchDelta = {aimPunch.x - s_oldPunch.x, aimPunch.y - s_oldPunch.y};
+    const float moveX = (deltaY * s.pitchStrength * 2.0f / sensitivity) / -0.022f;
+    const float moveY = (deltaX * s.yawStrength * 2.0f / sensitivity) / 0.022f;
 
-            float pitchComp = punchDelta.x * 2.0f * s.pitchStrength;
-            float yawComp = punchDelta.y * 2.0f * s.yawStrength;
+    const float factor = std::clamp(s.smooth, 1.0f, 100.0f);
+    s_smoothX += (moveX - s_smoothX) / factor;
+    s_smoothY += (moveY - s_smoothY) / factor;
 
-            const float sens = s.sensitivity;
-            const float countsPerDeg = 1.0f / (0.022f * sens);
+    constexpr float kMaxCompensation = 200.0f;
+    s_smoothX = std::clamp(s_smoothX, -kMaxCompensation, kMaxCompensation);
+    s_smoothY = std::clamp(s_smoothY, -kMaxCompensation, kMaxCompensation);
 
-            float mouseDy = pitchComp * countsPerDeg;
-            float mouseDx = -yawComp * countsPerDeg;
+    const int sendX = static_cast<int>(std::round(s_smoothX));
+    const int sendY = static_cast<int>(std::round(s_smoothY));
 
-            int mdx = static_cast<int>(mouseDx);
-            int mdy = static_cast<int>(mouseDy);
-
-            if (mdx != 0 || mdy != 0) {
-                Input::InputManager::SendMouseDelta(mdx, mdy);
-            }
-        }
+    if (sendX != 0 || sendY != 0) {
+        Input::InputManager::SendMouseDelta(sendX, sendY);
     }
 
-    s_oldPunch = aimPunch;
+    s_prevPunch = {punchX, punchY};
 }
 
 void RCSSystem::Render(Render::DrawList &) {}

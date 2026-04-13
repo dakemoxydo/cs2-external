@@ -1,6 +1,7 @@
 #pragma once
 #include "features/aimbot/aimbot_config.h"
 #include "features/bomb/bomb_config.h"
+#include "features/chams/chams_config.h"
 #include "features/debug_overlay/debug_overlay_config.h"
 #include "features/esp/esp_config.h"
 #include "features/misc/misc_config.h"
@@ -27,6 +28,7 @@ struct GlobalSettings {
   Features::RadarConfig radar;
   Features::MiscConfig misc;
   Features::BombConfig bomb;
+  Features::ChamsConfig chams;
   Features::DebugConfig debug;
   Features::RCSConfig rcs;
   Features::SoundEspConfig soundEsp;

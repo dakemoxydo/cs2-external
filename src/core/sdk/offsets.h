@@ -34,6 +34,9 @@ struct OffsetSet {
   ptrdiff_t m_iIDEntIndex = 0;
   ptrdiff_t m_bIsScoped = 0;
   ptrdiff_t m_iShotsFired = 0;
+  ptrdiff_t m_angShootAngleHistory = 0;
+  ptrdiff_t m_flRange = 0;
+  ptrdiff_t m_pBulletServices = 0;
 
   // -- Bomb --
   ptrdiff_t m_nBombSite = 0;

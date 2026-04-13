@@ -39,6 +39,7 @@ void OffsetApplier::LogStatus(const OffsetSet& parsed) const {
     log("m_flSimulationTime", parsed.m_flSimulationTime);
     log("m_iIDEntIndex", parsed.m_iIDEntIndex);
     log("m_bIsScoped", parsed.m_bIsScoped);
+    log("m_pBulletServices", parsed.m_pBulletServices);
     log("m_flC4Blow", parsed.m_flC4Blow);
     log("m_bBeingDefused", parsed.m_bBeingDefused);
     log("m_flDefuseCountDown", parsed.m_flDefuseCountDown);

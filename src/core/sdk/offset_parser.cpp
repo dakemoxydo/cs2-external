@@ -58,6 +58,9 @@ OffsetSet OffsetParser::ParseJson(const std::string& offsetsJson, const std::str
         result.m_iIDEntIndex = FindField(clientParsed, "m_iIDEntIndex");
         result.m_bIsScoped = FindField(clientParsed, "m_bIsScoped");
         result.m_iShotsFired = FindField(clientParsed, "m_iShotsFired");
+        result.m_angShootAngleHistory = FindField(clientParsed, "m_angShootAngleHistory");
+        result.m_flRange = FindField(clientParsed, "m_flRange");
+        result.m_pBulletServices = FindField(clientParsed, "m_pBulletServices");
         result.m_nBombSite = FindField(clientParsed, "m_nBombSite");
         result.m_bBombTicking = FindField(clientParsed, "m_bBombTicking");
         result.m_flTimerLength = FindField(clientParsed, "m_flTimerLength");
@@ -115,6 +118,10 @@ OffsetSet OffsetParser::ParseHpp(const std::string& offsetsHpp, const std::strin
         result.m_iIDEntIndex = ParseHppValue(clientHpp, "CCSPlayerPawn_m_iIDEntIndex");
         result.m_bIsScoped = ParseHppValue(clientHpp, "CCSPlayerPawn_m_bIsScoped");
         result.m_iShotsFired = ParseHppValue(clientHpp, "CCSPlayerPawn_m_iShotsFired");
+        result.m_angShootAngleHistory = ParseHppValue(clientHpp, "CCSPlayerPawn_m_angShootAngleHistory");
+        result.m_flRange = ParseHppValue(clientHpp, "CCSWeaponBaseVData_m_flRange");
+        if (result.m_flRange == 0) result.m_flRange = ParseHppValue(clientHpp, "CCSWeaponBase_m_flRange");
+        result.m_pBulletServices = ParseHppValue(clientHpp, "CCSPlayerPawn_m_pBulletServices");
         result.m_nBombSite = ParseHppValue(clientHpp, "C_PlantedC4_m_nBombSite");
         result.m_bBombTicking = ParseHppValue(clientHpp, "C_PlantedC4_m_bBombTicking");
         result.m_flTimerLength = ParseHppValue(clientHpp, "C_PlantedC4_m_flTimerLength");

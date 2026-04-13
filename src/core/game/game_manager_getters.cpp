@@ -37,6 +37,10 @@ SDK::Vector2 GameManager::GetLocalAimPunch() {
   return GetSnapshot()->localAimPunch;
 }
 
+SDK::Vector2 GameManager::GetLocalShootAngle() {
+  return GetSnapshot()->localShootAngle;
+}
+
 int GameManager::GetLocalShotsFired() {
   return GetSnapshot()->localShotsFired;
 }
@@ -96,6 +100,10 @@ uintptr_t GameManager::GetEntityFromHandle(uint32_t handle) {
 
 std::string GameManager::GetLocalWeaponName() {
   return GetSnapshot()->localWeaponName;
+}
+
+float GameManager::GetLocalWeaponRange() {
+  return GetSnapshot()->localWeaponRange;
 }
 
 uintptr_t GameManager::GetEntityGameSceneNode(uintptr_t entity) {

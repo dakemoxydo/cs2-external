@@ -1,6 +1,7 @@
 #include "config_manager.h"
 #include "../features/aimbot/aimbot_config.h"
 #include "../features/bomb/bomb_config.h"
+#include "../features/chams/chams_config.h"
 #include "../features/esp/esp_config.h"
 #include "../features/feature_manager.h"
 #include "../features/misc/misc_config.h"
@@ -63,6 +64,7 @@ static std::vector<ConfigEntry> BuildRegistry() {
   auto &T = Settings.triggerbot;
   auto &M = Settings.misc;
   auto &B = Settings.bomb;
+  auto &C = Settings.chams;
   auto &R = Settings.radar;
   auto &P = Settings.performance;
   auto &D = Settings.debug;
@@ -96,6 +98,16 @@ static std::vector<ConfigEntry> BuildRegistry() {
       {"esp_offscreenColor", ConfigEntry::COLOR, E.offscreenColor},
       {"esp_showSnapLines", ConfigEntry::BOOL, &E.showSnapLines},
       {"esp_snapLineColor", ConfigEntry::COLOR, E.snapLineColor},
+      {"esp_showBulletTracers", ConfigEntry::BOOL, &E.showBulletTracers},
+      {"esp_bulletTracerColor", ConfigEntry::COLOR, E.bulletTracerColor},
+      {"esp_bulletTracerThickness", ConfigEntry::FLOAT, &E.bulletTracerThickness},
+      {"esp_bulletTracerLife", ConfigEntry::FLOAT, &E.bulletTracerLife},
+      {"esp_bulletTracerImpactColor", ConfigEntry::COLOR, E.bulletTracerImpactColor},
+      {"esp_bulletTracerImpactRadius", ConfigEntry::FLOAT, &E.bulletTracerImpactRadius},
+      {"esp_bulletTracerImpactThickness", ConfigEntry::FLOAT, &E.bulletTracerImpactThickness},
+      {"esp_showHitmarker", ConfigEntry::BOOL, &E.showHitmarker},
+      {"esp_hitmarkerColor", ConfigEntry::COLOR, E.hitmarkerColor},
+      {"esp_hitmarkerLife", ConfigEntry::FLOAT, &E.hitmarkerLife},
       {"esp_frustumCullingEnabled", ConfigEntry::BOOL, &E.frustumCullingEnabled},
       // Aimbot
       {"aim_enabled", ConfigEntry::BOOL, &A.enabled},
@@ -133,8 +145,10 @@ static std::vector<ConfigEntry> BuildRegistry() {
       {"tb_teamCheck", ConfigEntry::BOOL, &T.teamCheck},
       // Standalone RCS
       {"rcs_enabled", ConfigEntry::BOOL, &RCS.enabled},
+      {"rcs_key", ConfigEntry::INT, &RCS.key},
       {"rcs_pitch", ConfigEntry::FLOAT, &RCS.pitchStrength},
       {"rcs_yaw", ConfigEntry::FLOAT, &RCS.yawStrength},
+      {"rcs_smooth", ConfigEntry::FLOAT, &RCS.smooth},
       {"rcs_startBullet", ConfigEntry::INT, &RCS.startBullet},
       // Misc
       {"misc_awpCrosshair", ConfigEntry::BOOL, &M.awpCrosshair},
@@ -146,6 +160,19 @@ static std::vector<ConfigEntry> BuildRegistry() {
       {"misc_menuTheme", ConfigEntry::INT, &M.menuTheme},
       // Bomb
       {"bomb_enabled", ConfigEntry::BOOL, &B.enabled},
+      // Chams
+      {"chams_enabled", ConfigEntry::BOOL, &C.enabled},
+      {"chams_showTeammates", ConfigEntry::BOOL, &C.showTeammates},
+      {"chams_wireframe", ConfigEntry::BOOL, &C.wireframe},
+      {"chams_visibleCheck", ConfigEntry::BOOL, &C.visibleCheck},
+      {"chams_materialType", ConfigEntry::INT, &C.materialType},
+      {"chams_alpha", ConfigEntry::FLOAT, &C.alpha},
+      {"chams_wireAmount", ConfigEntry::FLOAT, &C.wireAmount},
+      {"chams_fillColor", ConfigEntry::COLOR, C.fillColor},
+      {"chams_hiddenColor", ConfigEntry::COLOR, C.hiddenColor},
+      {"chams_fillColorTeam", ConfigEntry::COLOR, C.fillColorTeam},
+      {"chams_hiddenColorTeam", ConfigEntry::COLOR, C.hiddenColorTeam},
+      {"chams_wireColor", ConfigEntry::COLOR, C.wireColor},
       // Performance
       {"perf_vsyncEnabled", ConfigEntry::BOOL, &P.vsyncEnabled},
       {"perf_fpsLimit", ConfigEntry::INT, &P.fpsLimit},
@@ -274,6 +301,7 @@ static bool IsFeatureEnabled(std::string_view name) {
     if (name == "Triggerbot") return Settings.triggerbot.enabled;
     if (name == "Misc") return Settings.misc.awpCrosshair;
     if (name == "Bomb") return Settings.bomb.enabled;
+    if (name == "Chams") return Settings.chams.enabled;
     if (name == "Radar") return Settings.radar.enabled;
     if (name == "DebugOverlay") return Settings.debug.enabled;
     if (name == "RCSSystem") return Settings.rcs.enabled;
@@ -301,6 +329,8 @@ void ConfigManager::ApplySettings() {
     Features::FeatureManager::EnsureFeatureInitialized("Misc");
   if (Settings.bomb.enabled)
     Features::FeatureManager::EnsureFeatureInitialized("Bomb");
+  if (Settings.chams.enabled)
+    Features::FeatureManager::EnsureFeatureInitialized("Chams");
   if (Settings.radar.enabled)
     Features::FeatureManager::EnsureFeatureInitialized("Radar");
   if (Settings.debug.enabled)

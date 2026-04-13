@@ -10,6 +10,7 @@
 #include "core/process/stealth.h"
 #include "core/sdk/offsets.h"
 #include "core/sdk/updater.h"
+#include "features/chams/chams.h"
 #include "features/feature_manager.h"
 #include "input/input_manager.h"
 #include "render/draw/draw_list.h"
@@ -104,6 +105,19 @@ bool Application::Initialize() {
     std::cout << "[App] ImGuiManager initialized\n";
     std::cout << "[App] Registering features...\n";
     Features::FeatureManager::RegisterAll();
+    Features::FeatureManager::EnsureAllInitialized();
+
+    if (auto *feature = Features::FeatureManager::GetFeature("Chams")) {
+        std::cout << "[App] Warming up chams resources...\n";
+        auto *chams = dynamic_cast<Features::Chams *>(feature);
+        if (chams && !chams->Warmup()) {
+            Utils::Logger::Warn("Chams warmup failed during startup; feature will stay unavailable until restart");
+            std::cout << "[App] Chams warmup failed\n";
+        } else {
+            std::cout << "[App] Chams warmup complete\n";
+        }
+    }
+
     std::cout << "[App] Loading config...\n";
     Config::ConfigManager::Load("default");
 

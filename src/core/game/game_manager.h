@@ -19,6 +19,7 @@ struct GameSnapshot {
   SDK::Vector3 localPos = {};
   SDK::Vector3 localEyePos = {};
   SDK::Vector2 localAngles = {};
+  SDK::Vector2 localShootAngle = {};
   SDK::Vector2 localAimPunch = {};
   int localShotsFired = 0;
   int localTeam = 0;
@@ -27,6 +28,13 @@ struct GameSnapshot {
   uintptr_t localPawn = 0;
   SDK::BombInfo bombInfo = {};
   std::string localWeaponName;
+  float localWeaponRange = 0.0f;
+  std::vector<SDK::BulletImpactInfo> localBulletImpacts;
+  float frameTimeSeconds = 0.0f;
+  std::vector<SDK::ShotEvent> shotEvents;
+  std::vector<SDK::BulletTraceEvent> bulletTraceEvents;
+  std::vector<SDK::HitEvent> hitEvents;
+  std::vector<SDK::MovementAudioEvent> movementAudioEvents;
 };
 
 class GameManager {
@@ -47,6 +55,7 @@ public:
   static SDK::Vector3 GetLocalPos();
   static SDK::Vector3 GetLocalEyePos();
   static SDK::Vector2 GetLocalAngles();
+  static SDK::Vector2 GetLocalShootAngle();
   static SDK::Vector2 GetLocalAimPunch();
   static int GetLocalShotsFired();
   static int GetLocalTeam();
@@ -56,6 +65,7 @@ public:
   static uintptr_t GetEntityList();
   static uintptr_t GetEntityFromHandle(uint32_t handle);
   static std::string GetLocalWeaponName();
+  static float GetLocalWeaponRange();
   static uintptr_t GetEntityGameSceneNode(uintptr_t entity);
   static SDK::BombInfo GetBombInfo();
 
@@ -84,6 +94,7 @@ private:
   static SDK::Vector3 localPos;
   static SDK::Vector3 localEyePos;
   static SDK::Vector2 localAngles;
+  static SDK::Vector2 localShootAngle;
   static SDK::Vector2 localAimPunch;
   static int localShotsFired;
   static int localTeam;
@@ -93,12 +104,20 @@ private:
   static uintptr_t entityList;
   static SDK::BombInfo bombInfo;
   static std::string localWeaponName;
+  static float localWeaponRange;
+  static std::vector<SDK::BulletImpactInfo> localBulletImpacts;
+  static float frameTimeSeconds;
+  static std::vector<SDK::ShotEvent> shotEvents;
+  static std::vector<SDK::BulletTraceEvent> bulletTraceEvents;
+  static std::vector<SDK::HitEvent> hitEvents;
+  static std::vector<SDK::MovementAudioEvent> movementAudioEvents;
 
   static void ResetLocalState();
   static void UpdateLocalState(const SDK::CPlayerPawn& localPlayer,
                                const SDK::OffsetSet& offsets);
   static void UpdateBombState(const SDK::CPlayerPawn& localPlayer,
                               const SDK::OffsetSet& offsets);
+  static void UpdateCombatTelemetry();
   static bool BuildFrameContext(FrameContext& context, const SDK::OffsetSet& offsets);
   static int FindLocalSlot(const FrameContext& context);
   static void DecrementInvalidSlotCache();

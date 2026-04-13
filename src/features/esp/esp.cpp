@@ -7,70 +7,484 @@
 #include "render/draw/draw_list.h"
 #include "render/overlay/overlay.h"
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <imgui.h>
 #include <shared_mutex>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace Features {
 
-// Bone connections defined in entity.h (uses real BoneIndex enum)
-// ::s_boneConnections is the inline constexpr array from entity.h
-
-// NOTE: Render-side smoothing has been REMOVED.
-// GameManager already interpolates positions with s_interpolationFactor.
-// Double smoothing caused ESP "floating" / lag behind enemy models.
-
-void Esp::Update() {
-  // Lightweight - main work done in GameManager::Update()
+void Esp::ResetCombatVisuals() {
+  m_lastLocalPawn = 0;
+  m_lastShotEventId = 0;
+  m_lastTraceEventId = 0;
+  m_lastHitEventId = 0;
+  m_lastHitEventTime = -100.0f;
+  m_activeTracers.clear();
 }
 
-// --- Helpers
-// ---------------------------------------------------------------
-
-// Snapshot struct for ESP settings to avoid repeated Config::Settings access
 struct EspSnapshot {
   bool enabled, showTeammates, showBox, showHealth, showName, showWeapon;
   bool showDistance, showBones, showSnapLines, showOffscreen;
+  bool showBulletTracers, showHitmarker;
   bool frustumCullingEnabled, showHealthText, skeletonOutline;
   BoxStyle boxStyle;
   HealthBarStyle healthBarStyle;
   float fillBoxAlpha, skeletonMaxDistance;
+  float bulletTracerThickness, bulletTracerLife, bulletTracerImpactRadius;
+  float bulletTracerImpactThickness, hitmarkerLife;
   float teamColor[4], boxColor[4], nameColor[4], weaponColor[4];
   float distColor[4], snapLineColor[4], boneColor[4];
-  float skeletonOutlineColor[4], offscreenColor[4];
+  float skeletonOutlineColor[4], offscreenColor[4], bulletTracerColor[4];
+  float bulletTracerImpactColor[4], hitmarkerColor[4];
 };
 
+static SDK::Vector3 LerpVector(const SDK::Vector3 &a, const SDK::Vector3 &b,
+                               float t) {
+  return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t};
+}
+
+static float TracerImpactHold(float tracerLife) {
+  return std::clamp(tracerLife * 0.35f, 0.10f, 0.28f);
+}
+
+static SDK::Vector2 CatmullRom(const SDK::Vector2 &p0, const SDK::Vector2 &p1,
+                               const SDK::Vector2 &p2, const SDK::Vector2 &p3,
+                               float t) {
+  const float t2 = t * t;
+  const float t3 = t2 * t;
+  return {
+      0.5f * ((2.0f * p1.x) + (-p0.x + p2.x) * t +
+              (2.0f * p0.x - 5.0f * p1.x + 4.0f * p2.x - p3.x) * t2 +
+              (-p0.x + 3.0f * p1.x - 3.0f * p2.x + p3.x) * t3),
+      0.5f * ((2.0f * p1.y) + (-p0.y + p2.y) * t +
+              (2.0f * p0.y - 5.0f * p1.y + 4.0f * p2.y - p3.y) * t2 +
+              (-p0.y + 3.0f * p1.y - 3.0f * p2.y + p3.y) * t3)};
+}
+
 static EspSnapshot SnapshotEsp() {
-  EspSnapshot s;
+  EspSnapshot s{};
   std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
   auto &E = Config::Settings.esp;
-  s = {E.enabled, E.showTeammates, E.showBox, E.showHealth, E.showName,
-       E.showWeapon, E.showDistance, E.showBones, E.showSnapLines,
-       E.showOffscreen, E.frustumCullingEnabled, E.showHealthText,
-       E.skeletonOutline, E.boxStyle, E.healthBarStyle, E.fillBoxAlpha,
-       E.skeletonMaxDistance};
+  s = {E.enabled,
+       E.showTeammates,
+       E.showBox,
+       E.showHealth,
+       E.showName,
+       E.showWeapon,
+       E.showDistance,
+       E.showBones,
+       E.showSnapLines,
+       E.showOffscreen,
+       E.showBulletTracers,
+       E.showHitmarker,
+       E.frustumCullingEnabled,
+       E.showHealthText,
+       E.skeletonOutline,
+       E.boxStyle,
+       E.healthBarStyle,
+       E.fillBoxAlpha,
+       E.skeletonMaxDistance,
+       E.bulletTracerThickness,
+       E.bulletTracerLife,
+       E.bulletTracerImpactRadius,
+       E.bulletTracerImpactThickness,
+       E.hitmarkerLife};
   std::copy(std::begin(E.teamColor), std::end(E.teamColor), s.teamColor);
   std::copy(std::begin(E.boxColor), std::end(E.boxColor), s.boxColor);
   std::copy(std::begin(E.nameColor), std::end(E.nameColor), s.nameColor);
   std::copy(std::begin(E.weaponColor), std::end(E.weaponColor), s.weaponColor);
   std::copy(std::begin(E.distColor), std::end(E.distColor), s.distColor);
-  std::copy(std::begin(E.snapLineColor), std::end(E.snapLineColor), s.snapLineColor);
+  std::copy(std::begin(E.snapLineColor), std::end(E.snapLineColor),
+            s.snapLineColor);
   std::copy(std::begin(E.boneColor), std::end(E.boneColor), s.boneColor);
-  std::copy(std::begin(E.skeletonOutlineColor), std::end(E.skeletonOutlineColor), s.skeletonOutlineColor);
-  std::copy(std::begin(E.offscreenColor), std::end(E.offscreenColor), s.offscreenColor);
+  std::copy(std::begin(E.skeletonOutlineColor),
+            std::end(E.skeletonOutlineColor), s.skeletonOutlineColor);
+  std::copy(std::begin(E.offscreenColor), std::end(E.offscreenColor),
+            s.offscreenColor);
+  std::copy(std::begin(E.bulletTracerColor), std::end(E.bulletTracerColor),
+            s.bulletTracerColor);
+  std::copy(std::begin(E.bulletTracerImpactColor),
+            std::end(E.bulletTracerImpactColor), s.bulletTracerImpactColor);
+  std::copy(std::begin(E.hitmarkerColor), std::end(E.hitmarkerColor),
+            s.hitmarkerColor);
   return s;
 }
 
+static constexpr std::array<std::array<int, 5>, 5> kRoundedSkeletonChains = {
+    std::array<int, 5>{BONE_HEAD, BONE_NECK, BONE_SPINE_1, BONE_SPINE_2, BONE_PELVIS},
+    std::array<int, 5>{BONE_HAND_L, BONE_ARM_LO_L, BONE_ARM_UP_L, BONE_NECK, BONE_SPINE_1},
+    std::array<int, 5>{BONE_HAND_R, BONE_ARM_LO_R, BONE_ARM_UP_R, BONE_NECK, BONE_SPINE_1},
+    std::array<int, 5>{BONE_ANKLE_L, BONE_LEG_LO_L, BONE_LEG_UP_L, BONE_PELVIS, BONE_SPINE_2},
+    std::array<int, 5>{BONE_ANKLE_R, BONE_LEG_LO_R, BONE_LEG_UP_R, BONE_PELVIS, BONE_SPINE_2},
+};
+
+void Esp::Update() {
+  const EspSnapshot s = SnapshotEsp();
+  const auto snapshot = Core::GameManager::GetSnapshot();
+  if (!snapshot || !s.enabled || snapshot->localPawn == 0) {
+    ResetCombatVisuals();
+    return;
+  }
+
+  if (snapshot->localPawn != m_lastLocalPawn) {
+    ResetCombatVisuals();
+    m_lastLocalPawn = snapshot->localPawn;
+  }
+
+  const float now = snapshot->frameTimeSeconds;
+  const float tracerLife = std::max(0.05f, s.bulletTracerLife);
+  const float impactHold = TracerImpactHold(tracerLife);
+
+  if (s.showBulletTracers) {
+    for (const auto &shot : snapshot->shotEvents) {
+      if (shot.id <= m_lastShotEventId) {
+        continue;
+      }
+
+      ActiveTracer tracer{};
+      tracer.shotId = shot.id;
+      tracer.start = shot.start;
+      tracer.end = shot.predictedEnd;
+      tracer.createdAt = shot.timeSeconds;
+      tracer.lastUpdatedAt = shot.timeSeconds;
+      tracer.expiresAt = shot.timeSeconds + tracerLife;
+      m_activeTracers.push_back(tracer);
+      m_lastShotEventId = std::max(m_lastShotEventId, shot.id);
+    }
+
+    for (const auto &trace : snapshot->bulletTraceEvents) {
+      if (trace.id <= m_lastTraceEventId) {
+        continue;
+      }
+
+      ActiveTracer *targetTracer = nullptr;
+      if (trace.shotId != 0) {
+        for (auto &activeTracer : m_activeTracers) {
+          if (activeTracer.shotId == trace.shotId) {
+            targetTracer = &activeTracer;
+            break;
+          }
+        }
+      }
+
+      if (targetTracer == nullptr) {
+        ActiveTracer tracer{};
+        tracer.shotId = trace.shotId;
+        tracer.start = trace.start;
+        tracer.end = trace.end;
+        tracer.createdAt = trace.timeSeconds;
+        tracer.lastUpdatedAt = trace.timeSeconds;
+        tracer.expiresAt = trace.timeSeconds + tracerLife;
+        tracer.hasImpact = trace.confirmedImpact;
+        if (trace.confirmedImpact) {
+          tracer.impactFadeUntil = trace.timeSeconds + impactHold;
+        }
+        m_activeTracers.push_back(tracer);
+      } else {
+        targetTracer->start = trace.start;
+        targetTracer->end = trace.end;
+        targetTracer->hasImpact = targetTracer->hasImpact || trace.confirmedImpact;
+        targetTracer->lastUpdatedAt = trace.timeSeconds;
+        if (trace.confirmedImpact) {
+          targetTracer->impactFadeUntil =
+              std::max(targetTracer->impactFadeUntil, trace.timeSeconds + impactHold);
+        }
+      }
+
+      m_lastTraceEventId = std::max(m_lastTraceEventId, trace.id);
+    }
+  } else {
+    m_activeTracers.clear();
+  }
+
+  if (s.showHitmarker) {
+    for (const auto &hit : snapshot->hitEvents) {
+      if (hit.id <= m_lastHitEventId) {
+        continue;
+      }
+
+      m_lastHitEventTime = hit.timeSeconds;
+      if (hit.shotId != 0) {
+        for (auto &activeTracer : m_activeTracers) {
+          if (activeTracer.shotId == hit.shotId) {
+            activeTracer.hitConfirmed = true;
+            activeTracer.lastUpdatedAt =
+                std::max(activeTracer.lastUpdatedAt, hit.timeSeconds);
+            activeTracer.impactFadeUntil =
+                std::max(activeTracer.impactFadeUntil, hit.timeSeconds + impactHold);
+            break;
+          }
+        }
+      }
+      m_lastHitEventId = std::max(m_lastHitEventId, hit.id);
+    }
+  } else {
+    m_lastHitEventTime = -100.0f;
+  }
+
+  m_activeTracers.erase(
+      std::remove_if(m_activeTracers.begin(), m_activeTracers.end(),
+                     [now](const ActiveTracer &tracer) {
+                       const float visibleUntil =
+                           std::max(tracer.expiresAt, tracer.impactFadeUntil);
+                       return visibleUntil > 0.0f && now >= visibleUntil;
+                     }),
+      m_activeTracers.end());
+
+  if (m_activeTracers.size() > 64) {
+    m_activeTracers.erase(m_activeTracers.begin(), m_activeTracers.end() - 64);
+  }
+}
+
+static bool ResolveTracerScreenPoints(
+    const SDK::Vector3 &start, const SDK::Vector3 &end,
+    const SDK::Matrix4x4 &viewMatrix, int screenWidth, int screenHeight,
+    SDK::Vector2 &screenStart, SDK::Vector2 &screenEnd) {
+  bool hasStart = Core::Math::WorldToScreen(start, screenStart, viewMatrix,
+                                            screenWidth, screenHeight);
+  bool hasEnd = Core::Math::WorldToScreen(end, screenEnd, viewMatrix,
+                                          screenWidth, screenHeight);
+
+  if (!hasStart) {
+    SDK::Vector3 visibleNear = end;
+    SDK::Vector3 invisibleFar = start;
+    SDK::Vector2 visiblePoint{};
+    bool foundVisible = hasEnd;
+    if (hasEnd) {
+      visiblePoint = screenEnd;
+    }
+
+    for (int i = 0; i < 16; ++i) {
+      const SDK::Vector3 mid = LerpVector(invisibleFar, visibleNear, 0.5f);
+      SDK::Vector2 projected{};
+      if (Core::Math::WorldToScreen(mid, projected, viewMatrix, screenWidth,
+                                    screenHeight)) {
+        visibleNear = mid;
+        visiblePoint = projected;
+        foundVisible = true;
+      } else {
+        invisibleFar = mid;
+      }
+    }
+
+    if (foundVisible) {
+      screenStart = visiblePoint;
+      hasStart = true;
+    }
+  }
+
+  if (!hasEnd) {
+    SDK::Vector2 visiblePoint{};
+    bool foundVisible = false;
+    SDK::Vector3 nearPoint = start;
+    SDK::Vector3 farPoint = end;
+
+    for (int i = 0; i < 12; ++i) {
+      SDK::Vector3 mid = LerpVector(nearPoint, farPoint, 0.5f);
+      SDK::Vector2 projected{};
+      if (Core::Math::WorldToScreen(mid, projected, viewMatrix, screenWidth,
+                                    screenHeight)) {
+        visiblePoint = projected;
+        nearPoint = mid;
+        foundVisible = true;
+      } else {
+        farPoint = mid;
+      }
+    }
+
+    if (!foundVisible) {
+      return false;
+    }
+    screenEnd = visiblePoint;
+    hasEnd = true;
+  }
+
+  return hasStart && hasEnd;
+}
+
+static void DrawImpactRing(Render::DrawList &drawList,
+                           const SDK::Vector3 &impactPosition,
+                           const SDK::Matrix4x4 &viewMatrix, int screenWidth,
+                           int screenHeight, const EspSnapshot &s,
+                           float alphaRatio) {
+  const int segments = 18;
+  const float radius = std::max(1.0f, s.bulletTracerImpactRadius);
+  float ringColor[4] = {s.bulletTracerImpactColor[0], s.bulletTracerImpactColor[1],
+                        s.bulletTracerImpactColor[2],
+                        s.bulletTracerImpactColor[3] * alphaRatio};
+
+  auto drawPlaneRing = [&](bool verticalPlane) {
+    SDK::Vector2 prev{};
+    bool hasPrev = false;
+    for (int i = 0; i <= segments; ++i) {
+      const float t = (static_cast<float>(i) / static_cast<float>(segments)) *
+                      6.2831853f;
+      SDK::Vector3 point = impactPosition;
+      if (verticalPlane) {
+        point.y += std::cos(t) * radius;
+        point.z += std::sin(t) * radius;
+      } else {
+        point.x += std::cos(t) * radius;
+        point.y += std::sin(t) * radius;
+      }
+
+      SDK::Vector2 projected{};
+      if (!Core::Math::WorldToScreen(point, projected, viewMatrix, screenWidth,
+                                     screenHeight)) {
+        hasPrev = false;
+        continue;
+      }
+
+      if (hasPrev) {
+        drawList.DrawLine(prev.x, prev.y, projected.x, projected.y, ringColor,
+                          s.bulletTracerImpactThickness);
+      }
+
+      prev = projected;
+      hasPrev = true;
+    }
+  };
+
+  drawPlaneRing(false);
+  drawPlaneRing(true);
+
+  SDK::Vector2 impactScreen{};
+  if (Core::Math::WorldToScreen(impactPosition, impactScreen, viewMatrix, screenWidth,
+                                screenHeight)) {
+    const float coreRadius = std::max(2.0f, s.bulletTracerImpactThickness + 1.5f);
+    const float haloRadius =
+        std::max(coreRadius + 3.0f, s.bulletTracerImpactRadius * 0.35f);
+    float haloColor[4] = {s.bulletTracerImpactColor[0], s.bulletTracerImpactColor[1],
+                          s.bulletTracerImpactColor[2],
+                          s.bulletTracerImpactColor[3] * alphaRatio * 0.28f};
+    float coreColor[4] = {s.bulletTracerImpactColor[0], s.bulletTracerImpactColor[1],
+                          s.bulletTracerImpactColor[2],
+                          s.bulletTracerImpactColor[3] * alphaRatio};
+    drawList.DrawCircle(impactScreen.x, impactScreen.y, haloRadius, haloColor, 20,
+                        coreRadius);
+    drawList.DrawCircle(impactScreen.x, impactScreen.y, coreRadius, coreColor, 16,
+                        std::max(1.0f, s.bulletTracerImpactThickness));
+  }
+}
+
+static void DrawBulletTracers(
+    Render::DrawList &drawList, const std::vector<Esp::ActiveTracer> &tracers,
+    const std::shared_ptr<const Core::GameSnapshot> &snapshot,
+    const EspSnapshot &s, int screenWidth, int screenHeight) {
+  if (!snapshot || !s.showBulletTracers) {
+    return;
+  }
+
+  const float tracerLife = std::max(0.05f, s.bulletTracerLife);
+  const float now = snapshot->frameTimeSeconds;
+  for (const auto &tracer : tracers) {
+    const float beamEndTime =
+        tracer.expiresAt > 0.0f ? tracer.expiresAt : (tracer.createdAt + tracerLife);
+    const float beamAlphaRatio =
+        std::clamp((beamEndTime - now) / tracerLife, 0.0f, 1.0f);
+    if (beamAlphaRatio <= 0.0f) {
+      continue;
+    }
+
+    SDK::Vector2 screenStart{};
+    SDK::Vector2 screenEnd{};
+    if (!ResolveTracerScreenPoints(tracer.start, tracer.end, snapshot->viewMatrix,
+                                   screenWidth, screenHeight, screenStart,
+                                   screenEnd)) {
+      continue;
+    }
+
+    const float dx = screenEnd.x - screenStart.x;
+    const float dy = screenEnd.y - screenStart.y;
+    const float length = std::max(1.0f, std::sqrt(dx * dx + dy * dy));
+    const float nx = -dy / length;
+    const float ny = dx / length;
+    const float sideOffset = s.bulletTracerThickness * 1.2f;
+    const float hitBoost = tracer.hitConfirmed ? 1.15f : 1.0f;
+
+    float glowColor[4] = {s.bulletTracerColor[0], s.bulletTracerColor[1],
+                          s.bulletTracerColor[2],
+                          s.bulletTracerColor[3] * beamAlphaRatio * 0.30f * hitBoost};
+    float sideColor[4] = {s.bulletTracerColor[0], s.bulletTracerColor[1],
+                          s.bulletTracerColor[2],
+                          s.bulletTracerColor[3] * beamAlphaRatio * 0.18f * hitBoost};
+    float tracerColor[4] = {s.bulletTracerColor[0], s.bulletTracerColor[1],
+                            s.bulletTracerColor[2],
+                            s.bulletTracerColor[3] * beamAlphaRatio * hitBoost};
+
+    drawList.DrawLine(screenStart.x, screenStart.y, screenEnd.x, screenEnd.y,
+                      glowColor, s.bulletTracerThickness + 3.5f);
+    drawList.DrawLine(screenStart.x + nx * sideOffset,
+                      screenStart.y + ny * sideOffset, screenEnd.x + nx * sideOffset,
+                      screenEnd.y + ny * sideOffset, sideColor,
+                      s.bulletTracerThickness);
+    drawList.DrawLine(screenStart.x - nx * sideOffset,
+                      screenStart.y - ny * sideOffset, screenEnd.x - nx * sideOffset,
+                      screenEnd.y - ny * sideOffset, sideColor,
+                      s.bulletTracerThickness);
+    drawList.DrawLine(screenStart.x, screenStart.y, screenEnd.x, screenEnd.y,
+                      tracerColor, s.bulletTracerThickness);
+
+    if (tracer.hasImpact && tracer.impactFadeUntil > now) {
+      const float impactDuration =
+          std::max(0.05f, tracer.impactFadeUntil - tracer.lastUpdatedAt);
+      const float impactAlphaRatio = std::clamp(
+          (tracer.impactFadeUntil - now) / impactDuration, 0.0f, 1.0f);
+      DrawImpactRing(drawList, tracer.end, snapshot->viewMatrix, screenWidth,
+                     screenHeight, s,
+                     impactAlphaRatio * (tracer.hitConfirmed ? 1.10f : 1.0f));
+    }
+  }
+}
+
+static void DrawHitmarker(Render::DrawList &drawList, float lastHitEventTime,
+                          float now, const EspSnapshot &s, int screenWidth,
+                          int screenHeight) {
+  if (!s.showHitmarker || lastHitEventTime < 0.0f) {
+    return;
+  }
+
+  const float totalLife = std::max(0.05f, s.hitmarkerLife);
+  const float age = now - lastHitEventTime;
+  if (age < 0.0f || age >= totalLife) {
+    return;
+  }
+
+  const float alpha = std::clamp(1.0f - (age / totalLife), 0.0f, 1.0f);
+  const float size = 11.0f;
+  const float gap = 3.5f;
+  const float centerX = screenWidth * 0.5f;
+  const float centerY = screenHeight * 0.5f;
+
+  float hitColor[4] = {s.hitmarkerColor[0], s.hitmarkerColor[1],
+                       s.hitmarkerColor[2], s.hitmarkerColor[3] * alpha};
+  drawList.DrawLine(centerX - size, centerY - size, centerX - gap, centerY - gap,
+                    hitColor, 1.8f);
+  drawList.DrawLine(centerX + size, centerY - size, centerX + gap, centerY - gap,
+                    hitColor, 1.8f);
+  drawList.DrawLine(centerX - size, centerY + size, centerX - gap, centerY + gap,
+                    hitColor, 1.8f);
+  drawList.DrawLine(centerX + size, centerY + size, centerX + gap, centerY + gap,
+                    hitColor, 1.8f);
+}
+
 static void DrawOffscreenIndicator(Render::DrawList &drawList,
-                                    const SDK::Entity &player,
-                                    const SDK::Matrix4x4 &viewMatrix,
-                                    int screenWidth, int screenHeight,
-                                    const EspSnapshot &s) {
+                                   const SDK::Entity &player,
+                                   const SDK::Matrix4x4 &viewMatrix,
+                                   int screenWidth, int screenHeight,
+                                   const EspSnapshot &s) {
   const SDK::Vector3 &pos = player.renderPosition;
   float w = viewMatrix.m[3][0] * pos.x + viewMatrix.m[3][1] * pos.y +
             viewMatrix.m[3][2] * pos.z + viewMatrix.m[3][3];
-  if (w < 0.01f) return;
+  if (w < 0.01f)
+    return;
 
   float x = viewMatrix.m[0][0] * pos.x + viewMatrix.m[0][1] * pos.y +
             viewMatrix.m[0][2] * pos.z + viewMatrix.m[0][3];
@@ -97,7 +511,8 @@ static void DrawOffscreenIndicator(Render::DrawList &drawList,
     color[3] = s.offscreenColor[3];
   }
 
-  float angle = std::atan2(screenY - screenHeight / 2.0f, screenX - screenWidth / 2.0f);
+  float angle = std::atan2(screenY - screenHeight / 2.0f,
+                           screenX - screenWidth / 2.0f);
   float size = 12.0f;
   float tipX = cx + std::cos(angle) * size;
   float tipY = cy - std::sin(angle) * size;
@@ -116,30 +531,118 @@ static void DrawOffscreenIndicator(Render::DrawList &drawList,
   drawList.AddText(cx - 10, cy + 16, distBuf, color);
 }
 
-// --- Render
-// ---------------------------------------------------------------
+static void DrawRoundedSkeleton(Render::DrawList &drawList,
+                                const SDK::Entity &player,
+                                const SDK::Matrix4x4 &viewMatrix, int screenWidth,
+                                int screenHeight, const EspSnapshot &s,
+                                float boxWidth) {
+  float boneCol[4] = {s.boneColor[0], s.boneColor[1], s.boneColor[2],
+                      s.boneColor[3]};
+  float shadowC[4] = {s.skeletonOutlineColor[0], s.skeletonOutlineColor[1],
+                      s.skeletonOutlineColor[2], s.skeletonOutlineColor[3]};
+
+  for (const auto &chain : kRoundedSkeletonChains) {
+    std::vector<SDK::Vector2> points;
+    points.reserve(chain.size());
+
+    for (int boneIndex : chain) {
+      if (boneIndex >= static_cast<int>(player.bonePositions.size())) {
+        continue;
+      }
+
+      SDK::Vector2 screen{};
+      if (!Core::Math::WorldToScreen(player.bonePositions[boneIndex], screen,
+                                     viewMatrix, screenWidth, screenHeight)) {
+        continue;
+      }
+      points.push_back(screen);
+    }
+
+    if (points.size() < 2) {
+      continue;
+    }
+
+    points.insert(points.begin(), points.front());
+    points.push_back(points.back());
+
+    SDK::Vector2 last{};
+    bool first = true;
+    for (size_t i = 0; i + 3 < points.size(); ++i) {
+      const auto &p0 = points[i];
+      const auto &p1 = points[i + 1];
+      const auto &p2 = points[i + 2];
+      const auto &p3 = points[i + 3];
+
+      for (float t = 0.0f; t <= 1.0f; t += 0.08f) {
+        const SDK::Vector2 point = CatmullRom(p0, p1, p2, p3, t);
+        if (first) {
+          last = point;
+          first = false;
+          continue;
+        }
+
+        if (s.skeletonOutline) {
+          drawList.DrawLine(last.x, last.y, point.x, point.y, shadowC, 2.8f);
+        }
+        drawList.DrawLine(last.x, last.y, point.x, point.y, boneCol, 1.5f);
+        last = point;
+      }
+    }
+  }
+
+  if (static_cast<int>(player.bonePositions.size()) > BONE_HEAD) {
+    SDK::Vector2 screenBoneHead;
+    if (Core::Math::WorldToScreen(player.bonePositions[BONE_HEAD], screenBoneHead,
+                                  viewMatrix, screenWidth, screenHeight)) {
+      const float headRadius = boxWidth * 0.18f;
+      if (s.skeletonOutline) {
+        drawList.DrawCircle(screenBoneHead.x, screenBoneHead.y, headRadius + 1.0f,
+                            shadowC, 28, 2.5f);
+      }
+      drawList.DrawCircle(screenBoneHead.x, screenBoneHead.y, headRadius, boneCol,
+                          28, 1.2f);
+    }
+  }
+}
 
 void Esp::Render(Render::DrawList &drawList) {
   EspSnapshot s = SnapshotEsp();
-  if (!s.enabled) return;
+  if (!s.enabled)
+    return;
 
   const bool anyActive = s.showBox || s.showHealth || s.showName ||
                          s.showWeapon || s.showDistance || s.showBones ||
-                         s.showSnapLines;
-  if (!anyActive) return;
+                         s.showSnapLines || s.showBulletTracers ||
+                         s.showHitmarker;
+  if (!anyActive)
+    return;
 
   const int screenWidth = Render::Overlay::GetGameWidth();
   const int screenHeight = Render::Overlay::GetGameHeight();
-  if (screenWidth <= 0 || screenHeight <= 0) return;
+  if (screenWidth <= 0 || screenHeight <= 0)
+    return;
+
   const auto snapshot = Core::GameManager::GetSnapshot();
+  if (!snapshot) {
+    return;
+  }
+
+  DrawBulletTracers(drawList, m_activeTracers, snapshot, s, screenWidth,
+                    screenHeight);
+  DrawHitmarker(drawList, m_lastHitEventTime, snapshot->frameTimeSeconds, s,
+                screenWidth, screenHeight);
+
   const SDK::Matrix4x4 viewMatrix = snapshot->viewMatrix;
   const auto &players = snapshot->players;
 
   for (const auto &player : players) {
-    if (!player.IsValid() || !player.IsAlive()) continue;
-    if (player.isTeammate && !s.showTeammates) continue;
+    if (!player.IsValid() || !player.IsAlive()) {
+      continue;
+    }
+    if (player.isTeammate && !s.showTeammates) {
+      continue;
+    }
 
-    // Frustum culling
     if (s.frustumCullingEnabled && !player.onScreen) {
       if (s.showOffscreen) {
         DrawOffscreenIndicator(drawList, player, viewMatrix, screenWidth,
@@ -148,12 +651,10 @@ void Esp::Render(Render::DrawList &drawList) {
       continue;
     }
 
-    // Pick color palette
     const float *currentBoxColor = player.isTeammate ? s.teamColor : s.boxColor;
     float drawColor[4] = {currentBoxColor[0], currentBoxColor[1],
                           currentBoxColor[2], currentBoxColor[3]};
 
-    // World-to-screen
     SDK::Vector3 feetPos = player.renderPosition;
     SDK::Vector3 headPos = feetPos;
     headPos.z += 72.0f;
@@ -162,55 +663,59 @@ void Esp::Render(Render::DrawList &drawList) {
     if (!Core::Math::WorldToScreen(feetPos, screenFeet, viewMatrix, screenWidth,
                                    screenHeight) ||
         !Core::Math::WorldToScreen(headPos, screenHead, viewMatrix, screenWidth,
-                                   screenHeight))
+                                   screenHeight)) {
       continue;
+    }
 
     const float height = screenFeet.y - screenHead.y;
-    if (height <= 0.0f) continue;
+    if (height <= 0.0f) {
+      continue;
+    }
     const float width = height / 2.0f;
     const float x = screenFeet.x - width / 2.0f;
     const float y = screenHead.y;
 
-    // Snap Lines
     if (s.showSnapLines) {
-      float sc[4] = {s.snapLineColor[0], s.snapLineColor[1],
-                     s.snapLineColor[2], s.snapLineColor[3]};
+      float sc[4] = {s.snapLineColor[0], s.snapLineColor[1], s.snapLineColor[2],
+                     s.snapLineColor[3]};
       drawList.DrawLine(static_cast<float>(screenWidth) / 2.0f,
                         static_cast<float>(screenHeight), screenFeet.x,
                         screenFeet.y, sc, 1.0f);
     }
 
-    // Box
     if (s.showBox) {
       float outlineColor[4] = {0.0f, 0.0f, 0.0f, 0.85f};
 
       switch (s.boxStyle) {
       case BoxStyle::Corners: {
         float shadowCol[4] = {0.f, 0.f, 0.f, 0.7f};
-        drawList.DrawCornerBox(x - 1, y - 1, width + 2, height + 2, shadowCol, 3.0f);
+        drawList.DrawCornerBox(x - 1, y - 1, width + 2, height + 2, shadowCol,
+                               3.0f);
         drawList.DrawCornerBox(x, y, width, height, drawColor, 1.5f);
         break;
       }
       case BoxStyle::Filled: {
-        float fillCol[4] = {drawColor[0], drawColor[1], drawColor[2], s.fillBoxAlpha};
+        float fillCol[4] = {drawColor[0], drawColor[1], drawColor[2],
+                            s.fillBoxAlpha};
         drawList.DrawFilledRect(x, y, width, height, fillCol);
-        drawList.DrawBox(x - 1, y - 1, width + 2, height + 2, outlineColor, 1.0f);
+        drawList.DrawBox(x - 1, y - 1, width + 2, height + 2, outlineColor,
+                         1.0f);
         drawList.DrawBox(x, y, width, height, drawColor, 1.5f);
         break;
       }
       default:
-        drawList.DrawBox(x - 1, y - 1, width + 2, height + 2, outlineColor, 1.0f);
+        drawList.DrawBox(x - 1, y - 1, width + 2, height + 2, outlineColor,
+                         1.0f);
         drawList.DrawBox(x, y, width, height, drawColor, 1.5f);
-        drawList.DrawBox(x + 1, y + 1, width - 2, height - 2, outlineColor, 1.0f);
+        drawList.DrawBox(x + 1, y + 1, width - 2, height - 2, outlineColor,
+                         1.0f);
         break;
       }
     }
 
-    // Health Bar
     if (s.showHealth) {
-      float hpPercent = static_cast<float>(player.health) / 100.0f;
-      if (hpPercent > 1.0f) hpPercent = 1.0f;
-      if (hpPercent < 0.0f) hpPercent = 0.0f;
+      float hpPercent = std::clamp(static_cast<float>(player.health) / 100.0f,
+                                   0.0f, 1.0f);
       float hpColor[4] = {1.0f - hpPercent, hpPercent, 0.0f, 1.0f};
       float bgColor[4] = {0.0f, 0.0f, 0.0f, 0.9f};
 
@@ -230,75 +735,43 @@ void Esp::Render(Render::DrawList &drawList) {
       if (s.showHealthText) {
         std::string hpStr = std::to_string(player.health) + " HP";
         float textCol[4] = {hpColor[0], hpColor[1], hpColor[2], 1.0f};
-        if (s.healthBarStyle == HealthBarStyle::Bottom)
+        if (s.healthBarStyle == HealthBarStyle::Bottom) {
           drawList.AddText(x, y + height + 9.0f, hpStr.c_str(), textCol);
-        else
+        } else {
           drawList.AddText(x - 22.0f, y, hpStr.c_str(), textCol);
+        }
       }
     }
 
-    // Name
     if (s.showName) {
-      float nCol[4] = {s.nameColor[0], s.nameColor[1],
-                       s.nameColor[2], s.nameColor[3]};
+      float nCol[4] = {s.nameColor[0], s.nameColor[1], s.nameColor[2],
+                       s.nameColor[3]};
       std::string drawName = player.name.empty() ? "Player" : player.name;
-      drawList.AddText(x + width / 2.0f - 15.0f, y - 15.0f, drawName.c_str(), nCol);
+      drawList.AddText(x + width / 2.0f - 15.0f, y - 15.0f, drawName.c_str(),
+                       nCol);
     }
 
-    // Weapon
     if (s.showWeapon && !player.weapon.empty()) {
-      float wCol[4] = {s.weaponColor[0], s.weaponColor[1],
-                       s.weaponColor[2], s.weaponColor[3]};
+      float wCol[4] = {s.weaponColor[0], s.weaponColor[1], s.weaponColor[2],
+                       s.weaponColor[3]};
       drawList.AddText(x + width / 2.0f - 15.0f, y + height + 2.0f,
                        player.weapon.c_str(), wCol);
     }
 
-    // Distance
     if (s.showDistance && player.distance > 0.0f) {
-      float dCol[4] = {s.distColor[0], s.distColor[1],
-                       s.distColor[2], s.distColor[3]};
-      std::string distStr = std::to_string(static_cast<int>(player.distance)) + "m";
-      drawList.AddText(x + width - 5.0f, y + height + 2.0f, distStr.c_str(), dCol);
+      float dCol[4] = {s.distColor[0], s.distColor[1], s.distColor[2],
+                       s.distColor[3]};
+      std::string distStr =
+          std::to_string(static_cast<int>(player.distance)) + "m";
+      drawList.AddText(x + width - 5.0f, y + height + 2.0f, distStr.c_str(),
+                       dCol);
     }
 
-    // Skeleton & Head Circle
     if (s.showBones && !player.bonePositions.empty() &&
-        (s.skeletonMaxDistance <= 0.0f || player.distance <= s.skeletonMaxDistance)) {
-
-      float boneCol[4] = {s.boneColor[0], s.boneColor[1],
-                          s.boneColor[2], s.boneColor[3]};
-      float shadowC[4] = {s.skeletonOutlineColor[0], s.skeletonOutlineColor[1],
-                          s.skeletonOutlineColor[2], s.skeletonOutlineColor[3]};
-
-      for (const auto &conn : ::s_boneConnections) {
-        int idxA = conn[0];
-        int idxB = conn[1];
-        if (idxA >= (int)player.bonePositions.size() ||
-            idxB >= (int)player.bonePositions.size())
-          continue;
-        SDK::Vector2 rawA, rawB;
-        bool okA = Core::Math::WorldToScreen(player.bonePositions[idxA], rawA,
-                                             viewMatrix, screenWidth, screenHeight);
-        bool okB = Core::Math::WorldToScreen(player.bonePositions[idxB], rawB,
-                                             viewMatrix, screenWidth, screenHeight);
-        if (okA && okB) {
-          if (s.skeletonOutline)
-            drawList.DrawLine(rawA.x, rawA.y, rawB.x, rawB.y, shadowC, 2.8f);
-          drawList.DrawLine(rawA.x, rawA.y, rawB.x, rawB.y, boneCol, 1.2f);
-        }
-      }
-
-      if ((int)player.bonePositions.size() > BONE_HEAD) {
-        SDK::Vector2 screenBoneHead;
-        if (Core::Math::WorldToScreen(player.bonePositions[BONE_HEAD], screenBoneHead,
-                                      viewMatrix, screenWidth, screenHeight)) {
-          const float headRadius = width * 0.18f;
-          if (s.skeletonOutline)
-            drawList.DrawCircle(screenBoneHead.x, screenBoneHead.y, headRadius + 1.0f,
-                                shadowC, 28, 2.5f);
-          drawList.DrawCircle(screenBoneHead.x, screenBoneHead.y, headRadius, boneCol, 28, 1.2f);
-        }
-      }
+        (s.skeletonMaxDistance <= 0.0f ||
+         player.distance <= s.skeletonMaxDistance)) {
+      DrawRoundedSkeleton(drawList, player, viewMatrix, screenWidth, screenHeight,
+                          s, width);
     }
   }
 }

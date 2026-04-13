@@ -11,7 +11,8 @@ struct SoundRing {
   SDK::Vector3 worldPos;
   float color[4];
   float maxRadius;
-  double startTime;
+  float waveHeight;
+  float startTime = 0.0f;
 };
 
 class SoundEsp : public IFeature {
@@ -22,9 +23,11 @@ public:
   void RenderUI() override;
 
 private:
+  void ResetState();
+
   std::vector<SoundRing> m_rings;
-  // Keyed by pawnHandle for stable identity across entity address reuse
-  std::unordered_map<uint32_t, bool> m_prevOnGround;
+  uint64_t m_lastAudioEventId = 0;
+  uintptr_t m_lastObservedLocalPawn = 0;
 };
 
 } // namespace Features

@@ -51,6 +51,16 @@ struct EspConfig {
   // ── Snap Lines ───────────────────────────────────────────────────────
   bool showSnapLines = false;
   float snapLineColor[4] = {1.0f, 1.0f, 1.0f, 0.4f};
+  bool showBulletTracers = false;
+  float bulletTracerColor[4] = {0.30f, 0.74f, 1.00f, 0.90f};
+  float bulletTracerThickness = 2.0f;
+  float bulletTracerLife = 0.85f;
+  float bulletTracerImpactColor[4] = {0.30f, 0.74f, 1.00f, 0.85f};
+  float bulletTracerImpactRadius = 7.0f;
+  float bulletTracerImpactThickness = 2.0f;
+  bool showHitmarker = false;
+  float hitmarkerColor[4] = {1.0f, 1.0f, 1.0f, 0.95f};
+  float hitmarkerLife = 0.20f;
 
   // ── Off-screen ───────────────────────────────────────────────────────
   bool showOffscreen = false;

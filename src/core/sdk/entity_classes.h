@@ -1,7 +1,9 @@
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 #include "../memory/memory_manager.h"
 #include "offsets.h"
 #include "structs.h"
@@ -69,6 +71,32 @@ public:
     return Core::MemoryManager::Read<int>(address + GetOffsets().m_iShotsFired);
   }
 
+  Vector2 GetShootAngle() const {
+    const auto &O = GetOffsets();
+    if (O.m_angShootAngleHistory == 0) {
+      return GetEyeAngles();
+    }
+
+    Vector2 history[2] = {};
+    if (!Core::MemoryManager::ReadRaw(address + O.m_angShootAngleHistory, history,
+                                      sizeof(history))) {
+      return GetEyeAngles();
+    }
+
+    const auto valid = [](const Vector2 &angle) {
+      return std::isfinite(angle.x) && std::isfinite(angle.y) &&
+             (angle.x != 0.0f || angle.y != 0.0f);
+    };
+
+    if (valid(history[0])) {
+      return history[0];
+    }
+    if (valid(history[1])) {
+      return history[1];
+    }
+    return GetEyeAngles();
+  }
+
   float GetSimulationTime() const {
     return Core::MemoryManager::Read<float>(address + GetOffsets().m_flSimulationTime);
   }
@@ -96,6 +124,65 @@ public:
       return name;
     }
     return "";
+  }
+
+  float GetWeaponRange() const {
+    const auto &O = GetOffsets();
+    if (O.m_pClippingWeapon == 0 || O.m_flRange == 0) {
+      return 0.0f;
+    }
+
+    const uintptr_t clippingWeapon =
+        Core::MemoryManager::Read<uintptr_t>(address + O.m_pClippingWeapon);
+    if (clippingWeapon <= 0x10000) {
+      return 0.0f;
+    }
+
+    const uintptr_t weaponData =
+        Core::MemoryManager::Read<uintptr_t>(clippingWeapon + 0x10);
+    if (weaponData <= 0x10000) {
+      return 0.0f;
+    }
+
+    return Core::MemoryManager::Read<float>(weaponData + O.m_flRange);
+  }
+
+  std::vector<BulletImpactInfo> GetBulletImpacts() const {
+    std::vector<BulletImpactInfo> impacts;
+    const auto &O = GetOffsets();
+    if (O.m_pBulletServices == 0) {
+      return impacts;
+    }
+
+    const uintptr_t bulletServices =
+        Core::MemoryManager::Read<uintptr_t>(address + O.m_pBulletServices);
+    if (bulletServices <= 0x10000) {
+      return impacts;
+    }
+
+    constexpr uintptr_t kBulletVectorOffset = 0x48;
+    constexpr int kMaxImpacts = 64;
+
+    const uintptr_t vectorBase = bulletServices + kBulletVectorOffset;
+    const uintptr_t dataPtr = Core::MemoryManager::Read<uintptr_t>(vectorBase);
+    if (dataPtr <= 0x10000) {
+      return impacts;
+    }
+
+    int size = Core::MemoryManager::Read<int>(vectorBase + 0x10);
+    if (size <= 0 || size > kMaxImpacts) {
+      size = Core::MemoryManager::Read<int>(vectorBase + 0x08);
+    }
+    if (size <= 0 || size > kMaxImpacts) {
+      return impacts;
+    }
+
+    impacts.resize(size);
+    if (!Core::MemoryManager::ReadRaw(dataPtr, impacts.data(),
+                                      sizeof(BulletImpactInfo) * size)) {
+      impacts.clear();
+    }
+    return impacts;
   }
 };
 

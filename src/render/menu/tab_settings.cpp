@@ -173,15 +173,19 @@ void RenderTabSettings() {
       s_profileActionMessage = "Profile list refreshed.";
     }
 
-    ImGui::BeginChild("ConfigList", ImVec2(0, 140), true);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 6.0f));
+    ImGui::BeginGroup();
     for (int i = 0; i < static_cast<int>(s_configList.size()); ++i) {
-      if (ImGui::Selectable(s_configList[i].c_str(), i == s_configSelected)) {
+      if (ImGui::Selectable(s_configList[i].c_str(), i == s_configSelected,
+                            ImGuiSelectableFlags_None,
+                            ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
         s_configSelected = i;
         strncpy_s(s_configName, sizeof(s_configName), s_configList[i].c_str(),
                   _TRUNCATE);
       }
     }
-    ImGui::EndChild();
+    ImGui::EndGroup();
+    ImGui::PopStyleVar();
 
     if (!s_configList.empty()) {
       if (ImGui::Button("Load Selected Profile",
