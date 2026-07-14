@@ -2,6 +2,6 @@
 
 namespace Render {
 
-void RenderTabVisuals(int subTab);
+void RenderTabWorld(int subTab);
 
 } // namespace Render

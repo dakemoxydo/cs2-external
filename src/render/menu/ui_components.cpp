@@ -38,7 +38,7 @@ namespace {
 constexpr float kCardBodySpacing = 4.0f;
 constexpr float kSectionTopGap = 4.0f;
 constexpr float kSectionBottomGap = 6.0f;
-constexpr float kChipHeight = 38.0f;
+constexpr float kChipHeight = 34.0f;
 constexpr float kToggleHeight = 22.0f;
 constexpr float kToggleWidth = 40.0f;
 
@@ -131,16 +131,16 @@ bool NavTile(const char *title, bool selected, float height) {
       style.Colors[ImGuiCol_ChildBg].z * 0.92f + accent.z * (0.04f + 0.12f * currentAnim + 0.05f * currentHover),
       1.0f));
 
-  window->DrawList->AddRectFilled(bb.Min, bb.Max, bg, 9.0f);
+  window->DrawList->AddRectFilled(bb.Min, bb.Max, bg, 4.0f);
   window->DrawList->AddRect(
       bb.Min, bb.Max,
       ImGui::GetColorU32(ImVec4(style.Colors[ImGuiCol_Border].x,
                                 style.Colors[ImGuiCol_Border].y,
                                 style.Colors[ImGuiCol_Border].z,
                                 selected ? 0.95f : 0.75f)),
-      9.0f, 0, 1.0f);
+      4.0f, 0, 1.0f);
   if (selected || hovered) {
-    window->DrawList->AddRect(bb.Min, bb.Max, ImGui::GetColorU32(ImVec4(accentHover.x, accentHover.y, accentHover.z, 0.20f + 0.20f * currentAnim)), 9.0f, 0, 1.0f);
+    window->DrawList->AddRect(bb.Min, bb.Max, ImGui::GetColorU32(ImVec4(accentHover.x, accentHover.y, accentHover.z, 0.20f + 0.20f * currentAnim)), 4.0f, 0, 1.0f);
   }
 
   window->DrawList->AddRectFilled(
@@ -215,12 +215,12 @@ bool BeginCard(const char *id, ImVec2 size) {
   window->DrawList->ChannelsSplit(2);
   window->DrawList->ChannelsSetCurrent(1);
 
-  g_cardStack.push_back({window->DrawList, 14.0f});
+  g_cardStack.push_back({window->DrawList, 12.0f});
 
   ImGui::BeginGroup();
-  ImGui::Dummy(ImVec2(0.0f, 10.0f));
+  ImGui::Dummy(ImVec2(0.0f, 8.0f));
   ImGui::Indent(g_cardStack.back().indent);
-  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 8.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 7.0f));
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 8.0f));
   ImGui::PushStyleColor(ImGuiCol_FrameBg,
                         ImVec4(style.Colors[ImGuiCol_FrameBg].x,
@@ -242,7 +242,7 @@ void EndCard() {
   ImGui::PopStyleColor(2);
   ImGui::PopStyleVar(2);
   ImGui::Unindent(state.indent);
-  ImGui::Dummy(ImVec2(0.0f, 10.0f));
+  ImGui::Dummy(ImVec2(0.0f, 8.0f));
   ImGui::EndGroup();
 
   ImGuiWindow *window = ImGui::GetCurrentWindow();
@@ -259,16 +259,20 @@ void EndCard() {
   state.drawList->AddRectFilled(
       cardRect.Min, cardRect.Max,
       ImGui::GetColorU32(ImVec4(
-          style.Colors[ImGuiCol_ChildBg].x * 0.86f + accent.x * 0.02f,
-          style.Colors[ImGuiCol_ChildBg].y * 0.86f + accent.y * 0.02f,
-          style.Colors[ImGuiCol_ChildBg].z * 0.86f + accent.z * 0.02f, 1.0f)),
-      10.0f);
+          style.Colors[ImGuiCol_ChildBg].x * 0.92f + accent.x * 0.01f,
+          style.Colors[ImGuiCol_ChildBg].y * 0.92f + accent.y * 0.01f,
+          style.Colors[ImGuiCol_ChildBg].z * 0.92f + accent.z * 0.01f, 1.0f)),
+      4.0f);
   state.drawList->AddRect(
       cardRect.Min, cardRect.Max,
       ImGui::GetColorU32(
           ImVec4(style.Colors[ImGuiCol_Border].x, style.Colors[ImGuiCol_Border].y,
                  style.Colors[ImGuiCol_Border].z, 0.95f)),
-      10.0f, 0, 1.0f);
+      4.0f, 0, 1.0f);
+  state.drawList->AddRectFilled(
+      ImVec2(cardRect.Min.x, cardRect.Min.y),
+      ImVec2(cardRect.Min.x + 2.0f, cardRect.Max.y),
+      ImGui::GetColorU32(ImVec4(accent.x, accent.y, accent.z, 0.92f)), 0.0f);
   state.drawList->ChannelsSetCurrent(1);
   state.drawList->ChannelsMerge();
 

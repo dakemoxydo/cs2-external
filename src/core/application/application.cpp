@@ -6,6 +6,7 @@
 #include "config/settings.h"
 #include "core/constants.h"
 #include "core/game/game_manager.h"
+#include "core/game/visibility_manager.h"
 #include "core/process/process.h"
 #include "core/process/stealth.h"
 #include "core/sdk/offsets.h"
@@ -131,9 +132,6 @@ bool Application::Initialize() {
 void Application::Run() {
     memoryThread_ = std::thread(&Application::MemoryThreadLoop, this);
     RenderLoop();
-    if (memoryThread_.joinable()) {
-        memoryThread_.join();
-    }
 }
 
 void Application::Shutdown() {
@@ -147,6 +145,12 @@ void Application::Shutdown() {
     state_.running = false;
     state_.shouldClose = true;
 
+    if (memoryThread_.joinable() &&
+        std::this_thread::get_id() != memoryThread_.get_id()) {
+        memoryThread_.join();
+    }
+
+    VisibilityManager::ResetProcessState();
     Render::ImGuiManager::Shutdown();
     Render::Renderer::Shutdown();
     Render::Overlay::Destroy();

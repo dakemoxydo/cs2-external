@@ -7,6 +7,7 @@
 #include "core/sdk/entity.h"
 #include "core/sdk/offsets.h"
 #include "core/sdk/structs.h"
+#include <DirectXMath.h>
 #include "render/overlay/overlay.h"
 #include "render/renderer/renderer.h"
 #include "utils/logger.h"
@@ -53,6 +54,14 @@ struct ChamsSnapshot {
   float fillColorTeam[4] = {};
   float hiddenColorTeam[4] = {};
   float wireColor[4] = {};
+};
+
+struct PreviewSettings {
+  float viewportX = 0.0f;
+  float viewportY = 0.0f;
+  float viewportWidth = 0.0f;
+  float viewportHeight = 0.0f;
+  bool teammate = false;
 };
 
 struct BoneMatrix3x4 {
@@ -147,6 +156,8 @@ struct SkinnedMesh {
   std::vector<BoneMatrix3x4> inverseBindMatrices;
   std::vector<BoneMatrix3x4> bindPoseMatrices;
   std::vector<int16_t> gltfToGameBoneMap;
+  SDK::Vector3 boundsMin = {};
+  SDK::Vector3 boundsMax = {};
   ComPtr<ID3D11Buffer> vertexBuffer;
   ComPtr<ID3D11Buffer> indexBuffer;
   uint32_t vertexCount = 0;
@@ -160,6 +171,8 @@ struct SkinnedMesh {
     inverseBindMatrices.clear();
     bindPoseMatrices.clear();
     gltfToGameBoneMap.clear();
+    boundsMin = {};
+    boundsMax = {};
     vertexBuffer.Reset();
     indexBuffer.Reset();
     vertexCount = 0;
@@ -507,6 +520,10 @@ SDK::Vector3 operator-(const SDK::Vector3 &a, const SDK::Vector3 &b) {
   return {a.x - b.x, a.y - b.y, a.z - b.z};
 }
 
+SDK::Vector3 operator*(const SDK::Vector3 &value, float scalar) {
+  return {value.x * scalar, value.y * scalar, value.z * scalar};
+}
+
 SDK::Vector3 &operator+=(SDK::Vector3 &a, const SDK::Vector3 &b) {
   a.x += b.x;
   a.y += b.y;
@@ -528,6 +545,51 @@ void Normalize(SDK::Vector3 &value) {
     value.y *= invLength;
     value.z *= invLength;
   }
+}
+
+BoneMatrix3x4 MakePreviewTransform(float uniformScale, float yawRadians,
+                                   const SDK::Vector3 &translation) {
+  BoneMatrix3x4 matrix = BoneMatrix3x4::Identity();
+  const float cosYaw = std::cos(yawRadians);
+  const float sinYaw = std::sin(yawRadians);
+
+  matrix.m[0][0] = cosYaw * uniformScale;
+  matrix.m[0][1] = -sinYaw * uniformScale;
+  matrix.m[0][2] = 0.0f;
+  matrix.m[0][3] = translation.x;
+
+  matrix.m[1][0] = sinYaw * uniformScale;
+  matrix.m[1][1] = cosYaw * uniformScale;
+  matrix.m[1][2] = 0.0f;
+  matrix.m[1][3] = translation.y;
+
+  matrix.m[2][0] = 0.0f;
+  matrix.m[2][1] = 0.0f;
+  matrix.m[2][2] = uniformScale;
+  matrix.m[2][3] = translation.z;
+  return matrix;
+}
+
+SDK::Matrix4x4 BuildPreviewViewProjection(float aspectRatio,
+                                          const SDK::Vector3 &camera,
+                                          const SDK::Vector3 &target) {
+  using namespace DirectX;
+
+  const XMVECTOR eye = XMVectorSet(camera.x, camera.y, camera.z, 1.0f);
+  const XMVECTOR focus = XMVectorSet(target.x, target.y, target.z, 1.0f);
+  const XMVECTOR up = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);
+
+  const XMMATRIX view = XMMatrixLookAtLH(eye, focus, up);
+  const XMMATRIX projection =
+      XMMatrixPerspectiveFovLH(XMConvertToRadians(36.0f),
+                               (std::max)(0.6f, aspectRatio), 0.05f, 50.0f);
+  const XMMATRIX viewProjection = XMMatrixTranspose(view * projection);
+
+  SDK::Matrix4x4 matrix{};
+  XMFLOAT4X4 floatMatrix{};
+  XMStoreFloat4x4(&floatMatrix, viewProjection);
+  std::memcpy(matrix.m, &floatMatrix, sizeof(matrix.m));
+  return matrix;
 }
 
 int ComponentCountForType(const std::string &type) {
@@ -817,6 +879,18 @@ bool LoadGlbMesh(const std::filesystem::path &path, SkinnedMesh &mesh) {
     }
   }
 
+  SDK::Vector3 boundsMin = mesh.vertices.front().position;
+  SDK::Vector3 boundsMax = mesh.vertices.front().position;
+  for (const auto &vertex : mesh.vertices) {
+    boundsMin.x = (std::min)(boundsMin.x, vertex.position.x);
+    boundsMin.y = (std::min)(boundsMin.y, vertex.position.y);
+    boundsMin.z = (std::min)(boundsMin.z, vertex.position.z);
+    boundsMax.x = (std::max)(boundsMax.x, vertex.position.x);
+    boundsMax.y = (std::max)(boundsMax.y, vertex.position.y);
+    boundsMax.z = (std::max)(boundsMax.z, vertex.position.z);
+  }
+  mesh.boundsMin = boundsMin;
+  mesh.boundsMax = boundsMax;
   mesh.vertexCount = static_cast<uint32_t>(mesh.vertices.size());
   mesh.indexCount = static_cast<uint32_t>(mesh.indices.size());
   return true;
@@ -945,6 +1019,10 @@ public:
                  float alpha, int renderMode, int materialType);
   void Flush(const SDK::Matrix4x4 &viewMatrix, const SDK::Vector3 &cameraPos,
              int screenWidth, int screenHeight);
+  void FlushViewport(const SDK::Matrix4x4 &viewMatrix,
+                     const SDK::Vector3 &cameraPos, float viewportX,
+                     float viewportY, float viewportWidth,
+                     float viewportHeight);
 
 private:
   bool CreateShaders();
@@ -1199,6 +1277,15 @@ void GpuRenderer::UpdateMaterial(const float (&fillColor)[4],
 void GpuRenderer::Flush(const SDK::Matrix4x4 &viewMatrix,
                         const SDK::Vector3 &cameraPos, int screenWidth,
                         int screenHeight) {
+  FlushViewport(viewMatrix, cameraPos, 0.0f, 0.0f,
+                static_cast<float>(screenWidth),
+                static_cast<float>(screenHeight));
+}
+
+void GpuRenderer::FlushViewport(const SDK::Matrix4x4 &viewMatrix,
+                                const SDK::Vector3 &cameraPos, float viewportX,
+                                float viewportY, float viewportWidth,
+                                float viewportHeight) {
   if (!m_initialized || m_pendingDraws.empty() || !m_context) {
     return;
   }
@@ -1206,8 +1293,10 @@ void GpuRenderer::Flush(const SDK::Matrix4x4 &viewMatrix,
   RendererStateGuard guard(m_context);
 
   D3D11_VIEWPORT viewport{};
-  viewport.Width = static_cast<float>(screenWidth);
-  viewport.Height = static_cast<float>(screenHeight);
+  viewport.TopLeftX = viewportX;
+  viewport.TopLeftY = viewportY;
+  viewport.Width = viewportWidth;
+  viewport.Height = viewportHeight;
   viewport.MinDepth = 0.0f;
   viewport.MaxDepth = 1.0f;
   m_context->RSSetViewports(1, &viewport);
@@ -1220,7 +1309,8 @@ void GpuRenderer::Flush(const SDK::Matrix4x4 &viewMatrix,
   m_context->OMSetBlendState(m_blendState.Get(), blendFactor, 0xFFFFFFFFu);
   m_context->OMSetDepthStencilState(m_depthState.Get(), 0);
 
-  UpdateViewProjection(viewMatrix, screenWidth, screenHeight);
+  UpdateViewProjection(viewMatrix, static_cast<int>(viewportWidth),
+                       static_cast<int>(viewportHeight));
 
   ID3D11Buffer *vsBuffers[3] = {m_cbViewProjection.Get(), m_cbBones.Get(),
                                 m_cbMaterial.Get()};
@@ -1301,6 +1391,9 @@ public:
 
   void ResetFrameState() { previousLocalPawn = 0; }
   bool IsReady() const { return ready; }
+  bool CanRenderPreview() const {
+    return ready && !failed && tMesh.IsLoaded() && ctMesh.IsLoaded();
+  }
 
   void Render(const std::shared_ptr<const Core::GameSnapshot> &snapshot,
               const ChamsSnapshot &settings) {
@@ -1393,6 +1486,74 @@ public:
 
     gpuRenderer.Flush(snapshot->viewMatrix, snapshot->localEyePos, screenWidth,
                       screenHeight);
+  }
+
+  bool RenderPreview(float x, float y, float width, float height,
+                     bool teammate) {
+    if (!CanRenderPreview() || width <= 8.0f || height <= 8.0f) {
+      return false;
+    }
+
+    ChamsSnapshot settings = SnapshotChams();
+    if (!settings.enabled) {
+      settings.wireframe = false;
+      settings.visibleCheck = false;
+      settings.materialType = 1;
+      settings.alpha = 1.0f;
+      const float neutral[4] = {0.86f, 0.89f, 0.94f, 1.0f};
+      const float neutralWire[4] = {0.20f, 0.24f, 0.30f, 0.0f};
+      CopyColor(settings.fillColor, neutral);
+      CopyColor(settings.fillColorTeam, neutral);
+      CopyColor(settings.hiddenColor, neutral);
+      CopyColor(settings.hiddenColorTeam, neutral);
+      CopyColor(settings.wireColor, neutralWire);
+    }
+
+    SkinnedMesh *mesh = teammate ? &ctMesh : &tMesh;
+    if (!mesh || !mesh->vertexBuffer || !mesh->indexBuffer ||
+        mesh->inverseBindMatrices.empty()) {
+      return false;
+    }
+
+    std::vector<BoneMatrix3x4> combined(
+        (std::min)(mesh->inverseBindMatrices.size(), static_cast<size_t>(kMaxBones)));
+
+    const SDK::Vector3 center = {(mesh->boundsMin.x + mesh->boundsMax.x) * 0.5f,
+                                 (mesh->boundsMin.y + mesh->boundsMax.y) * 0.5f,
+                                 (mesh->boundsMin.z + mesh->boundsMax.z) * 0.5f};
+    const SDK::Vector3 extents = {mesh->boundsMax.x - mesh->boundsMin.x,
+                                  mesh->boundsMax.y - mesh->boundsMin.y,
+                                  mesh->boundsMax.z - mesh->boundsMin.z};
+    const float maxExtent =
+        (std::max)(extents.x, (std::max)(extents.y, extents.z));
+    const float previewScale =
+        maxExtent > 0.001f ? (1.85f / maxExtent) : 0.02f;
+    const float yaw = teammate ? -0.70f : 0.70f;
+    const SDK::Vector3 translation = {-center.x * previewScale,
+                                      -center.y * previewScale,
+                                      -mesh->boundsMin.z * previewScale - 0.95f};
+    const BoneMatrix3x4 rootTransform =
+        MakePreviewTransform(previewScale, yaw, translation);
+
+    for (auto &matrix : combined) {
+      matrix = rootTransform;
+    }
+
+    const float aspect = width / (std::max)(1.0f, height);
+    const float targetHeight =
+        (mesh->boundsMax.z - mesh->boundsMin.z) * previewScale * 0.60f;
+    const SDK::Vector3 cameraTarget = {0.0f, 0.0f, targetHeight};
+    const SDK::Vector3 cameraPos = {0.0f, -2.90f, targetHeight + 0.24f};
+    const SDK::Matrix4x4 viewProjection =
+        BuildPreviewViewProjection(aspect, cameraPos, cameraTarget);
+
+    const float (&fillColor)[4] = teammate ? settings.fillColorTeam
+                                           : settings.fillColor;
+    const int renderMode = settings.wireframe ? 2 : 0;
+    gpuRenderer.QueueDraw(mesh, combined, fillColor, settings.wireColor,
+                          settings.alpha, renderMode, settings.materialType);
+    gpuRenderer.FlushViewport(viewProjection, cameraPos, x, y, width, height);
+    return true;
   }
 
 private:
@@ -1538,6 +1699,18 @@ void Chams::Render(Render::DrawList &) {
   }
 
   m_impl->Render(snapshot, settings);
+}
+
+bool Chams::CanRenderPreview() const {
+  return m_impl && m_impl->CanRenderPreview();
+}
+
+bool Chams::RenderPreview(float x, float y, float width, float height,
+                          bool teammate) {
+  if (!m_impl) {
+    return false;
+  }
+  return m_impl->RenderPreview(x, y, width, height, teammate);
 }
 
 void Chams::RenderUI() {}

@@ -23,8 +23,12 @@ if exist "offsets\output\offsets.json" (
         echo [OFFSET] Copied offsets.hpp to cache_offsets/
     )
 ) else (
-    echo [OFFSET] No offsets/output/ found, skipping offset copy.
-    echo [OFFSET] Place your dumper output folder at: offsets\output\
+    if exist "build\Release\cache_offsets\offsets.json" if exist "build\Release\cache_offsets\client_dll.json" (
+        echo [OFFSET] offsets/output/ not found; using existing build cache.
+    ) else (
+        echo [OFFSET] No offsets/output/ found, skipping offset copy.
+        echo [OFFSET] Place your dumper output folder at: offsets\output\
+    )
 )
 
 echo.
@@ -95,8 +99,23 @@ cd /d "%~dp0build"
 
 set "PATH=%PATH%"
 
+:: CMake caches absolute source paths. Recreate only stale generated metadata
+:: when the project was moved or opened from a different workspace path.
+set "EXPECTED_SOURCE=%~dp0"
+set "EXPECTED_SOURCE=%EXPECTED_SOURCE:~0,-1%"
+set "EXPECTED_SOURCE=%EXPECTED_SOURCE:\=/%"
+set "CACHED_SOURCE="
+if exist "CMakeCache.txt" for /f "tokens=2 delims==" %%A in ('findstr /b "CMAKE_HOME_DIRECTORY:INTERNAL=" "CMakeCache.txt"') do set "CACHED_SOURCE=%%A"
+if defined CACHED_SOURCE if /I not "%CACHED_SOURCE%"=="%EXPECTED_SOURCE%" (
+    echo [BUILD] Removing stale CMake cache...
+    del /f /q "CMakeCache.txt" >nul 2>&1
+    if exist "CMakeFiles" rmdir /s /q "CMakeFiles"
+    if exist "_deps" rmdir /s /q "_deps"
+)
+if not exist "CMakeCache.txt" if exist "_deps" rmdir /s /q "_deps"
+
 echo [BUILD] Configuring CMake...
-cmake %GENERATOR% -A x64 ..
+cmake %GENERATOR% -A x64 -S "%~dp0." -B "%~dp0build"
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] CMake configuration failed!
     echo.

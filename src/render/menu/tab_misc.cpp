@@ -14,59 +14,103 @@ void Commit(Fn &&fn) {
   Config::MutateSettingsVoid(std::forward<Fn>(fn));
 }
 
-} // namespace
+void RenderCrosshairCard(Config::GlobalSettings &settings) {
+  if (!UI::BeginCard("CrosshairUtility")) {
+    return;
+  }
 
-void RenderTabMisc() {
-  Config::GlobalSettings settings = Config::CopySettings();
+  UI::SectionHeader("Crosshair", "Noscope helper and overlay styling.");
 
-  if (UI::BeginCard("Crosshair Utility")) {
-    UI::SectionHeader("AWP Crosshair");
+  bool awpCrosshair = settings.misc.awpCrosshair;
+  if (UI::SettingToggle("Overlay Crosshair", &awpCrosshair)) {
+    Commit([&](auto &state) { state.misc.awpCrosshair = awpCrosshair; });
+    settings.misc.awpCrosshair = awpCrosshair;
+  }
 
-    bool awpCrosshair = settings.misc.awpCrosshair;
-    if (UI::SettingToggle("Enable AWP Crosshair", &awpCrosshair)) {
-      Commit([&](auto &state) { state.misc.awpCrosshair = awpCrosshair; });
-      settings.misc.awpCrosshair = awpCrosshair;
+  if (settings.misc.awpCrosshair) {
+    float crosshairColor[4] = {settings.misc.crosshairColor[0],
+                               settings.misc.crosshairColor[1],
+                               settings.misc.crosshairColor[2],
+                               settings.misc.crosshairColor[3]};
+    if (UI::ColorRow("Crosshair Color", crosshairColor)) {
+      Commit([&](auto &state) {
+        std::copy(std::begin(crosshairColor), std::end(crosshairColor),
+                  state.misc.crosshairColor);
+      });
+      std::copy(std::begin(crosshairColor), std::end(crosshairColor),
+                settings.misc.crosshairColor);
     }
 
-    if (settings.misc.awpCrosshair) {
-      float crosshairColor[4] = {settings.misc.crosshairColor[0], settings.misc.crosshairColor[1],
-                                 settings.misc.crosshairColor[2], settings.misc.crosshairColor[3]};
-      if (UI::ColorRow("Crosshair Color", crosshairColor)) {
-        Commit([&](auto &state) {
-          std::copy(std::begin(crosshairColor), std::end(crosshairColor),
-                    state.misc.crosshairColor);
-        });
-        std::copy(std::begin(crosshairColor), std::end(crosshairColor),
-                  settings.misc.crosshairColor);
-      }
+    const char *styles[] = {"Dot", "Cross", "Circle", "All"};
+    int crosshairStyle = settings.misc.crosshairStyle;
+    if (ImGui::Combo("Style", &crosshairStyle, styles, 4)) {
+      Commit([&](auto &state) { state.misc.crosshairStyle = crosshairStyle; });
+      settings.misc.crosshairStyle = crosshairStyle;
+    }
 
-      const char *styles[] = {"Dot", "Cross", "Circle", "All"};
-      int crosshairStyle = settings.misc.crosshairStyle;
-      if (ImGui::Combo("Style", &crosshairStyle, styles, 4)) {
-        Commit([&](auto &state) { state.misc.crosshairStyle = crosshairStyle; });
-        settings.misc.crosshairStyle = crosshairStyle;
-      }
+    float crosshairSize = settings.misc.crosshairSize;
+    if (ImGui::SliderFloat("Size", &crosshairSize, 2.0f, 25.0f, "%.0f px")) {
+      Commit([&](auto &state) { state.misc.crosshairSize = crosshairSize; });
+      settings.misc.crosshairSize = crosshairSize;
+    }
 
-      float crosshairSize = settings.misc.crosshairSize;
-      if (ImGui::SliderFloat("Size", &crosshairSize, 2.0f, 25.0f, "%.0f px")) {
-        Commit([&](auto &state) { state.misc.crosshairSize = crosshairSize; });
-        settings.misc.crosshairSize = crosshairSize;
-      }
+    float crosshairThickness = settings.misc.crosshairThickness;
+    if (ImGui::SliderFloat("Thickness", &crosshairThickness, 0.5f, 4.0f,
+                           "%.1f")) {
+      Commit([&](auto &state) {
+        state.misc.crosshairThickness = crosshairThickness;
+      });
+      settings.misc.crosshairThickness = crosshairThickness;
+    }
 
-      float crosshairThickness = settings.misc.crosshairThickness;
-      if (ImGui::SliderFloat("Thickness", &crosshairThickness, 0.5f, 4.0f, "%.1f")) {
-        Commit([&](auto &state) { state.misc.crosshairThickness = crosshairThickness; });
-        settings.misc.crosshairThickness = crosshairThickness;
-      }
-
-      bool crosshairGap = settings.misc.crosshairGap;
-      if (UI::SettingToggle("Center Gap", &crosshairGap)) {
-        Commit([&](auto &state) { state.misc.crosshairGap = crosshairGap; });
-        settings.misc.crosshairGap = crosshairGap;
-      }
+    bool crosshairGap = settings.misc.crosshairGap;
+    if (UI::SettingToggle("Center Gap", &crosshairGap)) {
+      Commit([&](auto &state) { state.misc.crosshairGap = crosshairGap; });
+      settings.misc.crosshairGap = crosshairGap;
     }
   }
+
   UI::EndCard();
+}
+
+void RenderCrosshairNotesCard(Config::GlobalSettings &settings) {
+  if (!UI::BeginCard("CrosshairNotes")) {
+    return;
+  }
+
+  UI::SectionHeader("Notes", "Quick guidance for keeping the overlay readable.");
+
+  if (settings.misc.awpCrosshair) {
+    UI::HelpText(
+        "Small cross or dot styles usually look the cleanest over scoped weapons.");
+  } else {
+    UI::HelpText(
+        "Enable Overlay Crosshair to configure size, thickness and center gap.");
+  }
+
+  UI::EndCard();
+}
+
+} // namespace
+
+void RenderTabMisc(int subTab) {
+  (void)subTab;
+  const float gap = 14.0f;
+  const float totalWidth = ImGui::GetContentRegionAvail().x;
+  const float columnWidth = (totalWidth - gap) * 0.5f;
+  Config::GlobalSettings settings = Config::CopySettings();
+
+  ImGui::BeginChild("MiscLeftColumn", ImVec2(columnWidth, 0.0f), false,
+                    ImGuiWindowFlags_NoScrollbar);
+  RenderCrosshairCard(settings);
+  ImGui::EndChild();
+
+  ImGui::SameLine(0.0f, gap);
+
+  ImGui::BeginChild("MiscRightColumn", ImVec2(0.0f, 0.0f), false,
+                    ImGuiWindowFlags_NoScrollbar);
+  RenderCrosshairNotesCard(settings);
+  ImGui::EndChild();
 }
 
 } // namespace Render

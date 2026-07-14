@@ -127,158 +127,217 @@ void DrawStatusMessage(const std::string &message, bool pending, bool success) {
   ImGui::TextColored(color, "%s", message.c_str());
 }
 
+void RenderProfilesCard(Config::GlobalSettings &settings) {
+  if (!UI::BeginCard("Profiles")) {
+    return;
+  }
+
+  UI::SectionHeader("Theme", "Global presentation preset for the menu.");
+
+  const char *themes[] = {"Midnight", "Blood", "Cyber", "Lavender",
+                          "Gold", "Monochrome", "Toxic"};
+  int menuTheme = settings.misc.menuTheme;
+  if (ImGui::Combo("Theme Preset", &menuTheme, themes, 7)) {
+    Commit([&](auto &state) { state.misc.menuTheme = menuTheme; });
+    settings.misc.menuTheme = menuTheme;
+  }
+
+  UI::SectionHeader("Profiles", "Save and reload layout presets.");
+
+  ImGui::InputText("Profile Name", s_configName, sizeof(s_configName));
+  if (ImGui::Button("Save Current Profile",
+                    ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+    std::string profileName = SanitizeProfileName(s_configName);
+    if (!HasNonWhitespace(profileName.c_str())) {
+      s_profileActionSuccess = false;
+      s_profileActionMessage = "Enter a profile name before saving.";
+    } else if (Config::ConfigManager::Save(profileName)) {
+      strncpy_s(s_configName, sizeof(s_configName), profileName.c_str(), _TRUNCATE);
+      RefreshConfigList();
+      s_profileActionSuccess = true;
+      s_profileActionMessage = "Profile saved successfully.";
+    } else {
+      s_profileActionSuccess = false;
+      s_profileActionMessage = Config::ConfigManager::LastError.empty()
+                                   ? "Profile save failed."
+                                   : Config::ConfigManager::LastError;
+    }
+  }
+
+  if (ImGui::Button("Refresh Profile List",
+                    ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+    RefreshConfigList();
+    s_profileActionSuccess = true;
+    s_profileActionMessage = "Profile list refreshed.";
+  }
+
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 6.0f));
+  ImGui::BeginGroup();
+  for (int i = 0; i < static_cast<int>(s_configList.size()); ++i) {
+    if (ImGui::Selectable(s_configList[i].c_str(), i == s_configSelected,
+                          ImGuiSelectableFlags_None,
+                          ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
+      s_configSelected = i;
+      strncpy_s(s_configName, sizeof(s_configName), s_configList[i].c_str(),
+                _TRUNCATE);
+    }
+  }
+  ImGui::EndGroup();
+  ImGui::PopStyleVar();
+
+  if (!s_configList.empty()) {
+    if (ImGui::Button("Load Selected Profile",
+                      ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+      std::string profileName =
+          SanitizeProfileName(s_configList[s_configSelected].c_str());
+      if (Config::ConfigManager::Load(profileName)) {
+        strncpy_s(s_configName, sizeof(s_configName),
+                  s_configList[s_configSelected].c_str(), _TRUNCATE);
+        s_profileActionSuccess = true;
+        s_profileActionMessage = "Profile loaded successfully.";
+      } else {
+        s_profileActionSuccess = false;
+        s_profileActionMessage = Config::ConfigManager::LastError.empty()
+                                     ? "Profile load failed."
+                                     : Config::ConfigManager::LastError;
+      }
+    }
+  }
+
+  DrawStatusMessage(s_profileActionMessage, false, s_profileActionSuccess);
+  UI::EndCard();
+}
+
+void RenderOffsetsCard() {
+  if (!UI::BeginCard("Offsets")) {
+    return;
+  }
+
+  UI::SectionHeader("Offsets", "Remote refresh and local cache reload.");
+
+  ImGui::BeginDisabled(AnyOffsetJobPending());
+  if (ImGui::Button("Update Offsets From GitHub",
+                    ImVec2(ImGui::GetContentRegionAvail().x, 32))) {
+    s_offsetUpdatePending = true;
+    s_offsetUpdateSuccess = false;
+    s_offsetUpdateMessage = "Updating offsets...";
+    s_offsetUpdateJob = SDK::Updater::ForceUpdateOffsets();
+  }
+
+  if (ImGui::Button("Reload Offsets From Disk",
+                    ImVec2(ImGui::GetContentRegionAvail().x, 32))) {
+    s_offsetReloadPending = true;
+    s_offsetReloadSuccess = false;
+    s_offsetReloadMessage = "Reloading cached offsets...";
+    s_offsetReloadJob = SDK::Updater::ReloadOffsets();
+  }
+  ImGui::EndDisabled();
+
+  DrawStatusMessage(s_offsetUpdateMessage, s_offsetUpdatePending,
+                    s_offsetUpdateSuccess);
+  DrawStatusMessage(s_offsetReloadMessage, s_offsetReloadPending,
+                    s_offsetReloadSuccess);
+
+  UI::EndCard();
+}
+
+void RenderPerformanceCard(Config::GlobalSettings &settings) {
+  if (!UI::BeginCard("Performance")) {
+    return;
+  }
+
+  UI::SectionHeader("Performance", "Frame pacing and update frequency.");
+
+  bool vsyncEnabled = settings.performance.vsyncEnabled;
+  if (UI::SettingToggle("Enable VSync", &vsyncEnabled)) {
+    Commit([&](auto &state) { state.performance.vsyncEnabled = vsyncEnabled; });
+    settings.performance.vsyncEnabled = vsyncEnabled;
+  }
+
+  int fpsLimit = settings.performance.fpsLimit;
+  if (ImGui::SliderInt("FPS Limit", &fpsLimit, 10, 500, "%d FPS")) {
+    Commit([&](auto &state) { state.performance.fpsLimit = fpsLimit; });
+    settings.performance.fpsLimit = fpsLimit;
+  }
+
+  int upsLimit = settings.performance.upsLimit;
+  if (ImGui::SliderInt("UPS Limit", &upsLimit, 10, 500, "%d UPS")) {
+    Commit([&](auto &state) { state.performance.upsLimit = upsLimit; });
+    settings.performance.upsLimit = upsLimit;
+  }
+
+  UI::EndCard();
+}
+
+void RenderSessionCard(Config::GlobalSettings &settings) {
+  if (!UI::BeginCard("Session")) {
+    return;
+  }
+
+  UI::SectionHeader("Diagnostics", "Debug surfaces and session controls.");
+
+  bool debugEnabled = settings.debug.enabled;
+  if (UI::SettingToggle("Debug Overlay", &debugEnabled)) {
+    Commit([&](auto &state) { state.debug.enabled = debugEnabled; });
+    settings.debug.enabled = debugEnabled;
+  }
+
+  bool devMode = settings.debug.devMode;
+  if (UI::SettingToggle("Developer Mode", &devMode)) {
+    Commit([&](auto &state) { state.debug.devMode = devMode; });
+    settings.debug.devMode = devMode;
+  }
+
+  UI::SectionHeader("Session", "Shutdown and emergency escape.");
+
+  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.62f, 0.12f, 0.12f, 1.0f));
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                        ImVec4(0.84f, 0.20f, 0.20f, 1.0f));
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                        ImVec4(0.45f, 0.06f, 0.06f, 1.0f));
+  if (ImGui::Button("Unload And Exit",
+                    ImVec2(ImGui::GetContentRegionAvail().x, 38))) {
+    Menu::shouldClose = true;
+  }
+  ImGui::PopStyleColor(3);
+
+  UI::EndCard();
+}
+
 } // namespace
 
-void RenderTabSettings() {
+void RenderTabSettings(int subTab) {
   if (!s_configListInitialized) {
     RefreshConfigList();
     s_configListInitialized = true;
   }
 
   PollOffsetJobs();
+
+  const float gap = 14.0f;
+  const float totalWidth = ImGui::GetContentRegionAvail().x;
+  const float columnWidth = (totalWidth - gap) * 0.5f;
   Config::GlobalSettings settings = Config::CopySettings();
 
-  if (UI::BeginCard("Profiles And Offsets")) {
-    UI::SectionHeader("Theme");
-    const char *themes[] = {"Midnight", "Blood", "Cyber", "Lavender",
-                            "Gold", "Monochrome", "Toxic"};
-    int menuTheme = settings.misc.menuTheme;
-    if (ImGui::Combo("Theme Preset", &menuTheme, themes, 7)) {
-      Commit([&](auto &state) { state.misc.menuTheme = menuTheme; });
-      settings.misc.menuTheme = menuTheme;
-    }
-
-    UI::SectionHeader("Profiles");
-    ImGui::InputText("Profile Name", s_configName, sizeof(s_configName));
-    if (ImGui::Button("Save Current Profile", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
-      std::string profileName = SanitizeProfileName(s_configName);
-      if (!HasNonWhitespace(profileName.c_str())) {
-        s_profileActionSuccess = false;
-        s_profileActionMessage = "Enter a profile name before saving.";
-      } else if (Config::ConfigManager::Save(profileName)) {
-        strncpy_s(s_configName, sizeof(s_configName), profileName.c_str(), _TRUNCATE);
-        RefreshConfigList();
-        s_profileActionSuccess = true;
-        s_profileActionMessage = "Profile saved successfully.";
-      } else {
-        s_profileActionSuccess = false;
-        s_profileActionMessage = Config::ConfigManager::LastError.empty()
-                                     ? "Profile save failed."
-                                     : Config::ConfigManager::LastError;
-      }
-    }
-    if (ImGui::Button("Refresh Profile List", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
-      RefreshConfigList();
-      s_profileActionSuccess = true;
-      s_profileActionMessage = "Profile list refreshed.";
-    }
-
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 6.0f));
-    ImGui::BeginGroup();
-    for (int i = 0; i < static_cast<int>(s_configList.size()); ++i) {
-      if (ImGui::Selectable(s_configList[i].c_str(), i == s_configSelected,
-                            ImGuiSelectableFlags_None,
-                            ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
-        s_configSelected = i;
-        strncpy_s(s_configName, sizeof(s_configName), s_configList[i].c_str(),
-                  _TRUNCATE);
-      }
-    }
-    ImGui::EndGroup();
-    ImGui::PopStyleVar();
-
-    if (!s_configList.empty()) {
-      if (ImGui::Button("Load Selected Profile",
-                        ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
-        std::string profileName =
-            SanitizeProfileName(s_configList[s_configSelected].c_str());
-        if (Config::ConfigManager::Load(profileName)) {
-          strncpy_s(s_configName, sizeof(s_configName),
-                    s_configList[s_configSelected].c_str(), _TRUNCATE);
-          s_profileActionSuccess = true;
-          s_profileActionMessage = "Profile loaded successfully.";
-        } else {
-          s_profileActionSuccess = false;
-          s_profileActionMessage = Config::ConfigManager::LastError.empty()
-                                       ? "Profile load failed."
-                                       : Config::ConfigManager::LastError;
-        }
-      }
-    }
-    DrawStatusMessage(s_profileActionMessage, false, s_profileActionSuccess);
-
-    UI::SectionHeader("Offsets");
-    ImGui::BeginDisabled(AnyOffsetJobPending());
-    if (ImGui::Button("Update Offsets From GitHub",
-                      ImVec2(ImGui::GetContentRegionAvail().x, 32))) {
-      s_offsetUpdatePending = true;
-      s_offsetUpdateSuccess = false;
-      s_offsetUpdateMessage = "Updating offsets...";
-      s_offsetUpdateJob = SDK::Updater::ForceUpdateOffsets();
-    }
-    if (ImGui::Button("Reload Offsets From Disk",
-                      ImVec2(ImGui::GetContentRegionAvail().x, 32))) {
-      s_offsetReloadPending = true;
-      s_offsetReloadSuccess = false;
-      s_offsetReloadMessage = "Reloading cached offsets...";
-      s_offsetReloadJob = SDK::Updater::ReloadOffsets();
-    }
-    ImGui::EndDisabled();
-    DrawStatusMessage(s_offsetUpdateMessage, s_offsetUpdatePending,
-                      s_offsetUpdateSuccess);
-    DrawStatusMessage(s_offsetReloadMessage, s_offsetReloadPending,
-                      s_offsetReloadSuccess);
+  ImGui::BeginChild("SettingsLeftColumn", ImVec2(columnWidth, 0.0f), false,
+                    ImGuiWindowFlags_NoScrollbar);
+  if (subTab == 0) {
+    RenderProfilesCard(settings);
+  } else {
+    RenderPerformanceCard(settings);
   }
-  UI::EndCard();
+  ImGui::EndChild();
 
-  if (UI::BeginCard("Performance And Safety")) {
-    UI::SectionHeader("Frame");
+  ImGui::SameLine(0.0f, gap);
 
-    bool vsyncEnabled = settings.performance.vsyncEnabled;
-    if (UI::SettingToggle("Enable VSync", &vsyncEnabled)) {
-      Commit([&](auto &state) { state.performance.vsyncEnabled = vsyncEnabled; });
-      settings.performance.vsyncEnabled = vsyncEnabled;
-    }
-
-    int fpsLimit = settings.performance.fpsLimit;
-    if (ImGui::SliderInt("FPS Limit", &fpsLimit, 10, 500, "%d FPS")) {
-      Commit([&](auto &state) { state.performance.fpsLimit = fpsLimit; });
-      settings.performance.fpsLimit = fpsLimit;
-    }
-
-    int upsLimit = settings.performance.upsLimit;
-    if (ImGui::SliderInt("UPS Limit", &upsLimit, 10, 500, "%d UPS")) {
-      Commit([&](auto &state) { state.performance.upsLimit = upsLimit; });
-      settings.performance.upsLimit = upsLimit;
-    }
-
-    UI::SectionHeader("Diagnostics");
-
-    bool debugEnabled = settings.debug.enabled;
-    if (UI::SettingToggle("Enable Debug Overlay", &debugEnabled)) {
-      Commit([&](auto &state) { state.debug.enabled = debugEnabled; });
-      settings.debug.enabled = debugEnabled;
-    }
-
-    bool devMode = settings.debug.devMode;
-    if (UI::SettingToggle("Developer Mode", &devMode)) {
-      Commit([&](auto &state) { state.debug.devMode = devMode; });
-      settings.debug.devMode = devMode;
-    }
-
-    UI::SectionHeader("Session");
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.62f, 0.12f, 0.12f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                          ImVec4(0.84f, 0.20f, 0.20f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive,
-                          ImVec4(0.45f, 0.06f, 0.06f, 1.0f));
-    if (ImGui::Button("Unload And Exit",
-                      ImVec2(ImGui::GetContentRegionAvail().x, 38))) {
-      Menu::shouldClose = true;
-    }
-    ImGui::PopStyleColor(3);
+  ImGui::BeginChild("SettingsRightColumn", ImVec2(0.0f, 0.0f), false,
+                    ImGuiWindowFlags_NoScrollbar);
+  if (subTab == 0) {
+    RenderOffsetsCard();
+  } else {
+    RenderSessionCard(settings);
   }
-  UI::EndCard();
+  ImGui::EndChild();
 }
 
 } // namespace Render

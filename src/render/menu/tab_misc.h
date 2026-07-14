@@ -2,6 +2,6 @@
 
 namespace Render {
 
-void RenderTabMisc();
+void RenderTabMisc(int subTab);
 
 } // namespace Render

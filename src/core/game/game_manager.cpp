@@ -1,5 +1,6 @@
 #include "core/constants.h"
 #include "game_manager.h"
+#include "visibility_manager.h"
 #include "../memory/memory_manager.h"
 #include "../process/module.h"
 #include "../process/process.h"
@@ -31,6 +32,8 @@ constexpr float kShotRetentionSeconds = 2.5f;
 constexpr float kHitRetentionSeconds = 1.2f;
 constexpr float kAudioRetentionSeconds = 2.5f;
 constexpr float kHitEventWindowSeconds = 0.75f;
+constexpr float kHitConfirmedImpactDistanceSq = 96.0f * 96.0f;
+constexpr float kHitShotRayDistanceSq = 84.0f * 84.0f;
 constexpr float kImpactMatchDistanceSq = 96.0f * 96.0f;
 constexpr float kImpactLooseMatchDistanceSq = 160.0f * 160.0f;
 constexpr float kPendingImpactMatchWindowSeconds = 0.80f;
@@ -41,6 +44,9 @@ constexpr float kTeleportResetDistance = 128.0f;
 constexpr float kFootstepSpeedThreshold = 70.0f;
 constexpr float kFootstepMinDistance = 20.0f;
 constexpr float kFootstepMaxDistance = 44.0f;
+constexpr float kFootstepMinIntervalSeconds = 0.20f;
+constexpr float kJumpVerticalVelocityThreshold = 80.0f;
+constexpr float kLandMinVerticalDelta = 18.0f;
 
 using TelemetryClock = std::chrono::steady_clock;
 
@@ -257,6 +263,15 @@ PendingShot *FindBestPendingShotForImpact(const SDK::Vector3 &impactPosition,
 }
 
 SDK::Vector3 BuildApproxHitPosition(const SDK::Entity &player) {
+  if (player.bonePositions.size() > static_cast<size_t>(BONE_NECK)) {
+    return player.bonePositions[static_cast<size_t>(BONE_NECK)];
+  }
+  if (player.bonePositions.size() > static_cast<size_t>(BONE_SPINE_1)) {
+    return player.bonePositions[static_cast<size_t>(BONE_SPINE_1)];
+  }
+  if (player.bonePositions.size() > static_cast<size_t>(BONE_PELVIS)) {
+    return player.bonePositions[static_cast<size_t>(BONE_PELVIS)];
+  }
   return {player.renderPosition.x, player.renderPosition.y,
           player.renderPosition.z + 42.0f};
 }
@@ -432,6 +447,7 @@ void GameManager::ClearFrameState(bool clearClientBase) {
     clientBase = 0;
     s_invalidSlotCache.clear();
     InvalidateCachedEntityData();
+    VisibilityManager::ResetProcessState();
   }
 
   ResetTelemetryState();
@@ -680,6 +696,10 @@ void GameManager::UpdateCombatTelemetry() {
           continue;
         }
 
+        if (!it->confirmedImpact) {
+          continue;
+        }
+
         const float distanceSq = DistanceSquared(it->end, hit.position);
         if (distanceSq < bestTraceDistance) {
           bestTraceDistance = distanceSq;
@@ -691,7 +711,7 @@ void GameManager::UpdateCombatTelemetry() {
         }
       }
 
-      if (bestTraceDistance <= kImpactLooseMatchDistanceSq) {
+      if (bestTraceDistance <= kHitConfirmedImpactDistanceSq) {
         hit.shotId = bestTraceShotId;
         hit.position = bestTracePosition;
       }
@@ -712,8 +732,8 @@ void GameManager::UpdateCombatTelemetry() {
         }
       }
 
-      if (hit.shotId != 0 || bestTraceDistance <= kImpactLooseMatchDistanceSq ||
-          bestShotDistance <= kImpactLooseMatchDistanceSq) {
+      if (bestTraceDistance <= kHitConfirmedImpactDistanceSq ||
+          bestShotDistance <= kHitShotRayDistanceSq) {
         s_recentHitEvents.push_back(hit);
       }
     }
@@ -765,7 +785,8 @@ void GameManager::UpdateCombatTelemetry() {
       }
 
       if (state.onGround && !player.isOnGround &&
-          now - state.lastJumpTime >= 0.18f && horizontalSpeed >= 55.0f) {
+          now - state.lastJumpTime >= 0.18f && horizontalSpeed >= 55.0f &&
+          player.velocity.z >= kJumpVerticalVelocityThreshold) {
         pushAudioEvent(SDK::MovementAudioType::Jump, std::max(0.45f, strength));
         state.lastJumpTime = now;
         state.accumulatedGroundDistance = 0.0f;
@@ -776,11 +797,14 @@ void GameManager::UpdateCombatTelemetry() {
           now - state.lastLandTime >= 0.18f) {
         const float verticalDelta =
             std::fabs(player.renderPosition.z - state.airborneStartZ);
-        pushAudioEvent(SDK::MovementAudioType::Land,
-                       std::clamp(0.55f + verticalDelta / 32.0f, 0.55f, 1.35f));
-        state.lastLandTime = now;
-        state.accumulatedGroundDistance = 0.0f;
-        state.lastStepPosition = player.renderPosition;
+        if (verticalDelta >= kLandMinVerticalDelta) {
+          pushAudioEvent(
+              SDK::MovementAudioType::Land,
+              std::clamp(0.55f + verticalDelta / 32.0f, 0.55f, 1.35f));
+          state.lastLandTime = now;
+          state.accumulatedGroundDistance = 0.0f;
+          state.lastStepPosition = player.renderPosition;
+        }
       }
 
       if (player.isOnGround && !teleported) {
@@ -788,7 +812,7 @@ void GameManager::UpdateCombatTelemetry() {
           state.accumulatedGroundDistance += movedUnits;
           const float stepDistance = ComputeStepDistance(horizontalSpeed);
           if (state.accumulatedGroundDistance >= stepDistance &&
-              now - state.lastFootstepTime >= 0.10f) {
+              now - state.lastFootstepTime >= kFootstepMinIntervalSeconds) {
             const float stepStrength = std::clamp(
                 0.35f + (horizontalSpeed / 260.0f) +
                     std::min(state.accumulatedGroundDistance / stepDistance, 1.0f) *
@@ -911,6 +935,7 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
                                  const SDK::OffsetSet &offsets) {
   constexpr float maxDistSq =
       Constants::ESP_MAX_DISTANCE_UNITS * Constants::ESP_MAX_DISTANCE_UNITS;
+  VisibilityManager::PrepareFrame(frameTimeSeconds);
 
   for (uintptr_t controllerPtr : context.controllerPointers) {
     SDK::CPlayerController controller(controllerPtr, &offsets);
@@ -1004,7 +1029,7 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
     }
 
     const uint32_t spottedMask = pawn.GetSpottedStateMask();
-    entity.isSpotted =
+    const bool fallbackSpotted =
         localSlot >= 0 && (spottedMask & (1u << localSlot)) != 0;
 
     if (s_nameCache.find(pawnHandle) == s_nameCache.end()) {
@@ -1039,6 +1064,45 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
         }
       }
     }
+
+    bool visibilityConfirmed = fallbackSpotted;
+    std::vector<SDK::Vector3> visibilityTargets;
+    visibilityTargets.reserve(3);
+
+    if (!entity.bonePositions.empty()) {
+      if (entity.bonePositions.size() > static_cast<size_t>(BONE_HEAD)) {
+        visibilityTargets.push_back(
+            entity.bonePositions[static_cast<size_t>(BONE_HEAD)]);
+      }
+      if (entity.bonePositions.size() > static_cast<size_t>(BONE_NECK)) {
+        visibilityTargets.push_back(
+            entity.bonePositions[static_cast<size_t>(BONE_NECK)]);
+      } else if (entity.bonePositions.size() > static_cast<size_t>(BONE_SPINE_1)) {
+        visibilityTargets.push_back(
+            entity.bonePositions[static_cast<size_t>(BONE_SPINE_1)]);
+      }
+      if (entity.bonePositions.size() > static_cast<size_t>(BONE_PELVIS)) {
+        visibilityTargets.push_back(
+            entity.bonePositions[static_cast<size_t>(BONE_PELVIS)]);
+      }
+    }
+
+    if (visibilityTargets.empty()) {
+      visibilityTargets.push_back({position.x, position.y, position.z + 62.0f});
+      visibilityTargets.push_back({position.x, position.y, position.z + 44.0f});
+      visibilityTargets.push_back({position.x, position.y, position.z + 24.0f});
+    }
+
+    for (const auto &visibilityTarget : visibilityTargets) {
+      const auto visibility = VisibilityManager::QueryPlayerVisibility(
+          localPawn, entity.address, localEyePos, visibilityTarget);
+      if (visibility.hasValue && visibility.visible) {
+        visibilityConfirmed = true;
+        break;
+      }
+    }
+
+    entity.isSpotted = visibilityConfirmed;
 
     entity.onScreen = IsOnScreen(position);
     players.emplace_back(std::move(entity));

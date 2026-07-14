@@ -58,6 +58,15 @@ public:
     NTSTATUS status = Process::NtRead(reinterpret_cast<void *>(address), buffer, size);
     return status == 0;
   }
+
+  static bool WriteRaw(uintptr_t address, const void *buffer, size_t size) {
+    if (address < Constants::MIN_VALID_ADDRESS ||
+        address > Constants::MAX_VALID_ADDRESS || buffer == nullptr ||
+        size == 0) {
+      return false;
+    }
+    return Process::NtWrite(reinterpret_cast<void *>(address), buffer, size);
+  }
 };
 
 } // namespace Core

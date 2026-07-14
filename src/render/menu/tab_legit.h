@@ -2,6 +2,6 @@
 
 namespace Render {
 
-void RenderTabLegit();
+void RenderTabLegit(int subTab);
 
 } // namespace Render

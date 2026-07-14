@@ -1,29 +1,24 @@
 # Structure And Engineering Rules For `cs2overlay`
 
-This document is the source of truth for the current project layout, runtime model, config rules, render pipeline, and feature boundaries.
+This file is the source of truth for the current project layout, runtime model, config rules, render pipeline, and feature boundaries.
 
 Update this file whenever any of the following change:
-- folders or subsystem ownership
+- folder ownership or subsystem boundaries
 - startup or shutdown flow
-- process attach / detach behavior
+- process attach or detach behavior
 - config persistence or feature enable wiring
-- snapshot / telemetry publication
+- snapshot or telemetry publication
 - renderer, overlay, or menu architecture
-- assets used by runtime features
+- runtime assets used by features
 
 ## 1. Project Layout
 
 ```text
 cs2overlay/
 |-- CMakeLists.txt
-|-- build.bat
 |-- Structure.md
-|-- offsets/
-|   `-- output/
-|       |-- offsets.json
-|       |-- client_dll.json
-|       |-- offsets.hpp
-|       `-- client_dll.hpp
+|-- build.bat
+|-- imgui.ini
 |-- assets/
 |   `-- models/
 |       |-- tm_phoenix.glb
@@ -32,8 +27,8 @@ cs2overlay/
 |-- build/
 |   `-- Release/
 |       |-- cs2overlay.exe
+|       |-- cs2overlay.log
 |       |-- cache_offsets/
-|       |-- configs/
 |       `-- ...
 |-- external/
 |   `-- imgui/
@@ -47,21 +42,23 @@ cs2overlay/
     |   `-- settings.h
     |-- core/
     |   |-- application/
+    |   |   |-- app_state.h
     |   |   |-- application.cpp
-    |   |   |-- application.h
-    |   |   |-- app_config.h
-    |   |   `-- app_state.h
+    |   |   `-- application.h
     |   |-- game/
     |   |   |-- entity_list.h
     |   |   |-- game_manager.cpp
     |   |   |-- game_manager.h
     |   |   |-- game_manager_getters.cpp
-    |   |   `-- local_player.h
+    |   |   |-- local_player.h
+    |   |   |-- visibility_manager.cpp
+    |   |   `-- visibility_manager.h
     |   |-- math/
     |   |   |-- math.cpp
     |   |   `-- math.h
     |   |-- memory/
     |   |   |-- memory_manager.h
+    |   |   |-- pattern_scanner.cpp
     |   |   `-- pattern_scanner.h
     |   |-- process/
     |   |   |-- module.cpp
@@ -81,8 +78,10 @@ cs2overlay/
     |       |-- offset_loader.h
     |       |-- offset_parser.cpp
     |       |-- offset_parser.h
+    |       |-- offsets.cpp
     |       |-- offsets.h
     |       |-- structs.h
+    |       |-- updater.cpp
     |       `-- updater.h
     |-- features/
     |   |-- aimbot/
@@ -90,6 +89,9 @@ cs2overlay/
     |   |-- chams/
     |   |-- debug_overlay/
     |   |-- esp/
+    |   |-- feature_base.h
+    |   |-- feature_manager.cpp
+    |   |-- feature_manager.h
     |   |-- misc/
     |   |-- radar/
     |   |-- rcs/
@@ -136,20 +138,20 @@ cs2overlay/
 
 ## 2. Entry Points
 
-There are still two executable boot paths:
+There are two executable boot paths:
 - `src/main.cpp`
 - `src/core/application/application.cpp`
 
 Both must stay behaviorally aligned for:
 - stealth setup
 - offset update startup behavior
-- process attach / detach
-- overlay / renderer / ImGui startup
+- process attach and detach
+- overlay, renderer, and ImGui startup
 - feature registration
 - config load
 - cleanup on failure
 
-If one path is changed, review the other path in the same task unless it is being explicitly deprecated.
+If one path changes, review the other path in the same task unless it is being explicitly deprecated.
 
 ## 3. Runtime Model
 
@@ -164,13 +166,13 @@ Owned by:
 Responsibilities:
 - Windows message pump
 - input polling and hotkeys
-- menu toggle / close handling
+- menu toggle and close handling
 - feature `UpdateAll()`
-- overlay move / resize tracking
-- frame begin / end
+- overlay move and resize tracking
+- frame begin and end
 - feature rendering
 - ImGui rendering
-- FPS pacing / VSync toggling
+- FPS pacing and VSync toggling
 
 Rules:
 - synthetic mouse input and key state queries stay here
@@ -184,7 +186,7 @@ Owned by:
 - or `Core::Application::MemoryThreadLoop()`
 
 Responsibilities:
-- process retry / reattach
+- process retry and reattach
 - memory reads
 - entity reconstruction
 - local player state collection
@@ -195,13 +197,13 @@ Responsibilities:
 
 Rules:
 - raw memory traversal belongs here
-- if process or offsets become invalid, publish empty state instead of leaving stale data alive
+- if process or offsets become invalid, publish empty state instead of leaving stale state alive
 
 ## 4. Core Runtime Data Model
 
 ### `GameSnapshot`
 
-`Core::GameManager` no longer exposes live mutable render buffers.
+`Core::GameManager` does not expose live mutable render buffers.
 
 Cross-thread state is published as an immutable `std::shared_ptr<const GameSnapshot>`.
 
@@ -209,9 +211,9 @@ Current snapshot contents include:
 - `viewMatrix`
 - `players`
 - local player spatial state
-- local angles / shoot angle / aim punch
+- local angles, shoot angle, and aim punch
 - local shots fired
-- local team / scope / crosshair / pawn
+- local team, scope state, crosshair, and pawn
 - bomb info
 - local weapon name and range
 - raw bullet impacts
@@ -244,7 +246,7 @@ Consumed by:
 
 Rules:
 - new combat-visual features should prefer telemetry events over ad-hoc render-thread heuristics
-- if event retention windows change, review tracer / hitmarker / sound behavior together
+- if event retention windows change, review tracer, hitmarker, and sound behavior together
 
 ## 5. Core Modules
 
@@ -261,7 +263,7 @@ Responsibilities:
 - expose thread-safe read and mutate helpers
 
 Current behavior:
-- configs live under `configs/` next to the executable
+- configs live under `build/Release/configs/` next to the executable output
 - `Config::ReadSettings`, `CopySettings`, `MutateSettings`, and `MutateSettingsVoid` are the supported access patterns
 - runtime-only UI state does not belong in persisted config
 
@@ -297,6 +299,7 @@ Current behavior:
 - `GameManager::Update()` runs only on the memory thread
 - telemetry and player state are rebuilt each update
 - `PublishFrameState()` creates the immutable snapshot consumed by render features
+- `VisibilityManager` can supply trace-based visibility, with fallback to spotted state
 
 Critical rules:
 - invalid backend data must result in empty publication, not stale publication
@@ -314,6 +317,10 @@ Current offset model:
 - parsed into `SDK::OffsetSet`
 - atomically published through `SDK::Offsets`
 - copied at the beginning of `GameManager::Update()`
+
+Offset inputs:
+- cached JSON lives in `build/Release/cache_offsets/`
+- GitHub download is the fallback source
 
 Critical rules:
 - if a field is used by wrappers or features, it must exist in `OffsetSet`
@@ -421,7 +428,7 @@ Critical rules:
 ### `src/render/renderer/`
 
 Responsibilities:
-- DX11 device / swap chain
+- DX11 device and swap chain
 - render target lifecycle
 - resize handling
 - VSync state
@@ -429,7 +436,7 @@ Responsibilities:
 Current behavior:
 - `Renderer` uses `ComPtr`
 - `HandleResize()` recreates the render target after `ResizeBuffers`
-- `GetDevice()` and `GetContext()` are now also used by `Chams`
+- `GetDevice()` and `GetContext()` are also used by `Chams`
 
 Critical rules:
 - partial init failures must be safe to retry
@@ -463,7 +470,7 @@ Files:
 Responsibilities:
 - key polling
 - one-frame pressed detection
-- synthetic mouse deltas / clicks
+- synthetic mouse deltas and clicks
 
 Critical rules:
 - key access must remain bounds-checked
@@ -476,7 +483,7 @@ Critical rules:
 Runtime offset inputs come from:
 
 ```text
-offsets/output/
+build/Release/cache_offsets/
 ```
 
 ### Runtime Outputs
@@ -484,8 +491,8 @@ offsets/output/
 Runtime expects:
 
 ```text
-build/Release/cache_offsets/
 build/Release/configs/
+build/Release/cs2overlay.exe
 ```
 
 ### Assets
@@ -542,7 +549,7 @@ These are reasons to centralize and document behavior carefully, not reasons to 
 ### Snapshot Publication
 
 - render-visible state must be published explicitly as empty when invalid
-- do not interpret “no new data” as “keep stale render state”
+- do not interpret "no new data" as "keep stale render state"
 - cross-thread mutable references are banned
 
 ### UI And Registration
@@ -597,5 +604,5 @@ If any of the following change, update this file in the same task:
 - config persistence or enable wiring
 - snapshot or telemetry architecture
 - menu architecture
-- renderer / overlay behavior
+- renderer or overlay behavior
 - assets required by runtime features
