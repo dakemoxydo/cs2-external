@@ -38,9 +38,20 @@ bool Overlay::FindCS2Window() {
             DWORD winPid = 0;
             GetWindowThreadProcessId(hEnum, &winPid);
             if (winPid == pData->targetPid) {
-                if (IsWindowVisible(hEnum) && GetWindowRect(hEnum, &pData->rc)) {
-                    pData->hwnd = hEnum;
-                    return FALSE;
+                // Only consider top-level, visible, non-owner windows (skip
+                // toolbars/children) and prefer the largest one, which is the
+                // main game window.
+                if (IsWindowVisible(hEnum) && GetWindow(hEnum, GW_OWNER) == nullptr) {
+                    RECT rc = {0, 0, 0, 0};
+                    if (GetWindowRect(hEnum, &rc)) {
+                        int area = (rc.right - rc.left) * (rc.bottom - rc.top);
+                        int bestArea = (pData->rc.right - pData->rc.left) *
+                                       (pData->rc.bottom - pData->rc.top);
+                        if (pData->hwnd == nullptr || area > bestArea) {
+                            pData->hwnd = hEnum;
+                            pData->rc = rc;
+                        }
+                    }
                 }
             }
             return TRUE;
@@ -141,10 +152,15 @@ bool Overlay::Create() {
         nullptr,
         kOverlayClassName,
         nullptr};
-    if (!RegisterClassExA(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-        return false;
+    if (!RegisterClassExA(&wc)) {
+        if (GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+            return false;
+        }
+        // Class already existed (registered by another instance/module) - we do not own it.
+        s_classRegistered = false;
+    } else {
+        s_classRegistered = true;
     }
-    s_classRegistered = true;
 
     RECT clientRect{};
     GetClientRect(hwndCS2, &clientRect);
@@ -170,7 +186,13 @@ bool Overlay::Create() {
         return false;
     }
 
-    SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+    // Transparency: make pure black (the cleared backbuffer / empty areas)
+    // transparent via a COLORKEY while keeping the window layered, so DWM
+    // still composites the D3D swap-chain content. A constant LWA_ALPHA
+    // of 255 would force the whole window fully opaque (solid black box),
+    // and removing the layered attribute entirely would stop DWM from
+    // compositing the D3D backbuffer at all (empty/blank overlay).
+    SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
 
     MARGINS margins = {-1};
     DwmExtendFrameIntoClientArea(hwnd, &margins);
@@ -206,10 +228,18 @@ bool Overlay::UpdatePosition() {
     int curY = origin.y;
     if (curW <= 0 || curH <= 0) return false;
 
+    static HWND trackedWindow = nullptr;
     static int lastX = curX;
     static int lastY = curY;
     static int lastW = curW;
     static int lastH = curH;
+    if (trackedWindow != hwndCS2) {
+        trackedWindow = hwndCS2;
+        lastX = curX;
+        lastY = curY;
+        lastW = curW;
+        lastH = curH;
+    }
 
     const bool sizeChanged = curW != lastW || curH != lastH;
     const bool positionChanged = curX != lastX || curY != lastY;
@@ -252,6 +282,8 @@ void Overlay::Destroy() {
 }
 
 HWND Overlay::GetWindowHandle() { return hwnd; }
+
+HWND Overlay::GetCS2WindowHandle() { return hwndCS2; }
 
 LRESULT CALLBACK Overlay::WndProc(HWND hWnd, UINT msg, WPARAM wParam,
                                   LPARAM lParam) {

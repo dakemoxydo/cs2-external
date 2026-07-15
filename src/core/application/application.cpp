@@ -11,6 +11,7 @@
 #include "core/sdk/offsets.h"
 #include "core/sdk/updater.h"
 #include "features/chams/chams.h"
+#include "features/feature_frame.h"
 #include "features/feature_manager.h"
 #include "input/input_manager.h"
 #include "render/draw/draw_list.h"
@@ -29,7 +30,11 @@
 namespace Core {
 
 Application::Application() = default;
-Application::~Application() = default;
+Application::~Application() {
+    // Shutdown is idempotent and also covers construction/initialization
+    // failures that occur before Run() starts the memory thread.
+    Shutdown();
+}
 
 bool Application::Initialize() {
     std::cout << "[App] Initialize() entry\n";
@@ -131,6 +136,7 @@ void Application::Shutdown() {
 
     VisibilityManager::ResetProcessState();
     SDK::Updater::Shutdown();
+    Features::FeatureManager::ShutdownAll();
     Render::ImGuiManager::Shutdown();
     Render::Renderer::Shutdown();
     Render::Overlay::Destroy();
@@ -158,16 +164,14 @@ void Application::MemoryThreadLoop() {
 
             GameManager::Update();
 
+            const auto settings = Config::CopySettings();
             int ups;
-            {
-                std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-                if (Config::Settings.performance.vsyncEnabled) {
-                    float frameTimeMS = overlayFrameTimeMs_.load();
-                    ups = frameTimeMS > 0 ? (int)(1000.0f / frameTimeMS) : 64;
-                } else {
-                    ups = Config::Settings.performance.upsLimit;
-                    if (ups <= 0) ups = Constants::DEFAULT_UPS_LIMIT;
-                }
+            if (settings.performance.vsyncEnabled) {
+                float frameTimeMS = overlayFrameTimeMs_.load();
+                ups = frameTimeMS > 0 ? (int)(1000.0f / frameTimeMS) : 64;
+            } else {
+                ups = settings.performance.upsLimit;
+                if (ups <= 0) ups = Constants::DEFAULT_UPS_LIMIT;
             }
 
             ups = (std::clamp)(ups, 10, 500);
@@ -218,17 +222,17 @@ void Application::RenderLoop() {
 
             // Read config settings under shared_lock to avoid data race with
             // MemoryThread and ConfigManager::Load/Save which write under unique_lock.
-            {
-                std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-                bool readBones = Config::Settings.esp.showBones ||
-                                 Config::Settings.aimbot.enabled ||
-                                 Config::Settings.chams.enabled;
-                bool readWeapons = Config::Settings.esp.showWeapon;
-                Core::GameManager::EnableBoneRead(readBones);
-                Core::GameManager::EnableWeaponRead(readWeapons);
-            }
+            const auto featureSettings = Config::CopySettings();
+            const bool readBones = featureSettings.esp.showBones ||
+                                   featureSettings.aimbot.enabled ||
+                                   featureSettings.chams.enabled;
+            Core::GameManager::EnableBoneRead(readBones);
+            Core::GameManager::EnableWeaponRead(featureSettings.esp.showWeapon);
 
-            Features::FeatureManager::UpdateAll();
+            const auto gameSnapshot = Core::GameManager::GetSnapshot();
+            const Features::FeatureFrame featureFrame{*gameSnapshot,
+                                                       featureSettings};
+            Features::FeatureManager::UpdateAll(featureFrame);
 
             // Update frustum culling screen size
             Core::GameManager::SetScreenSize(Render::Overlay::GetGameWidth(), Render::Overlay::GetGameHeight());
@@ -244,7 +248,7 @@ void Application::RenderLoop() {
             Render::Menu::Render();
 
             Render::DrawList drawList;
-            Features::FeatureManager::RenderAll(drawList);
+            Features::FeatureManager::RenderAll(featureFrame, drawList);
 
             Render::ImGuiManager::Render();
             if (!Render::Renderer::EndFrame()) {
@@ -266,13 +270,9 @@ void Application::RenderLoop() {
             overlayFrameTimeMs_.store(frameTimeMs);
 
             // Read VSync/fps settings under shared_lock
-            bool vsyncEnabled;
-            int fpsLimit;
-            {
-                std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-                vsyncEnabled = Config::Settings.performance.vsyncEnabled;
-                fpsLimit = Config::Settings.performance.fpsLimit;
-            }
+            const auto renderSettings = Config::CopySettings();
+            const bool vsyncEnabled = renderSettings.performance.vsyncEnabled;
+            const int fpsLimit = renderSettings.performance.fpsLimit;
 
             // Apply VSync only when state changes
             if (!vsyncInitialized_ || vsyncEnabled != vsyncEnabled_) {

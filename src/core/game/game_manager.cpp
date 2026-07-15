@@ -48,6 +48,7 @@ constexpr float kFootstepMaxDistance = 44.0f;
 constexpr float kFootstepMinIntervalSeconds = 0.20f;
 constexpr float kJumpVerticalVelocityThreshold = 80.0f;
 constexpr float kLandMinVerticalDelta = 18.0f;
+constexpr float kMaxPlausibleBoneDistance = 512.0f;
 
 using TelemetryClock = std::chrono::steady_clock;
 
@@ -197,6 +198,32 @@ float DistanceSquared(const SDK::Vector3 &a, const SDK::Vector3 &b) {
   return dx * dx + dy * dy + dz * dz;
 }
 
+bool IsPlausibleBonePose(const std::array<SDK::BoneTransform, BONE_COUNT> &bones,
+                         const SDK::Vector3 &origin) {
+  constexpr std::array<int, 8> kRequiredBones = {
+      BONE_PELVIS, BONE_SPINE_2, BONE_SPINE_1, BONE_NECK,
+      BONE_HEAD, BONE_HAND_L, BONE_HAND_R, BONE_ANKLE_L};
+
+  int validCount = 0;
+  for (const int boneIndex : kRequiredBones) {
+    const SDK::Vector3 &position = bones[boneIndex].position;
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
+        !std::isfinite(position.z) ||
+        DistanceSquared(position, origin) >
+            kMaxPlausibleBoneDistance * kMaxPlausibleBoneDistance) {
+      return false;
+    }
+    ++validCount;
+  }
+
+  // A zeroed or unrelated buffer can pass individual finite-value checks.
+  // A real player pose must contain a visible vertical span.
+  const float verticalSpan = std::abs(
+      bones[BONE_HEAD].position.z - bones[BONE_PELVIS].position.z);
+  return validCount == static_cast<int>(kRequiredBones.size()) &&
+         verticalSpan >= 16.0f && verticalSpan <= 128.0f;
+}
+
 float PointToSegmentDistanceSquared(const SDK::Vector3 &point,
                                     const SDK::Vector3 &segmentStart,
                                     const SDK::Vector3 &segmentEnd) {
@@ -321,8 +348,7 @@ void PruneCaches(const std::unordered_set<uintptr_t> &activeAddresses,
 
 } // namespace
 
-std::atomic<std::shared_ptr<const GameSnapshot>> GameManager::s_snapshot{
-    std::make_shared<GameSnapshot>()};
+GameStateStore GameManager::s_stateStore;
 std::atomic<bool> GameManager::s_readBones{false};
 std::atomic<bool> GameManager::s_readWeapons{false};
 std::atomic<float> GameManager::s_interpolationFactor{0.98f};
@@ -491,6 +517,9 @@ void GameManager::UpdateLocalState(const SDK::CPlayerPawn &currentLocalPlayer,
   localWeaponRange = currentLocalPlayer.GetWeaponRange();
   localBulletImpacts = currentLocalPlayer.GetBulletImpacts();
 
+  if (offsets.m_pClippingWeapon == 0) {
+    return;
+  }
   uintptr_t clippingWeapon =
       MemoryManager::Read<uintptr_t>(currentLocalPlayer.GetAddress() + offsets.m_pClippingWeapon);
   if (clippingWeapon <= Constants::MIN_VALID_ADDRESS) {
@@ -936,13 +965,6 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
                                  const SDK::OffsetSet &offsets) {
   constexpr float maxDistSq =
       Constants::ESP_MAX_DISTANCE_UNITS * Constants::ESP_MAX_DISTANCE_UNITS;
-  VisibilityManager::PrepareFrame(frameTimeSeconds);
-  const bool needVisibility = Config::ReadSettings([](const auto &settings) {
-    return (settings.aimbot.enabled && settings.aimbot.visibleOnly) ||
-           (settings.radar.enabled && settings.radar.visibleCheck) ||
-           (settings.chams.enabled && settings.chams.visibleCheck);
-  });
-
   for (uintptr_t controllerPtr : context.controllerPointers) {
     SDK::CPlayerController controller(controllerPtr, &offsets);
     if (!controller.IsValid()) {
@@ -1045,8 +1067,12 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
     entity.name = s_nameCache[pawnHandle];
     entity.distance = std::sqrt(distSq) / 100.0f;
 
-    entity.flags = MemoryManager::Read<uint32_t>(entity.address + offsets.m_fFlags);
-    entity.velocity = MemoryManager::Read<SDK::Vector3>(entity.address + offsets.m_vecVelocity);
+    if (offsets.m_fFlags != 0) {
+      entity.flags = MemoryManager::Read<uint32_t>(entity.address + offsets.m_fFlags);
+    }
+    if (offsets.m_vecVelocity != 0) {
+      entity.velocity = MemoryManager::Read<SDK::Vector3>(entity.address + offsets.m_vecVelocity);
+    }
     entity.isOnGround = (entity.flags & 1) != 0;
     const SDK::Vector3 &vel = entity.velocity;
     entity.speed = std::sqrtf(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
@@ -1058,61 +1084,54 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
     if (!tooFar && s_readBones.load(std::memory_order_relaxed)) {
       const uintptr_t gameScene = pawn.GetGameSceneNode();
       if (gameScene > Constants::MIN_VALID_ADDRESS) {
-        const uintptr_t boneArray = MemoryManager::Read<uintptr_t>(
-            gameScene + offsets.m_boneArrayOffset);
-        if (boneArray > Constants::MIN_VALID_ADDRESS) {
-          std::array<SDK::BoneTransform, SDK::MAX_GAME_BONES> rawBones{};
-          if (MemoryManager::ReadRaw(boneArray, rawBones.data(), sizeof(rawBones))) {
-            entity.boneTransforms.assign(rawBones.begin(), rawBones.end());
-            entity.bonePositions.resize(BONE_COUNT);
-            for (int boneIndex = 0; boneIndex < BONE_COUNT; ++boneIndex) {
-              entity.bonePositions[boneIndex] = rawBones[boneIndex].position;
-            }
+        // Different CS2 builds expose the model state at slightly different
+        // levels of the scene-node hierarchy. Try the historical direct
+        // offset first, then the current m_modelState + bone-data layout.
+        std::array<uintptr_t, 5> bonePointers = {
+            gameScene + offsets.m_boneArrayOffset,
+            gameScene + 0x1F0,
+            gameScene + 0x1E0,
+            gameScene + offsets.m_modelState + 0x80,
+            gameScene + offsets.m_modelState + 0x90};
+        std::array<SDK::BoneTransform, SDK::MAX_GAME_BONES> rawBones{};
+        for (const uintptr_t pointerAddress : bonePointers) {
+          if (pointerAddress < Constants::MIN_VALID_ADDRESS ||
+              pointerAddress > Constants::MAX_VALID_ADDRESS - sizeof(uintptr_t)) {
+            continue;
           }
-        }
-      }
-    }
+          const uintptr_t boneArray = MemoryManager::Read<uintptr_t>(pointerAddress);
+          if (boneArray < Constants::MIN_VALID_ADDRESS ||
+              boneArray > Constants::MAX_VALID_ADDRESS -
+                                sizeof(rawBones)) {
+            continue;
+          }
 
-    bool visibilityConfirmed = fallbackSpotted;
-    std::vector<SDK::Vector3> visibilityTargets;
-    visibilityTargets.reserve(3);
+          // Read the ESP-sized prefix first. This avoids rejecting a valid
+          // pose when the final part of a 128-bone buffer crosses a page.
+          std::array<SDK::BoneTransform, BONE_COUNT> visibleBones{};
+          if (!MemoryManager::ReadRaw(boneArray, visibleBones.data(),
+                                      sizeof(visibleBones))) {
+            continue;
+          }
+          if (!IsPlausibleBonePose(visibleBones, entity.position)) continue;
 
-    if (!entity.bonePositions.empty()) {
-      if (entity.bonePositions.size() > static_cast<size_t>(BONE_HEAD)) {
-        visibilityTargets.push_back(
-            entity.bonePositions[static_cast<size_t>(BONE_HEAD)]);
-      }
-      if (entity.bonePositions.size() > static_cast<size_t>(BONE_NECK)) {
-        visibilityTargets.push_back(
-            entity.bonePositions[static_cast<size_t>(BONE_NECK)]);
-      } else if (entity.bonePositions.size() > static_cast<size_t>(BONE_SPINE_1)) {
-        visibilityTargets.push_back(
-            entity.bonePositions[static_cast<size_t>(BONE_SPINE_1)]);
-      }
-      if (entity.bonePositions.size() > static_cast<size_t>(BONE_PELVIS)) {
-        visibilityTargets.push_back(
-            entity.bonePositions[static_cast<size_t>(BONE_PELVIS)]);
-      }
-    }
+          entity.bonePositions.resize(BONE_COUNT);
+          for (int boneIndex = 0; boneIndex < BONE_COUNT; ++boneIndex) {
+            entity.bonePositions[boneIndex] = visibleBones[boneIndex].position;
+          }
 
-    if (visibilityTargets.empty()) {
-      visibilityTargets.push_back({position.x, position.y, position.z + 62.0f});
-      visibilityTargets.push_back({position.x, position.y, position.z + 44.0f});
-      visibilityTargets.push_back({position.x, position.y, position.z + 24.0f});
-    }
-
-    if (needVisibility) {
-      for (const auto &visibilityTarget : visibilityTargets) {
-        const auto visibility = VisibilityManager::QueryPlayerVisibility(
-            localPawn, entity.address, localEyePos, visibilityTarget);
-        if (visibility.hasValue && visibility.visible) {
-          visibilityConfirmed = true;
+          // Chams needs the full transform buffer; failure here must not
+          // disable the ESP skeleton that was already read successfully.
+          if (MemoryManager::ReadRaw(boneArray, rawBones.data(),
+                                     sizeof(rawBones))) {
+            entity.boneTransforms.assign(rawBones.begin(), rawBones.end());
+          }
           break;
         }
       }
     }
 
-    entity.isSpotted = visibilityConfirmed;
+    entity.isSpotted = fallbackSpotted;
 
     entity.onScreen = IsOnScreen(position);
     players.emplace_back(std::move(entity));
@@ -1120,32 +1139,31 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
 }
 
 void GameManager::PublishFrameState() {
-  auto snapshot = std::make_shared<GameSnapshot>();
-  snapshot->clientBase = clientBase;
-  snapshot->entityList = entityList;
-  snapshot->viewMatrix = viewMatrix;
-  snapshot->players = players;
-  snapshot->localPos = localPos;
-  snapshot->localEyePos = localEyePos;
-  snapshot->localAngles = localAngles;
-  snapshot->localShootAngle = localShootAngle;
-  snapshot->localAimPunch = localAimPunch;
-  snapshot->localShotsFired = localShotsFired;
-  snapshot->localTeam = localTeam;
-  snapshot->localScoped = localScoped;
-  snapshot->localCrosshairHandle = localCrosshairHandle;
-  snapshot->localPawn = localPawn;
-  snapshot->bombInfo = bombInfo;
-  snapshot->localWeaponName = localWeaponName;
-  snapshot->localWeaponRange = localWeaponRange;
-  snapshot->localBulletImpacts = localBulletImpacts;
-  snapshot->frameTimeSeconds = frameTimeSeconds;
-  snapshot->shotEvents = shotEvents;
-  snapshot->bulletTraceEvents = bulletTraceEvents;
-  snapshot->hitEvents = hitEvents;
-  snapshot->movementAudioEvents = movementAudioEvents;
-  s_snapshot.store(std::static_pointer_cast<const GameSnapshot>(snapshot),
-                   std::memory_order_release);
+  GameSnapshot snapshot;
+  snapshot.clientBase = clientBase;
+  snapshot.entityList = entityList;
+  snapshot.viewMatrix = viewMatrix;
+  snapshot.players = players;
+  snapshot.localPos = localPos;
+  snapshot.localEyePos = localEyePos;
+  snapshot.localAngles = localAngles;
+  snapshot.localShootAngle = localShootAngle;
+  snapshot.localAimPunch = localAimPunch;
+  snapshot.localShotsFired = localShotsFired;
+  snapshot.localTeam = localTeam;
+  snapshot.localScoped = localScoped;
+  snapshot.localCrosshairHandle = localCrosshairHandle;
+  snapshot.localPawn = localPawn;
+  snapshot.bombInfo = bombInfo;
+  snapshot.localWeaponName = localWeaponName;
+  snapshot.localWeaponRange = localWeaponRange;
+  snapshot.localBulletImpacts = localBulletImpacts;
+  snapshot.frameTimeSeconds = frameTimeSeconds;
+  snapshot.shotEvents = shotEvents;
+  snapshot.bulletTraceEvents = bulletTraceEvents;
+  snapshot.hitEvents = hitEvents;
+  snapshot.movementAudioEvents = movementAudioEvents;
+  s_stateStore.Publish(std::move(snapshot));
 }
 
 void GameManager::EnableBoneRead(bool enable) {
@@ -1182,6 +1200,9 @@ bool GameManager::IsOnScreen(const SDK::Vector3 &worldPos) {
   const float ndcY = clipY / clipW;
   const int width = s_screenWidth.load(std::memory_order_relaxed);
   const int height = s_screenHeight.load(std::memory_order_relaxed);
+  if (width <= 0 || height <= 0) {
+    return false;
+  }
   return (ndcX >= -1.0f - FRUSTUM_MARGIN / width &&
           ndcX <= 1.0f + FRUSTUM_MARGIN / width &&
           ndcY >= -1.0f - FRUSTUM_MARGIN / height &&

@@ -29,5 +29,6 @@ private:
   static Microsoft::WRL::ComPtr<IDXGISwapChain> pSwapChain;
   static Microsoft::WRL::ComPtr<ID3D11RenderTargetView> pRenderTargetView;
   static bool s_vsyncEnabled;
+  static HWND s_hwnd;
 };
 } // namespace Render

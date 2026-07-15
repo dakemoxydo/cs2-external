@@ -48,7 +48,10 @@ void OffsetApplier::LogStatus(const OffsetSet& parsed) const {
     log("m_flDefuseCountDown", parsed.m_flDefuseCountDown);
 
     if (!Validate(parsed)) {
-        std::cout << "[!] CRITICAL: Some essential offsets are missing! ESP may not work.\n";
+        std::cout << "[!] CRITICAL: Core offsets are missing; offset set cannot be used.\n";
+    } else if (parsed.MissingCount() > 0) {
+        std::cout << "[!] Some optional feature offsets are unavailable; "
+                     "affected features will remain disabled.\n";
     }
 }
 

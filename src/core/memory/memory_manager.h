@@ -30,16 +30,12 @@ public:
     return buffer;
   }
 
-  template <typename T> static bool Write(uintptr_t address, const T &value) {
-    if (address < Constants::MIN_VALID_ADDRESS ||
-        address > Constants::MAX_VALID_ADDRESS - sizeof(T)) {
-      return false;
-    }
-    return Process::NtWrite(reinterpret_cast<void *>(address), &value, sizeof(T));
-  }
-
   template <typename T>
   static T ReadChain(uintptr_t base, std::initializer_list<uintptr_t> offsets) {
+    if (base < Constants::MIN_VALID_ADDRESS ||
+        base > Constants::MAX_VALID_ADDRESS) {
+      return T{};
+    }
     uintptr_t current = base;
     if (offsets.size() == 0)
       return Read<T>(current);
@@ -60,21 +56,13 @@ public:
   static bool ReadRaw(uintptr_t address, void *buffer, size_t size) {
     if (address < Constants::MIN_VALID_ADDRESS ||
         address > Constants::MAX_VALID_ADDRESS || buffer == nullptr || size == 0 ||
-        size > Constants::MAX_VALID_ADDRESS - address) {
+        size - 1 > Constants::MAX_VALID_ADDRESS - address) {
       return false;
     }
     NTSTATUS status = Process::NtRead(reinterpret_cast<void *>(address), buffer, size);
     return status == 0;
   }
 
-  static bool WriteRaw(uintptr_t address, const void *buffer, size_t size) {
-    if (address < Constants::MIN_VALID_ADDRESS ||
-        address > Constants::MAX_VALID_ADDRESS || buffer == nullptr || size == 0 ||
-        size > Constants::MAX_VALID_ADDRESS - address) {
-      return false;
-    }
-    return Process::NtWrite(reinterpret_cast<void *>(address), buffer, size);
-  }
 };
 
 } // namespace Core

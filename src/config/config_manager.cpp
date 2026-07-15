@@ -19,6 +19,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <sstream>
+#include <thread>
 #include <windows.h>
 #include <nlohmann/json.hpp>
 
@@ -35,6 +36,7 @@ namespace fs = std::filesystem;
 namespace Config {
 
 std::string ConfigManager::LastError;
+static constexpr int kConfigSchemaVersion = 1;
 
 static std::string NormalizeConfigName(std::string name) {
   if (name.size() >= 5 && name.substr(name.size() - 5) == ".json") {
@@ -108,6 +110,43 @@ static fs::path ConfigDir() {
 
 static fs::path ConfigPath(const std::string &name) {
   return ConfigDir() / (NormalizeConfigName(name) + ".json");
+}
+
+static bool WriteTextAtomically(const fs::path &destination,
+                                const std::string &content,
+                                std::string &error) {
+  const auto threadId = std::hash<std::thread::id>{}(std::this_thread::get_id());
+  const fs::path temporary =
+      destination.wstring() + L"." + std::to_wstring(GetCurrentProcessId()) +
+      L"." + std::to_wstring(threadId) + L".tmp";
+  std::error_code ec;
+  fs::remove(temporary, ec);
+
+  {
+    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+    if (!file) {
+      error = "Cannot open temporary file for writing: " + temporary.string();
+      return false;
+    }
+    file.write(content.data(), static_cast<std::streamsize>(content.size()));
+    file.flush();
+    if (!file.good()) {
+      file.close();
+      fs::remove(temporary, ec);
+      error = "Failed while writing temporary file: " + temporary.string();
+      return false;
+    }
+  }
+
+  if (!MoveFileExW(temporary.c_str(), destination.c_str(),
+                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    const DWORD code = GetLastError();
+    fs::remove(temporary, ec);
+    error = "Failed to replace config file (Windows error " +
+            std::to_string(code) + "): " + destination.string();
+    return false;
+  }
+  return true;
 }
 
 // ─── Reflection Registry ─────────────────────────────────────────────────────
@@ -262,9 +301,15 @@ bool ConfigManager::Save(const std::string &name) {
     return false;
   }
   GlobalSettings snapshot = CopySettings();
-  fs::create_directories(ConfigDir());
+  std::error_code directoryError;
+  fs::create_directories(ConfigDir(), directoryError);
+  if (directoryError) {
+    LastError = "Cannot create config directory: " + directoryError.message();
+    return false;
+  }
   
   json j;
+  j["schema_version"] = kConfigSchemaVersion;
   
   // Основные настройки через registry
   auto reg = BuildRegistry(snapshot);
@@ -281,16 +326,8 @@ bool ConfigManager::Save(const std::string &name) {
     }
   }
   
-  std::ofstream f(ConfigPath(name));
-  if (!f) {
-    LastError = "Cannot open file for writing: " + ConfigPath(name).string();
-    return false;
-  }
-  
-  f << j.dump(2);
-  f.flush();
-  if (!f.good()) {
-    LastError = "Failed while writing: " + ConfigPath(name).string();
+  const std::string serialized = j.dump(2);
+  if (!WriteTextAtomically(ConfigPath(name), serialized, LastError)) {
     return false;
   }
   LastError.clear();
@@ -318,6 +355,18 @@ bool ConfigManager::Load(const std::string &name) {
   GlobalSettings candidate = CopySettings();
   try {
     json j = json::parse(f);
+    if (j.contains("schema_version")) {
+      if (!j["schema_version"].is_number_integer()) {
+        LastError = "Invalid config schema_version";
+        return false;
+      }
+      const int version = j["schema_version"].get<int>();
+      if (version < 1 || version > kConfigSchemaVersion) {
+        LastError = "Unsupported config schema version: " +
+                    std::to_string(version);
+        return false;
+      }
+    }
     
     // Основные настройки через registry
     auto reg = BuildRegistry(candidate);
@@ -353,7 +402,7 @@ bool ConfigManager::Load(const std::string &name) {
     std::unique_lock<std::shared_mutex> lock(SettingsMutex);
     Settings = candidate;
   }
-  ApplySettingsThreadSafe();
+  Detail::ApplySettings(candidate);
   LastError.clear();
 
   return true;
@@ -362,13 +411,13 @@ bool ConfigManager::Load(const std::string &name) {
 // ─── ApplySettings ───────────────────────────────────────────────────────────
 namespace Detail {
 
-void ApplySettingsUnderLock() {
-  ConfigManager::ApplySettings();
+void ApplySettings(const GlobalSettings& snapshot) {
+  ConfigManager::ApplySettings(snapshot);
 }
 
 } // namespace Detail
 
-void ConfigManager::ApplySettings() {
+void ConfigManager::ApplySettings(const GlobalSettings& settings) {
   // Lazy-init features when their enabled state changes to true
   // Apply all feature states through the manager facade. The manager owns
   // creation and lifecycle; config code must not inspect its storage.
@@ -386,16 +435,11 @@ void ConfigManager::ApplySettings() {
           {"SoundEsp", [](const auto &s) { return s.soundEsp.enabled; }},
       };
   for (const auto &[name, enabled] : features) {
-    Features::FeatureManager::SetEnabled(name, enabled(Settings));
+    Features::FeatureManager::SetEnabled(name, enabled(settings));
   }
 }
 
 // ─── ApplySettingsThreadSafe ─────────────────────────────────────────────────
-void ConfigManager::ApplySettingsThreadSafe() {
-  // Lifecycle hooks may allocate resources and read settings. Never run them
-  // while holding the settings mutex.
-  Detail::ApplySettingsUnderLock();
-}
 
 // ─── ListConfigs ─────────────────────────────────────────────────────────────
 std::vector<std::string> ConfigManager::ListConfigs() {
@@ -416,7 +460,7 @@ void ConfigManager::LoadDefault() {
     std::unique_lock<std::shared_mutex> lock(SettingsMutex);
     Settings = defaults;
   }
-  ApplySettingsThreadSafe();
+  Detail::ApplySettings(defaults);
   LastError.clear();
 }
 

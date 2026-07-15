@@ -17,8 +17,8 @@ struct SoundRing {
 
 class SoundEsp : public IFeature {
 public:
-  void Update() override;
-  void Render(Render::DrawList &drawList) override;
+  void Update(const FeatureFrame &frame) override;
+  void Render(const FeatureFrame &frame, Render::DrawList &drawList) override;
   std::string_view GetName() override { return "SoundEsp"; }
   void RenderUI() override;
 

@@ -7,12 +7,20 @@ namespace Features {
 
 class RCSSystem : public IFeature {
 public:
-  void Update() override;
-  void Render(Render::DrawList &drawList) override;
+  void Update(const FeatureFrame &frame) override;
+  void Render(const FeatureFrame &frame, Render::DrawList &drawList) override;
+  void OnDisable() override;
   std::string_view GetName() override { return "RCSSystem"; }
   void RenderUI() override;
 
   static bool IsWeaponSupported(const std::string& weaponName);
+
+private:
+  void ResetState();
+
+  SDK::Vector2 prevPunch_{};
+  float smoothX_ = 0.0f;
+  float smoothY_ = 0.0f;
 };
 
 } // namespace Features

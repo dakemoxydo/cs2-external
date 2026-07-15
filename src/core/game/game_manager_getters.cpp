@@ -1,13 +1,10 @@
-#include "core/constants.h"
 #include "game_manager.h"
-#include "../memory/memory_manager.h"
-#include "../sdk/offsets.h"
 #include <memory>
 
 namespace Core {
 
 std::shared_ptr<const GameSnapshot> GameManager::GetSnapshot() {
-  auto snapshot = s_snapshot.load(std::memory_order_acquire);
+  auto snapshot = s_stateStore.Load();
   if (snapshot) {
     return snapshot;
   }
@@ -77,42 +74,12 @@ uintptr_t GameManager::GetClientBase() {
   return GetSnapshot()->clientBase;
 }
 
-uintptr_t GameManager::GetEntityFromHandle(uint32_t handle) {
-  if (!handle || handle == 0xFFFFFFFF) {
-    return 0;
-  }
-
-  const auto snapshot = GetSnapshot();
-  if (!snapshot->entityList) {
-    return 0;
-  }
-
-  uintptr_t listEntry = MemoryManager::Read<uintptr_t>(
-      snapshot->entityList + Constants::ENTITY_LIST_HEADER_OFFSET +
-      0x8 * ((handle & 0x7FFF) >> 9));
-  if (!listEntry) {
-    return 0;
-  }
-
-  return MemoryManager::Read<uintptr_t>(
-      listEntry + Constants::ENTITY_IDENTITY_ENTRY_SIZE * (handle & 0x1FF));
-}
-
 std::string GameManager::GetLocalWeaponName() {
   return GetSnapshot()->localWeaponName;
 }
 
 float GameManager::GetLocalWeaponRange() {
   return GetSnapshot()->localWeaponRange;
-}
-
-uintptr_t GameManager::GetEntityGameSceneNode(uintptr_t entity) {
-  if (!entity) {
-    return 0;
-  }
-
-  const auto offsets = SDK::Offsets::GetCopy();
-  return MemoryManager::Read<uintptr_t>(entity + offsets.m_pGameSceneNode);
 }
 
 } // namespace Core

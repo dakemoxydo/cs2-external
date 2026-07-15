@@ -10,8 +10,8 @@ public:
   void Initialize() override;
   bool Warmup();
   void OnDisable() override;
-  void Update() override;
-  void Render(Render::DrawList &drawList) override;
+  void Update(const FeatureFrame &frame) override;
+  void Render(const FeatureFrame &frame, Render::DrawList &drawList) override;
   bool CanRenderPreview() const;
   bool RenderPreview(float x, float y, float width, float height,
                      bool teammate);

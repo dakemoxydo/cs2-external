@@ -4,6 +4,7 @@
 #include "core/memory/memory_manager.h"
 #include "core/sdk/offsets.h"
 #include "misc_config.h"
+#include "features/feature_frame.h"
 #include "render/draw/draw_list.h"
 #include "render/overlay/overlay.h"
 #include <imgui.h>
@@ -12,11 +13,11 @@
 
 namespace Features {
 
-void Misc::Update() {
+void Misc::Update(const FeatureFrame &) {
   // Future: bhop, auto-strafe, etc.
 }
 
-void Misc::Render(Render::DrawList &drawList) {
+void Misc::Render(const FeatureFrame &frame, Render::DrawList &drawList) {
   // Snapshot misc settings atomically
   struct S {
     bool awpCrosshair, crosshairGap;
@@ -25,8 +26,7 @@ void Misc::Render(Render::DrawList &drawList) {
   };
   S s;
   {
-    std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-    auto &M = Config::Settings.misc;
+    const auto &M = frame.settings.misc;
     s = {M.awpCrosshair, M.crosshairGap, M.crosshairStyle,
          M.crosshairSize, M.crosshairThickness};
     std::copy(std::begin(M.crosshairColor), std::end(M.crosshairColor), s.crosshairColor);
@@ -34,10 +34,10 @@ void Misc::Render(Render::DrawList &drawList) {
 
   if (!s.awpCrosshair) return;
 
-  bool isScoped = Core::GameManager::IsLocalScoped();
+  bool isScoped = frame.game.localScoped;
   if (isScoped) return;
 
-  std::string weaponName = Core::GameManager::GetLocalWeaponName();
+  const std::string &weaponName = frame.game.localWeaponName;
   if (weaponName.find("awp") == std::string::npos &&
       weaponName.find("ssg08") == std::string::npos) {
     return;

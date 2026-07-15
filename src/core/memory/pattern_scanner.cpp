@@ -1,6 +1,7 @@
 #include "pattern_scanner.h"
 #include "../process/process.h"
 #include <cctype>
+#include <cstring>
 #include <optional>
 #include <sstream>
 #include <tlhelp32.h>
@@ -73,9 +74,24 @@ uintptr_t PatternScanner::FindPattern(const std::wstring &moduleName,
   }
 
   std::vector<uint8_t> buffer(moduleInfo->size);
-  if (Process::NtRead(reinterpret_cast<void *>(moduleInfo->base), buffer.data(),
-                      buffer.size()) != 0) {
-    return 0;
+  // Read the module in chunks instead of one giant NtReadVirtualMemory.
+  // Large single reads frequently return STATUS_PARTIAL_COPY (or are reported
+  // as partial) when they span invalid/guard pages, which would make the whole
+  // scan fail even though the pattern is present. Reading in pages lets the
+  // rest of the module stay scannable; a chunk that can't be read is left
+  // zeroed so only patterns crossing it are missed.
+  constexpr size_t kChunkSize = 256 * 1024;
+  uint8_t *cursor = buffer.data();
+  size_t remaining = moduleInfo->size;
+  uintptr_t curBase = moduleInfo->base;
+  while (remaining > 0) {
+    const size_t chunk = (std::min)(remaining, kChunkSize);
+    if (Process::NtRead(reinterpret_cast<void *>(curBase), cursor, chunk) != 0) {
+      std::memset(cursor, 0, chunk);
+    }
+    cursor += chunk;
+    curBase += chunk;
+    remaining -= chunk;
   }
 
   const size_t last = buffer.size() - pattern.size();

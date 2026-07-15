@@ -2,6 +2,7 @@
 #include "chams_config.h"
 #include "config/settings.h"
 #include "core/game/game_manager.h"
+#include "features/feature_frame.h"
 #include "core/sdk/entity.h"
 #include "core/sdk/structs.h"
 #include <DirectXMath.h>
@@ -20,6 +21,7 @@
 #include <memory>
 #include <limits>
 #include <nlohmann/json.hpp>
+#include <unordered_set>
 #include <shared_mutex>
 #include <span>
 #include <string>
@@ -416,10 +418,8 @@ void CopyColor(T &dst, const float (&src)[4]) {
   std::copy(std::begin(src), std::end(src), std::begin(dst));
 }
 
-ChamsSnapshot SnapshotChams() {
+ChamsSnapshot SnapshotChams(const ChamsConfig &settings) {
   ChamsSnapshot snapshot{};
-  std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-  const auto &settings = Config::Settings.chams;
   snapshot.enabled = settings.enabled;
   snapshot.showTeammates = settings.showTeammates;
   snapshot.wireframe = settings.wireframe;
@@ -833,6 +833,21 @@ bool LoadGlbMesh(const std::filesystem::path &path, SkinnedMesh &mesh) {
           }
         }
 
+        // The bone constant buffer holds kMaxBones entries and the shader
+        // indexes g_BoneMatrices[jointIndex] directly. Any joint index >=
+        // kMaxBones would read past the end of the buffer (undefined GPU
+        // behavior / garbage skinning). Reject meshes that exceed it.
+        for (int i = 0; i < 4; ++i) {
+          if (vertex.jointIndices[static_cast<size_t>(i)] >=
+              static_cast<uint16_t>(kMaxBones)) {
+            Utils::Logger::Error(
+                "Chams mesh has joint index %u >= kMaxBones (%d); rejecting",
+                static_cast<unsigned>(vertex.jointIndices[static_cast<size_t>(i)]),
+                kMaxBones);
+            return false;
+          }
+        }
+
         const float *weightPtr = AccessorElement<float>(
             binData, accessors, bufferViews, weightsAccessor, vertexIndex);
         for (int i = 0; i < 4; ++i) {
@@ -944,11 +959,17 @@ bool UploadMeshToGpu(ID3D11Device *device, SkinnedMesh &mesh) {
     dst.normal[0] = src.normal.x;
     dst.normal[1] = src.normal.y;
     dst.normal[2] = src.normal.z;
-    dst.boneIndices =
-        (static_cast<uint32_t>(src.jointIndices[0]) & 0xFFu) |
-        ((static_cast<uint32_t>(src.jointIndices[1]) & 0xFFu) << 8u) |
-        ((static_cast<uint32_t>(src.jointIndices[2]) & 0xFFu) << 16u) |
-        ((static_cast<uint32_t>(src.jointIndices[3]) & 0xFFu) << 24u);
+    uint32_t packedIndices = 0u;
+    for (int c = 0; c < 4; ++c) {
+      uint16_t index = src.jointIndices[static_cast<size_t>(c)];
+      // Defensive clamp: the bone constant buffer only has kMaxBones entries
+      // and is indexed directly by these values in the shader.
+      if (index >= static_cast<uint16_t>(kMaxBones)) {
+        index = static_cast<uint16_t>(kMaxBones - 1);
+      }
+      packedIndices |= (static_cast<uint32_t>(index) & 0xFFu) << (8u * c);
+    }
+    dst.boneIndices = packedIndices;
     std::copy(src.weights.begin(), src.weights.end(), dst.weights);
   }
 
@@ -1423,20 +1444,23 @@ public:
   }
 
   void ResetFrameState() { previousLocalPawn = 0; }
+  void SetFrameSettings(const ChamsSnapshot &settings) {
+    frameSettings = settings;
+  }
   bool IsReady() const { return ready; }
   bool CanRenderPreview() const {
     return ready && !failed && tMesh.IsLoaded() && ctMesh.IsLoaded();
   }
 
-  void Render(const std::shared_ptr<const Core::GameSnapshot> &snapshot,
+  void Render(const Core::GameSnapshot &snapshot,
               const ChamsSnapshot &settings) {
-    if (!ready || !snapshot) {
+    if (!ready) {
       return;
     }
 
-    if (snapshot->localPawn != previousLocalPawn) {
+    if (snapshot.localPawn != previousLocalPawn) {
       previousBones.clear();
-      previousLocalPawn = snapshot->localPawn;
+      previousLocalPawn = snapshot.localPawn;
     }
 
     const int screenWidth = Render::Overlay::GetGameWidth();
@@ -1445,7 +1469,7 @@ public:
       return;
     }
 
-    for (const auto &player : snapshot->players) {
+    for (const auto &player : snapshot.players) {
       if (!player.IsValid() || !player.IsAlive()) {
         continue;
       }
@@ -1512,7 +1536,25 @@ public:
                             settings.alpha, renderMode, settings.materialType);
     }
 
-    gpuRenderer.Flush(snapshot->viewMatrix, snapshot->localEyePos, screenWidth,
+    // Prune bone-cache entries for players that are no longer present to avoid
+    // unbounded memory growth over a session.
+    {
+      std::unordered_set<uintptr_t> liveAddresses(snapshot.players.size());
+      for (const auto &player : snapshot.players) {
+        if (player.IsValid() && player.IsAlive()) {
+          liveAddresses.insert(player.address);
+        }
+      }
+      for (auto it = previousBones.begin(); it != previousBones.end();) {
+        if (liveAddresses.find(it->first) == liveAddresses.end()) {
+          it = previousBones.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
+
+    gpuRenderer.Flush(snapshot.viewMatrix, snapshot.localEyePos, screenWidth,
                       screenHeight);
   }
 
@@ -1522,7 +1564,7 @@ public:
       return false;
     }
 
-    ChamsSnapshot settings = SnapshotChams();
+    ChamsSnapshot settings = frameSettings;
     if (!settings.enabled) {
       settings.wireframe = false;
       settings.visibleCheck = false;
@@ -1658,6 +1700,7 @@ private:
   SkinnedMesh tMesh;
   SkinnedMesh ctMesh;
   std::unordered_map<uintptr_t, std::vector<LiveBonePose>> previousBones;
+  ChamsSnapshot frameSettings{};
   uintptr_t previousLocalPawn = 0;
   bool ready = false;
   bool failed = false;
@@ -1690,16 +1733,20 @@ void Chams::OnDisable() {
   }
 }
 
-void Chams::Update() {}
+void Chams::Update(const FeatureFrame &frame) {
+  if (m_impl) {
+    m_impl->SetFrameSettings(SnapshotChams(frame.settings.chams));
+  }
+}
 
-void Chams::Render(Render::DrawList &) {
-  const ChamsSnapshot settings = SnapshotChams();
+void Chams::Render(const FeatureFrame &frame, Render::DrawList &) {
+  const ChamsSnapshot settings = SnapshotChams(frame.settings.chams);
   if (!settings.enabled || !m_impl) {
     return;
   }
 
-  const auto snapshot = Core::GameManager::GetSnapshot();
-  if (!snapshot || snapshot->localPawn == 0) {
+  const auto &snapshot = frame.game;
+  if (snapshot.localPawn == 0) {
     return;
   }
 

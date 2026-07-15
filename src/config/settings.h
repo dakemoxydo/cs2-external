@@ -41,7 +41,9 @@ extern GlobalSettings Settings;
 extern std::shared_mutex SettingsMutex;
 
 namespace Detail {
-void ApplySettingsUnderLock();
+// Applies lifecycle changes after a settings write has committed. Passing an
+// immutable copy keeps lifecycle hooks from observing mutable global state.
+void ApplySettings(const GlobalSettings& snapshot);
 }
 
 inline GlobalSettings CopySettings() {
@@ -69,21 +71,25 @@ auto MutateSettings(Fn &&fn) {
   using Result = std::invoke_result_t<Fn &, GlobalSettings &>;
   static_assert(!std::is_void_v<Result>, "Use MutateSettingsVoid for void callbacks");
   Result result{};
+  GlobalSettings snapshot;
   {
     std::unique_lock<std::shared_mutex> lock(SettingsMutex);
     result = fn(Settings);
+    snapshot = Settings;
   }
-  Detail::ApplySettingsUnderLock();
+  Detail::ApplySettings(snapshot);
   return result;
 }
 
 template <typename Fn>
 void MutateSettingsVoid(Fn &&fn) {
+  GlobalSettings snapshot;
   {
     std::unique_lock<std::shared_mutex> lock(SettingsMutex);
     fn(Settings);
+    snapshot = Settings;
   }
-  Detail::ApplySettingsUnderLock();
+  Detail::ApplySettings(snapshot);
 }
 
 } // namespace Config

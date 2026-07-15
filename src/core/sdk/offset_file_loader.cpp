@@ -4,7 +4,8 @@
 #include <cctype>
 #include <fstream>
 #include <filesystem>
-#include <regex>
+#include <chrono>
+#include <thread>
 #include <windows.h>
 #include <wininet.h>
 
@@ -59,49 +60,70 @@ bool OffsetFileLoader::WriteFile(const std::string& path, const std::string& con
 }
 
 std::string OffsetFileLoader::FetchHTTP(const std::string& url, int timeoutSeconds) {
-    HINTERNET hInt = InternetOpenA("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
-    if (!hInt) return {};
+    constexpr int kAttempts = 3;
+    constexpr size_t kMaxReadSize = 32u * 1024u * 1024u;
 
-    DWORD timeoutMs = timeoutSeconds * 1000;
-    InternetSetOption(hInt, INTERNET_OPTION_CONNECT_TIMEOUT, &timeoutMs, sizeof(timeoutMs));
-    InternetSetOption(hInt, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeoutMs, sizeof(timeoutMs));
-    InternetSetOption(hInt, INTERNET_OPTION_SEND_TIMEOUT, &timeoutMs, sizeof(timeoutMs));
+    for (int attempt = 0; attempt < kAttempts; ++attempt) {
+        HINTERNET hInt = InternetOpenA(
+            "cs2overlay-offset-updater/1.0", INTERNET_OPEN_TYPE_PRECONFIG,
+            nullptr, nullptr, 0);
+        if (!hInt) return {};
 
-    HINTERNET hUrl = InternetOpenUrlA(hInt, url.c_str(), nullptr, 0,
-        INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE, 0);
-    if (!hUrl) {
+        DWORD timeoutMs = static_cast<DWORD>(timeoutSeconds * 1000);
+        InternetSetOptionA(hInt, INTERNET_OPTION_CONNECT_TIMEOUT, &timeoutMs,
+                           sizeof(timeoutMs));
+        InternetSetOptionA(hInt, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeoutMs,
+                           sizeof(timeoutMs));
+        InternetSetOptionA(hInt, INTERNET_OPTION_SEND_TIMEOUT, &timeoutMs,
+                           sizeof(timeoutMs));
+
+        const DWORD flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE |
+                            INTERNET_FLAG_NO_CACHE_WRITE |
+                            INTERNET_FLAG_PRAGMA_NOCACHE |
+                            INTERNET_FLAG_NO_UI;
+        HINTERNET hUrl = InternetOpenUrlA(hInt, url.c_str(), nullptr, 0,
+                                          flags, 0);
+        DWORD statusCode = 0;
+        if (hUrl) {
+            DWORD statusSize = sizeof(statusCode);
+            HttpQueryInfoA(hUrl,
+                           HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
+                           &statusCode, &statusSize, nullptr);
+        }
+
+        std::string result;
+        bool readSucceeded = hUrl && statusCode == HTTP_STATUS_OK;
+        char buffer[16 * 1024];
+        while (readSucceeded) {
+            DWORD bytesRead = 0;
+            if (!InternetReadFile(hUrl, buffer, sizeof(buffer), &bytesRead)) {
+                readSucceeded = false;
+                break;
+            }
+            if (bytesRead == 0) break;
+            if (result.size() + bytesRead > kMaxReadSize) {
+                readSucceeded = false;
+                break;
+            }
+            result.append(buffer, bytesRead);
+        }
+
+        if (hUrl) InternetCloseHandle(hUrl);
         InternetCloseHandle(hInt);
-        return {};
-    }
+        if (readSucceeded && !result.empty()) return result;
 
-    DWORD statusCode = 0;
-    DWORD statusSize = sizeof(statusCode);
-    if (!HttpQueryInfoA(hUrl, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
-                        &statusCode, &statusSize, nullptr) || statusCode != 200) {
-        InternetCloseHandle(hUrl);
-        InternetCloseHandle(hInt);
-        return {};
-    }
-
-    std::string result;
-    char buf[8193];
-    DWORD n = 0;
-    DWORD totalRead = 0;
-    const DWORD MAX_READ_SIZE = 1024 * 1024;
-
-    while (InternetReadFile(hUrl, buf, sizeof(buf) - 1, &n) && n > 0) {
-        totalRead += n;
-        if (totalRead > MAX_READ_SIZE) {
-            result.clear();
+        // Retry transient network errors and GitHub throttling. Permanent 4xx
+        // responses are left for the caller's fallback endpoint.
+        if (statusCode >= 400 && statusCode < 500 &&
+            statusCode != HTTP_STATUS_REQUEST_TIMEOUT && statusCode != 429) {
             break;
         }
-        buf[n] = '\0';
-        result.append(buf, n);
+        if (attempt + 1 < kAttempts) {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(250 * (attempt + 1)));
+        }
     }
-
-    InternetCloseHandle(hUrl);
-    InternetCloseHandle(hInt);
-    return result;
+    return {};
 }
 
 OffsetFileLoader::FileResult OffsetFileLoader::LoadFromCacheDir() {
@@ -135,24 +157,22 @@ OffsetFileLoader::FileResult OffsetFileLoader::LoadFromCacheDir() {
 }
 
 OffsetFileLoader::FileResult OffsetFileLoader::DownloadFromGitHub() {
-    FileResult result;
-
     std::cout << "[+] Fetching offsets from GitHub...\n";
-    const std::string commitInfo = FetchHTTP(
-        "https://api.github.com/repos/a2x/cs2-dumper/commits/main");
-    std::smatch match;
-    static const std::regex shaPattern(
-        R"sha("sha"\s*:\s*"([0-9a-fA-F]{40})")sha");
-    if (!std::regex_search(commitInfo, match, shaPattern)) {
-        std::cout << "[!] Could not resolve a cs2-dumper commit.\n";
-        return result;
-    }
-    const std::string base = "https://raw.githubusercontent.com/a2x/cs2-dumper/" +
-                             match[1].str() + "/output/";
+    const std::string base =
+        "https://raw.githubusercontent.com/a2x/cs2-dumper/main/output/";
+    FileResult result;
     result.offsetsJson = FetchHTTP(base + "offsets.json");
     result.clientJson = FetchHTTP(base + "client_dll.json");
+    if (result.hasJson()) return result;
 
-    return result;
+    // jsDelivr mirrors GitHub and is useful when raw.githubusercontent.com is
+    // unavailable due to DNS filtering or a regional network problem.
+    FileResult fallback;
+    const std::string fallbackBase =
+        "https://cdn.jsdelivr.net/gh/a2x/cs2-dumper@main/output/";
+    fallback.offsetsJson = FetchHTTP(fallbackBase + "offsets.json");
+    fallback.clientJson = FetchHTTP(fallbackBase + "client_dll.json");
+    return fallback;
 }
 
 bool OffsetFileLoader::SaveToCacheDir(const std::string& offsetsJson, const std::string& clientJson) {

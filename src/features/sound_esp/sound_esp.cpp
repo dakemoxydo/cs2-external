@@ -3,6 +3,7 @@
 #include "config/settings.h"
 #include "core/game/game_manager.h"
 #include "core/math/math.h"
+#include "features/feature_frame.h"
 #include "render/draw/draw_list.h"
 #include "render/overlay/overlay.h"
 #include <algorithm>
@@ -37,10 +38,8 @@ float EaseOutQuad(float t) {
   return 1.0f - (1.0f - t) * (1.0f - t);
 }
 
-SoundEspSnapshot SnapshotSoundEsp() {
+SoundEspSnapshot SnapshotSoundEsp(const SoundEspConfig &settings) {
   SoundEspSnapshot snapshot;
-  std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-  auto &settings = Config::Settings.soundEsp;
 
   snapshot.enabled = settings.enabled;
   snapshot.showTeammates = settings.showTeammates;
@@ -163,32 +162,28 @@ void SoundEsp::ResetState() {
   m_lastObservedLocalPawn = 0;
 }
 
-void SoundEsp::Update() {
-  const SoundEspSnapshot snapshot = SnapshotSoundEsp();
+void SoundEsp::Update(const FeatureFrame &frame) {
+  const SoundEspSnapshot snapshot = SnapshotSoundEsp(frame.settings.soundEsp);
   if (!snapshot.enabled) {
     ResetState();
     return;
   }
 
-  const auto gameSnapshot = Core::GameManager::GetSnapshot();
-  if (!gameSnapshot) {
+  const auto &gameSnapshot = frame.game;
+
+  if (gameSnapshot.localPawn == 0) {
     ResetState();
     return;
   }
 
-  if (gameSnapshot->localPawn == 0) {
-    ResetState();
-    return;
-  }
-
-  if (gameSnapshot->localPawn != m_lastObservedLocalPawn) {
+  if (gameSnapshot.localPawn != m_lastObservedLocalPawn) {
     m_rings.clear();
     m_lastAudioEventId = 0;
-    m_lastObservedLocalPawn = gameSnapshot->localPawn;
+    m_lastObservedLocalPawn = gameSnapshot.localPawn;
   }
 
-  const float now = gameSnapshot->frameTimeSeconds;
-  for (const auto &event : gameSnapshot->movementAudioEvents) {
+  const float now = gameSnapshot.frameTimeSeconds;
+  for (const auto &event : gameSnapshot.movementAudioEvents) {
     if (event.id <= m_lastAudioEventId) {
       continue;
     }
@@ -237,16 +232,13 @@ void SoundEsp::Update() {
                 m_rings.end());
 }
 
-void SoundEsp::Render(Render::DrawList &drawList) {
-  const SoundEspSnapshot snapshot = SnapshotSoundEsp();
+void SoundEsp::Render(const FeatureFrame &frame, Render::DrawList &drawList) {
+  const SoundEspSnapshot snapshot = SnapshotSoundEsp(frame.settings.soundEsp);
   if (!snapshot.enabled) {
     return;
   }
 
-  const auto gameSnapshot = Core::GameManager::GetSnapshot();
-  if (!gameSnapshot) {
-    return;
-  }
+  const auto &gameSnapshot = frame.game;
 
   const int screenWidth = Render::Overlay::GetGameWidth();
   const int screenHeight = Render::Overlay::GetGameHeight();
@@ -254,8 +246,8 @@ void SoundEsp::Render(Render::DrawList &drawList) {
     return;
   }
 
-  const SDK::Matrix4x4 &viewMatrix = gameSnapshot->viewMatrix;
-  const float now = gameSnapshot->frameTimeSeconds;
+  const SDK::Matrix4x4 &viewMatrix = gameSnapshot.viewMatrix;
+  const float now = gameSnapshot.frameTimeSeconds;
 
   for (const auto &ring : m_rings) {
     const double elapsed = now - ring.startTime;

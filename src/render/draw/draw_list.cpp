@@ -3,9 +3,19 @@
 
 namespace Render {
 
+namespace {
+// Returns the ImGui background draw list, or nullptr if no ImGui frame/context
+// is currently active. Callers must guard against nullptr to avoid a crash when
+// drawing happens outside an active ImGui frame (e.g. during device-lost
+// recovery).
+ImDrawList *GetDL() { return ImGui::GetBackgroundDrawList(); }
+} // namespace
+
 void DrawList::DrawLine(float x1, float y1, float x2, float y2, float color[4],
-                        float thickness) {
-  ImGui::GetBackgroundDrawList()->AddLine(
+                         float thickness) {
+  ImDrawList *dl = GetDL();
+  if (!dl) return;
+  dl->AddLine(
       ImVec2(x1, y1), ImVec2(x2, y2),
       ImGui::ColorConvertFloat4ToU32(
           ImVec4(color[0], color[1], color[2], color[3])),
@@ -13,8 +23,10 @@ void DrawList::DrawLine(float x1, float y1, float x2, float y2, float color[4],
 }
 
 void DrawList::DrawBox(float x, float y, float w, float h, float color[4],
-                       float thickness) {
-  ImGui::GetBackgroundDrawList()->AddRect(
+                         float thickness) {
+  ImDrawList *dl = GetDL();
+  if (!dl) return;
+  dl->AddRect(
       ImVec2(x, y), ImVec2(x + w, y + h),
       ImGui::ColorConvertFloat4ToU32(
           ImVec4(color[0], color[1], color[2], color[3])),
@@ -22,16 +34,19 @@ void DrawList::DrawBox(float x, float y, float w, float h, float color[4],
 }
 
 void DrawList::DrawFilledRect(float x, float y, float w, float h,
-                              float color[4]) {
-  ImGui::GetBackgroundDrawList()->AddRectFilled(
+                               float color[4]) {
+  ImDrawList *dl = GetDL();
+  if (!dl) return;
+  dl->AddRectFilled(
       ImVec2(x, y), ImVec2(x + w, y + h),
       ImGui::ColorConvertFloat4ToU32(
           ImVec4(color[0], color[1], color[2], color[3])));
 }
 
 void DrawList::DrawCornerBox(float x, float y, float w, float h, float color[4],
-                             float thickness) {
-  auto *dl = ImGui::GetBackgroundDrawList();
+                              float thickness) {
+  ImDrawList *dl = GetDL();
+  if (!dl) return;
   ImU32 c = ImGui::ColorConvertFloat4ToU32(
       ImVec4(color[0], color[1], color[2], color[3]));
   float cx = w * 0.22f;
@@ -51,7 +66,9 @@ void DrawList::DrawCornerBox(float x, float y, float w, float h, float color[4],
 }
 
 void DrawList::AddText(float x, float y, const char *text, float color[4]) {
-  ImGui::GetBackgroundDrawList()->AddText(
+  ImDrawList *dl = GetDL();
+  if (!dl) return;
+  dl->AddText(
       ImVec2(x, y),
       ImGui::ColorConvertFloat4ToU32(
           ImVec4(color[0], color[1], color[2], color[3])),
@@ -59,8 +76,10 @@ void DrawList::AddText(float x, float y, const char *text, float color[4]) {
 }
 
 void DrawList::DrawCircle(float x, float y, float radius, float color[4],
-                          int segments, float thickness) {
-  ImGui::GetBackgroundDrawList()->AddCircle(
+                           int segments, float thickness) {
+  ImDrawList *dl = GetDL();
+  if (!dl) return;
+  dl->AddCircle(
       ImVec2(x, y), radius,
       ImGui::ColorConvertFloat4ToU32(
           ImVec4(color[0], color[1], color[2], color[3])),

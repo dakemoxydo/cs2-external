@@ -39,8 +39,8 @@ constexpr float kCardBodySpacing = 4.0f;
 constexpr float kSectionTopGap = 4.0f;
 constexpr float kSectionBottomGap = 6.0f;
 constexpr float kChipHeight = 34.0f;
-constexpr float kToggleHeight = 22.0f;
-constexpr float kToggleWidth = 40.0f;
+constexpr float kToggleHeight = 24.0f;
+constexpr float kToggleWidth = 42.0f;
 
 struct CardState {
   ImDrawList *drawList = nullptr;
@@ -320,9 +320,8 @@ bool SettingToggle(const char *label, bool *v) {
   float radius = height * 0.50f;
 
   const ImVec2 pos = window->DC.CursorPos;
-  const ImRect total_bb(
-      pos, ImVec2(pos.x + width + (label_size.x > 0.0f ? style.ItemInnerSpacing.x + label_size.x : 0.0f),
-                  pos.y + height));
+  const float rowWidth = ImGui::GetContentRegionAvail().x;
+  const ImRect total_bb(pos, ImVec2(pos.x + rowWidth, pos.y + height));
 
   ImGui::ItemSize(total_bb, style.FramePadding.y);
   if (!ImGui::ItemAdd(total_bb, id)) return false;
@@ -361,22 +360,24 @@ bool SettingToggle(const char *label, bool *v) {
     col_on = style.Colors[ImGuiCol_ButtonHovered];
   }
 
+  const ImVec2 switchMin(pos.x + rowWidth - width, pos.y);
+  const ImVec2 switchMax(switchMin.x + width, switchMin.y + height);
   ImU32 bg_color = ImGui::GetColorU32(ImLerp(col_off, col_on, t_anim));
-  window->DrawList->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height), bg_color, height * 0.5f);
+  window->DrawList->AddRectFilled(switchMin, switchMax, bg_color, height * 0.5f);
   window->DrawList->AddRect(
-      pos, ImVec2(pos.x + width, pos.y + height),
+      switchMin, switchMax,
       ImGui::GetColorU32(ImVec4(style.Colors[ImGuiCol_Border].x,
                                 style.Colors[ImGuiCol_Border].y,
                                 style.Colors[ImGuiCol_Border].z, 1.0f)),
       height * 0.5f, 0, 1.0f);
 
   if (hovered) {
-    window->DrawList->AddRect(pos, ImVec2(pos.x + width, pos.y + height),
+    window->DrawList->AddRect(switchMin, switchMax,
         ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.15f)), height * 0.5f, 0, 1.0f);
   }
 
-  float circle_x = pos.x + radius + t_anim * (width - radius * 2.0f);
-  float circle_y = pos.y + radius;
+  float circle_x = switchMin.x + radius + t_anim * (width - radius * 2.0f);
+  float circle_y = switchMin.y + radius;
   float circle_radius = radius - 2.0f;
 
   window->DrawList->AddCircleFilled(
@@ -392,8 +393,8 @@ bool SettingToggle(const char *label, bool *v) {
       circle_radius * 0.6f, IM_COL32(255, 255, 255, 40));
 
   if (label_size.x > 0.0f) {
-    ImGui::RenderText(ImVec2(pos.x + width + style.ItemInnerSpacing.x,
-                             pos.y + (height - label_size.y) * 0.5f - 1.0f), label);
+    ImGui::RenderText(ImVec2(pos.x, pos.y + (height - label_size.y) * 0.5f - 1.0f),
+                      label);
   }
 
   return pressed;
@@ -454,23 +455,46 @@ bool SettingHotkey(const char* label, int& keyTarget) {
     // VK codes, which is outside the scope of InputManager::keyStates[]
     // (that array only contains feature-relevant keys). Runs on render
     // thread, no cross-thread races.
+    static const int candidateVKs[] = {
+        0x01, 0x02, 0x04, 0x05, 0x06, VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, VK_INSERT, VK_END, VK_HOME, VK_DELETE,
+        VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9,
+        VK_F10, VK_F11, VK_F12, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'Z', 'X', 'C', 'V', 'F',
+        'G', 'H', 'R', 'T', 'B',
+    };
+    static const size_t kCandidateCount =
+        sizeof(candidateVKs) / sizeof(candidateVKs[0]);
+    static std::vector<char> prevDown;
+    static bool wasListening = false;
+
+    if (prevDown.size() != kCandidateCount) {
+      prevDown.assign(kCandidateCount, 0);
+    }
+
     if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
       s_listeningId = -1;
-    } else {
-      static const int candidateVKs[] = {
-          0x01, 0x02, 0x04, 0x05, 0x06, VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, VK_INSERT, VK_END, VK_HOME, VK_DELETE,
-          VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9,
-          VK_F10, VK_F11, VK_F12, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'Z', 'X', 'C', 'V', 'F',
-          'G', 'H', 'R', 'T', 'B',
-      };
-      for (int v : candidateVKs) {
-        if (GetAsyncKeyState(v) & 0x8000) {
-          keyTarget = v;
+    } else if (s_listeningId == myId) {
+      if (!wasListening) {
+        // Just entered listening mode: prime so keys already held are
+        // ignored. We only bind on a fresh (rising-edge) press.
+        for (size_t i = 0; i < kCandidateCount; ++i) {
+          prevDown[i] =
+              (GetAsyncKeyState(candidateVKs[i]) & 0x8000) ? 1 : 0;
+        }
+      }
+      wasListening = true;
+
+      for (size_t i = 0; i < kCandidateCount; ++i) {
+        const bool down = (GetAsyncKeyState(candidateVKs[i]) & 0x8000) != 0;
+        if (down && !prevDown[i]) {
+          keyTarget = candidateVKs[i];
           s_listeningId = -1;
           changed = true;
           break;
         }
+        prevDown[i] = down ? 1 : 0;
       }
+    } else {
+      wasListening = false;
     }
   } else {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);

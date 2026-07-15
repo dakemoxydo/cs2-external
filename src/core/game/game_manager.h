@@ -1,5 +1,7 @@
 #pragma once
 #include "core/constants.h"
+#include "game_snapshot.h"
+#include "game_state_store.h"
 #include "../sdk/entity.h"
 #include "../sdk/entity_classes.h"
 #include "../sdk/offsets.h"
@@ -10,32 +12,6 @@
 #include <vector>
 
 namespace Core {
-
-struct GameSnapshot {
-  uintptr_t clientBase = 0;
-  uintptr_t entityList = 0;
-  SDK::Matrix4x4 viewMatrix = {};
-  std::vector<SDK::Entity> players;
-  SDK::Vector3 localPos = {};
-  SDK::Vector3 localEyePos = {};
-  SDK::Vector2 localAngles = {};
-  SDK::Vector2 localShootAngle = {};
-  SDK::Vector2 localAimPunch = {};
-  int localShotsFired = 0;
-  int localTeam = 0;
-  bool localScoped = false;
-  uint32_t localCrosshairHandle = 0;
-  uintptr_t localPawn = 0;
-  SDK::BombInfo bombInfo = {};
-  std::string localWeaponName;
-  float localWeaponRange = 0.0f;
-  std::vector<SDK::BulletImpactInfo> localBulletImpacts;
-  float frameTimeSeconds = 0.0f;
-  std::vector<SDK::ShotEvent> shotEvents;
-  std::vector<SDK::BulletTraceEvent> bulletTraceEvents;
-  std::vector<SDK::HitEvent> hitEvents;
-  std::vector<SDK::MovementAudioEvent> movementAudioEvents;
-};
 
 class GameManager {
 public:
@@ -63,10 +39,8 @@ public:
   static uint32_t GetLocalCrosshairEntityHandle();
   static uintptr_t GetLocalPlayerPawn();
   static uintptr_t GetEntityList();
-  static uintptr_t GetEntityFromHandle(uint32_t handle);
   static std::string GetLocalWeaponName();
   static float GetLocalWeaponRange();
-  static uintptr_t GetEntityGameSceneNode(uintptr_t entity);
   static SDK::BombInfo GetBombInfo();
 
 private:
@@ -77,7 +51,7 @@ private:
     uintptr_t controllerPointers[Constants::MAX_PLAYERS] = {};
   };
 
-  static std::atomic<std::shared_ptr<const GameSnapshot>> s_snapshot;
+  static GameStateStore s_stateStore;
   static uintptr_t clientBase;
   static std::atomic<bool> s_readBones;
   static std::atomic<bool> s_readWeapons;

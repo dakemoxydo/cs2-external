@@ -49,11 +49,11 @@ static int s_previewAffinity = 0;
 static bool s_previewExpanded = true;
 static std::array<int, 5> s_subTabs = {0, 0, 0, 0, 0};
 
-constexpr float kFrameRadius = 8.0f;
-constexpr float kPanelGap = 12.0f;
-constexpr float kSidebarWidth = 170.0f;
-constexpr float kPreviewWidth = 250.0f;
-constexpr float kHeaderHeight = 94.0f;
+constexpr float kFrameRadius = 12.0f;
+constexpr float kPanelGap = 16.0f;
+constexpr float kSidebarWidth = 184.0f;
+constexpr float kPreviewWidth = 272.0f;
+constexpr float kHeaderHeight = 80.0f;
 constexpr float kPreviewTabWidth = 90.0f;
 constexpr float kPreviewTabHeight = 22.0f;
 constexpr float kPreviewGridStep = 24.0f;
@@ -165,35 +165,6 @@ void GetSubTabs(MenuSection section, const char *const *&labels, int &count) {
   }
 }
 
-void DrawWireBackdrop(ImDrawList *drawList, const ImVec2 &pos,
-                      const ImVec2 &size) {
-  static constexpr ImVec2 kPoints[] = {
-      {0.08f, 0.11f}, {0.22f, 0.06f}, {0.39f, 0.14f}, {0.58f, 0.05f},
-      {0.76f, 0.10f}, {0.90f, 0.04f}, {0.14f, 0.33f}, {0.28f, 0.24f},
-      {0.46f, 0.31f}, {0.65f, 0.22f}, {0.84f, 0.27f}, {0.94f, 0.38f},
-      {0.11f, 0.56f}, {0.24f, 0.47f}, {0.43f, 0.55f}, {0.60f, 0.47f},
-      {0.79f, 0.58f}, {0.92f, 0.49f}, {0.07f, 0.82f}, {0.27f, 0.75f},
-      {0.48f, 0.86f}, {0.66f, 0.72f}, {0.82f, 0.84f}, {0.94f, 0.76f},
-  };
-  static constexpr int kEdges[][2] = {
-      {0, 1},  {1, 2},  {2, 3},  {3, 4},  {4, 5},  {0, 6},  {1, 7},
-      {2, 8},  {3, 9},  {4, 10}, {5, 11}, {6, 7},  {7, 8},  {8, 9},
-      {9, 10}, {10, 11}, {6, 12}, {7, 13}, {8, 14}, {9, 15}, {10, 16},
-      {11, 17}, {12, 13}, {13, 14}, {14, 15}, {15, 16}, {16, 17}, {12, 18},
-      {13, 19}, {14, 20}, {15, 21}, {16, 22}, {17, 23}, {18, 19}, {19, 20},
-      {20, 21}, {21, 22}, {22, 23},
-  };
-
-  const ImU32 lineColor = ImGui::GetColorU32(ImVec4(0.22f, 0.29f, 0.38f, 0.15f));
-  for (const auto &edge : kEdges) {
-    const ImVec2 a(pos.x + size.x * kPoints[edge[0]].x,
-                   pos.y + size.y * kPoints[edge[0]].y);
-    const ImVec2 b(pos.x + size.x * kPoints[edge[1]].x,
-                   pos.y + size.y * kPoints[edge[1]].y);
-    drawList->AddLine(a, b, lineColor, 1.0f);
-  }
-}
-
 void DrawAppFrame(ImDrawList *drawList, const ImVec2 &pos, const ImVec2 &size,
                   const ImVec4 &accent) {
   const ImU32 outer = ImGui::GetColorU32(ImVec4(0.07f, 0.07f, 0.08f, 0.985f));
@@ -220,8 +191,7 @@ void DrawAppFrame(ImDrawList *drawList, const ImVec2 &pos, const ImVec2 &size,
                           ImDrawFlags_RoundCornersTopLeft |
                               ImDrawFlags_RoundCornersBottomLeft);
 
-  DrawWireBackdrop(drawList, ImVec2(pos.x + kSidebarWidth + 20.0f, pos.y + 6.0f),
-                   ImVec2(size.x - kSidebarWidth - 30.0f, size.y - 12.0f));
+  // Keep the canvas quiet: controls and content carry the hierarchy.
 }
 
 void DrawSidebarBrand() {
@@ -256,7 +226,7 @@ bool DrawSidebarEntry(MenuSection section) {
   const char *hint = GetSectionDescription(section);
   const ImGuiID id = window->GetID(label);
   const ImVec2 pos = window->DC.CursorPos;
-  const float height = 48.0f;
+  const float height = 52.0f;
   const ImRect bb(pos,
                   ImVec2(pos.x + ImGui::GetContentRegionAvail().x, pos.y + height));
 
@@ -274,7 +244,7 @@ bool DrawSidebarEntry(MenuSection section) {
       selected ? ImVec4(0.15f, 0.16f, 0.19f, 0.95f)
                : hovered ? ImVec4(0.12f, 0.13f, 0.15f, 0.85f)
                          : ImVec4(0.00f, 0.00f, 0.00f, 0.0f));
-  window->DrawList->AddRectFilled(bb.Min, bb.Max, bg, 4.0f);
+  window->DrawList->AddRectFilled(bb.Min, bb.Max, bg, 6.0f);
   ImGui::RenderNavHighlight(bb, id);
   if (selected) {
     window->DrawList->AddRectFilled(
@@ -298,7 +268,7 @@ void DrawSidebar(const Config::GlobalSettings &settings) {
   ImGui::BeginChild("GenesisSidebar", ImVec2(kSidebarWidth, 0.0f), false,
                     ImGuiWindowFlags_None);
   DrawSidebarBrand();
-  ImGui::Dummy(ImVec2(0.0f, 18.0f));
+  ImGui::Dummy(ImVec2(0.0f, 22.0f));
 
   DrawSidebarGroupLabel("COMBAT");
   if (DrawSidebarEntry(MenuSection::Legitbot)) {
@@ -323,7 +293,7 @@ void DrawSidebar(const Config::GlobalSettings &settings) {
 
   ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 86.0f);
   ImGui::Separator();
-  ImGui::Dummy(ImVec2(0.0f, 8.0f));
+  ImGui::Dummy(ImVec2(0.0f, 6.0f));
   ImGui::TextDisabled("Theme");
   ImGui::Text("%s", GetThemeName(settings.misc.menuTheme));
   ImGui::Dummy(ImVec2(0.0f, 4.0f));
@@ -794,8 +764,21 @@ void Menu::Toggle() {
   isOpen = !isOpen;
   if (!isOpen) {
     RestoreOverlayTransparency();
+    HWND gameWindow = Render::Overlay::GetCS2WindowHandle();
+    if (gameWindow) {
+      SetForegroundWindow(gameWindow);
+      SetFocus(gameWindow);
+    }
   } else {
     shouldClose = false;
+    // Take keyboard focus so ImGui text inputs (e.g. profile name) receive
+    // WM_CHAR. The overlay is a borderless popup that never gets focus on its
+    // own.
+    HWND overlayWindow = Render::Overlay::GetWindowHandle();
+    if (overlayWindow) {
+      SetForegroundWindow(overlayWindow);
+      SetFocus(overlayWindow);
+    }
   }
 }
 

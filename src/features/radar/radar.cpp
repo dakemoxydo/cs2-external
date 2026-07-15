@@ -1,6 +1,7 @@
 #include "radar.h"
 #include "config/settings.h"
 #include "core/game/game_manager.h"
+#include "features/feature_frame.h"
 #include "radar_config.h"
 #include "render/menu/menu.h"
 #include <algorithm>
@@ -17,10 +18,8 @@ struct RadarSnapshot {
   float visibleColor[4], hiddenColor[4], enemyColor[4], teamColor[4];
 };
 
-static RadarSnapshot SnapshotRadar() {
+static RadarSnapshot SnapshotRadar(const RadarConfig &R) {
   RadarSnapshot s;
-  std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-  auto &R = Config::Settings.radar;
   s = {R.enabled, R.rotate, R.showTeammates, R.visibleCheck,
        R.mapIndex, R.stretchType, R.bgAlpha, R.zoom, R.pointSize,
        R.mapCalibration};
@@ -39,12 +38,12 @@ inline float GetMapScaleFromSnapshot(const RadarSnapshot &s) {
   return s.mapCalibration;
 }
 
-void Radar::Update() {
+void Radar::Update(const FeatureFrame &) {
   // Logic handled in GameManager (local position, spotted flags, etc)
 }
 
-void Radar::Render(Render::DrawList &) {
-  RadarSnapshot s = SnapshotRadar();
+void Radar::Render(const FeatureFrame &frame, Render::DrawList &) {
+  RadarSnapshot s = SnapshotRadar(frame.settings.radar);
   if (!s.enabled) return;
   const bool menuIsOpen = Render::Menu::IsOpen();
 
@@ -94,11 +93,11 @@ void Radar::Render(Render::DrawList &) {
     dl->AddCircleFilled(center, s.pointSize + 1.0f, IM_COL32(0, 0, 0, 255));
     dl->AddCircleFilled(center, s.pointSize, IM_COL32(255, 255, 255, 255));
 
-    const auto snapshot = Core::GameManager::GetSnapshot();
-    const auto &players = snapshot->players;
-    SDK::Vector3 localPos = snapshot->localPos;
-    float localYaw = snapshot->localAngles.y;
-    int localTeam = snapshot->localTeam;
+    const auto &snapshot = frame.game;
+    const auto &players = snapshot.players;
+    SDK::Vector3 localPos = snapshot.localPos;
+    float localYaw = snapshot.localAngles.y;
+    int localTeam = snapshot.localTeam;
 
     float angleRad = (90.0f - localYaw) * (3.14159265f / 180.0f);
     float sn = std::sinf(angleRad);

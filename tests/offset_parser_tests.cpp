@@ -45,6 +45,13 @@ int main() {
   assert(parsed.m_entitySpottedState == 64);
   assert(parsed.m_bSpottedByMask == 12);
 
+  SDK::OffsetFileLoader::FileResult coreOnlyFiles;
+  coreOnlyFiles.offsetsJson = offsets;
+  coreOnlyFiles.clientJson = R"({"client.dll":{"classes":{}}})";
+  const SDK::OffsetSet coreOnly = parser.Parse(coreOnlyFiles);
+  assert(coreOnly.HasRequired());
+  assert(coreOnly.MissingCount() > 0);
+
   SDK::OffsetFileLoader::FileResult invalidFiles;
   invalidFiles.offsetsJson = "{}";
   invalidFiles.clientJson = "{}";

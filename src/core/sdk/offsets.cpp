@@ -52,12 +52,11 @@ int OffsetSet::MissingCount() const {
 }
 
 bool OffsetSet::HasRequired() const {
-  return dwEntityList > 0 && dwLocalPlayerPawn > 0 && dwViewMatrix > 0 &&
-         m_fFlags > 0 && m_vecVelocity > 0 && m_iHealth > 0 &&
-         m_iTeamNum > 0 && m_vOldOrigin > 0 && m_pGameSceneNode > 0 &&
-         m_hPlayerPawn > 0 && m_iszPlayerName > 0 && m_vecViewOffset > 0 &&
-         m_flSimulationTime > 0 && m_bIsLocalPlayerController > 0 &&
-         m_entitySpottedState > 0 && m_bSpottedByMask > 0;
+  // These are the only offsets needed to establish a usable game snapshot.
+  // Feature-specific fields are allowed to be absent: cs2-dumper occasionally
+  // renames or temporarily omits one of them, which must not invalidate the
+  // complete offset generation and leave the application on a stale cache.
+  return dwEntityList > 0 && dwLocalPlayerPawn > 0 && dwViewMatrix > 0;
 }
 
 namespace Offsets {

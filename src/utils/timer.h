@@ -9,7 +9,7 @@ public:
   static void SleepExact(int ms);
 
 private:
-  static float deltaTime;
-  static int currentFPS;
+  inline static float deltaTime = 0.0f;
+  inline static int currentFPS = 0;
 };
 } // namespace Utils

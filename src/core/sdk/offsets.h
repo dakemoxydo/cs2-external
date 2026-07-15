@@ -54,7 +54,9 @@ struct OffsetSet {
   // -- Runtime layout values not exported by cs2-dumper --
   // Keep these separate from dumped schema offsets. They must be verified
   // whenever the game layout changes.
-  ptrdiff_t m_boneArrayOffset = 0x1E0;
+  // The common current layout stores the pose pointer at +0x1F0. Older
+  // builds used +0x1E0, which remains a runtime fallback in GameManager.
+  ptrdiff_t m_boneArrayOffset = 0x1F0;
 
   int MissingCount() const;
   bool HasRequired() const;

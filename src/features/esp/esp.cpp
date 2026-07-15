@@ -4,6 +4,7 @@
 #include "core/math/math.h"
 #include "core/sdk/entity.h"
 #include "esp_config.h"
+#include "features/feature_frame.h"
 #include "render/draw/draw_list.h"
 #include "render/overlay/overlay.h"
 #include <algorithm>
@@ -54,24 +55,8 @@ static float TracerImpactHold(float tracerLife) {
   return std::clamp(tracerLife * 0.35f, 0.10f, 0.28f);
 }
 
-static SDK::Vector2 CatmullRom(const SDK::Vector2 &p0, const SDK::Vector2 &p1,
-                               const SDK::Vector2 &p2, const SDK::Vector2 &p3,
-                               float t) {
-  const float t2 = t * t;
-  const float t3 = t2 * t;
-  return {
-      0.5f * ((2.0f * p1.x) + (-p0.x + p2.x) * t +
-              (2.0f * p0.x - 5.0f * p1.x + 4.0f * p2.x - p3.x) * t2 +
-              (-p0.x + 3.0f * p1.x - 3.0f * p2.x + p3.x) * t3),
-      0.5f * ((2.0f * p1.y) + (-p0.y + p2.y) * t +
-              (2.0f * p0.y - 5.0f * p1.y + 4.0f * p2.y - p3.y) * t2 +
-              (-p0.y + 3.0f * p1.y - 3.0f * p2.y + p3.y) * t3)};
-}
-
-static EspSnapshot SnapshotEsp() {
+static EspSnapshot SnapshotEsp(const EspConfig &E) {
   EspSnapshot s{};
-  std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-  auto &E = Config::Settings.esp;
   s = {E.enabled,
        E.showTeammates,
        E.showBox,
@@ -117,33 +102,25 @@ static EspSnapshot SnapshotEsp() {
   return s;
 }
 
-static constexpr std::array<std::array<int, 5>, 5> kRoundedSkeletonChains = {
-    std::array<int, 5>{BONE_HEAD, BONE_NECK, BONE_SPINE_1, BONE_SPINE_2, BONE_PELVIS},
-    std::array<int, 5>{BONE_HAND_L, BONE_ARM_LO_L, BONE_ARM_UP_L, BONE_NECK, BONE_SPINE_1},
-    std::array<int, 5>{BONE_HAND_R, BONE_ARM_LO_R, BONE_ARM_UP_R, BONE_NECK, BONE_SPINE_1},
-    std::array<int, 5>{BONE_ANKLE_L, BONE_LEG_LO_L, BONE_LEG_UP_L, BONE_PELVIS, BONE_SPINE_2},
-    std::array<int, 5>{BONE_ANKLE_R, BONE_LEG_LO_R, BONE_LEG_UP_R, BONE_PELVIS, BONE_SPINE_2},
-};
-
-void Esp::Update() {
-  const EspSnapshot s = SnapshotEsp();
-  const auto snapshot = Core::GameManager::GetSnapshot();
-  if (!snapshot || !s.enabled || snapshot->localPawn == 0) {
+void Esp::Update(const FeatureFrame &frame) {
+  const EspSnapshot s = SnapshotEsp(frame.settings.esp);
+  const auto &snapshot = frame.game;
+  if (!s.enabled || snapshot.localPawn == 0) {
     ResetCombatVisuals();
     return;
   }
 
-  if (snapshot->localPawn != m_lastLocalPawn) {
+  if (snapshot.localPawn != m_lastLocalPawn) {
     ResetCombatVisuals();
-    m_lastLocalPawn = snapshot->localPawn;
+    m_lastLocalPawn = snapshot.localPawn;
   }
 
-  const float now = snapshot->frameTimeSeconds;
+  const float now = snapshot.frameTimeSeconds;
   const float tracerLife = std::max(0.05f, s.bulletTracerLife);
   const float impactHold = TracerImpactHold(tracerLife);
 
   if (s.showBulletTracers) {
-    for (const auto &shot : snapshot->shotEvents) {
+    for (const auto &shot : snapshot.shotEvents) {
       if (shot.id <= m_lastShotEventId) {
         continue;
       }
@@ -159,7 +136,7 @@ void Esp::Update() {
       m_lastShotEventId = std::max(m_lastShotEventId, shot.id);
     }
 
-    for (const auto &trace : snapshot->bulletTraceEvents) {
+    for (const auto &trace : snapshot.bulletTraceEvents) {
       if (trace.id <= m_lastTraceEventId) {
         continue;
       }
@@ -205,7 +182,7 @@ void Esp::Update() {
   }
 
   if (s.showHitmarker) {
-    for (const auto &hit : snapshot->hitEvents) {
+    for (const auto &hit : snapshot.hitEvents) {
       if (hit.id <= m_lastHitEventId) {
         continue;
       }
@@ -376,14 +353,14 @@ static void DrawImpactRing(Render::DrawList &drawList,
 
 static void DrawBulletTracers(
     Render::DrawList &drawList, const std::vector<Esp::ActiveTracer> &tracers,
-    const std::shared_ptr<const Core::GameSnapshot> &snapshot,
+    const Core::GameSnapshot &snapshot,
     const EspSnapshot &s, int screenWidth, int screenHeight) {
-  if (!snapshot || !s.showBulletTracers) {
+  if (!s.showBulletTracers) {
     return;
   }
 
   const float tracerLife = std::max(0.05f, s.bulletTracerLife);
-  const float now = snapshot->frameTimeSeconds;
+  const float now = snapshot.frameTimeSeconds;
   for (const auto &tracer : tracers) {
     const float beamEndTime =
         tracer.expiresAt > 0.0f ? tracer.expiresAt : (tracer.createdAt + tracerLife);
@@ -395,7 +372,7 @@ static void DrawBulletTracers(
 
     SDK::Vector2 screenStart{};
     SDK::Vector2 screenEnd{};
-    if (!ResolveTracerScreenPoints(tracer.start, tracer.end, snapshot->viewMatrix,
+    if (!ResolveTracerScreenPoints(tracer.start, tracer.end, snapshot.viewMatrix,
                                    screenWidth, screenHeight, screenStart,
                                    screenEnd)) {
       continue;
@@ -437,7 +414,7 @@ static void DrawBulletTracers(
           std::max(0.05f, tracer.impactFadeUntil - tracer.lastUpdatedAt);
       const float impactAlphaRatio = std::clamp(
           (tracer.impactFadeUntil - now) / impactDuration, 0.0f, 1.0f);
-      DrawImpactRing(drawList, tracer.end, snapshot->viewMatrix, screenWidth,
+      DrawImpactRing(drawList, tracer.end, snapshot.viewMatrix, screenWidth,
                      screenHeight, s,
                      impactAlphaRatio * (tracer.hitConfirmed ? 1.10f : 1.0f));
     }
@@ -516,8 +493,12 @@ static void DrawOffscreenIndicator(Render::DrawList &drawList,
   float size = 12.0f;
   float tipX = cx + std::cos(angle) * size;
   float tipY = cy - std::sin(angle) * size;
-  float baseAngle1 = angle + 2.5f;
-  float baseAngle2 = angle - 2.5f;
+  // Base points fan out by a small angle (~23 degrees) to form an arrowhead.
+  // (atan2 returns radians, so the previous +/-2.5 rad was ~143 degrees and
+  // produced a nearly-flat/incorrect triangle.)
+  constexpr float kArrowHalfAngle = 0.4f;
+  float baseAngle1 = angle + kArrowHalfAngle;
+  float baseAngle2 = angle - kArrowHalfAngle;
   float b1x = cx + std::cos(baseAngle1) * size;
   float b1y = cy - std::sin(baseAngle1) * size;
   float b2x = cx + std::cos(baseAngle2) * size;
@@ -541,53 +522,18 @@ static void DrawRoundedSkeleton(Render::DrawList &drawList,
   float shadowC[4] = {s.skeletonOutlineColor[0], s.skeletonOutlineColor[1],
                       s.skeletonOutlineColor[2], s.skeletonOutlineColor[3]};
 
-  for (const auto &chain : kRoundedSkeletonChains) {
-    std::vector<SDK::Vector2> points;
-    points.reserve(chain.size());
-
-    for (int boneIndex : chain) {
-      if (boneIndex >= static_cast<int>(player.bonePositions.size())) {
-        continue;
-      }
-
-      SDK::Vector2 screen{};
-      if (!Core::Math::WorldToScreen(player.bonePositions[boneIndex], screen,
-                                     viewMatrix, screenWidth, screenHeight)) {
-        continue;
-      }
-      points.push_back(screen);
-    }
-
-    if (points.size() < 2) {
-      continue;
-    }
-
-    points.insert(points.begin(), points.front());
-    points.push_back(points.back());
-
-    SDK::Vector2 last{};
-    bool first = true;
-    for (size_t i = 0; i + 3 < points.size(); ++i) {
-      const auto &p0 = points[i];
-      const auto &p1 = points[i + 1];
-      const auto &p2 = points[i + 2];
-      const auto &p3 = points[i + 3];
-
-      for (float t = 0.0f; t <= 1.0f; t += 0.08f) {
-        const SDK::Vector2 point = CatmullRom(p0, p1, p2, p3, t);
-        if (first) {
-          last = point;
-          first = false;
-          continue;
-        }
-
-        if (s.skeletonOutline) {
-          drawList.DrawLine(last.x, last.y, point.x, point.y, shadowC, 2.8f);
-        }
-        drawList.DrawLine(last.x, last.y, point.x, point.y, boneCol, 1.5f);
-        last = point;
-      }
-    }
+  // Draw the rig's actual adjacency graph. Skipping an off-screen bone must
+  // not join unrelated points (the old smoothed chains caused bent skeletons).
+  for (const auto &edge : s_boneConnections) {
+    if (edge[0] >= static_cast<int>(player.bonePositions.size()) ||
+        edge[1] >= static_cast<int>(player.bonePositions.size())) continue;
+    SDK::Vector2 a{}, b{};
+    if (!Core::Math::WorldToScreen(player.bonePositions[edge[0]], a, viewMatrix,
+                                   screenWidth, screenHeight) ||
+        !Core::Math::WorldToScreen(player.bonePositions[edge[1]], b, viewMatrix,
+                                   screenWidth, screenHeight)) continue;
+    if (s.skeletonOutline) drawList.DrawLine(a.x, a.y, b.x, b.y, shadowC, 2.8f);
+    drawList.DrawLine(a.x, a.y, b.x, b.y, boneCol, 1.5f);
   }
 
   if (static_cast<int>(player.bonePositions.size()) > BONE_HEAD) {
@@ -605,8 +551,8 @@ static void DrawRoundedSkeleton(Render::DrawList &drawList,
   }
 }
 
-void Esp::Render(Render::DrawList &drawList) {
-  EspSnapshot s = SnapshotEsp();
+void Esp::Render(const FeatureFrame &frame, Render::DrawList &drawList) {
+  EspSnapshot s = SnapshotEsp(frame.settings.esp);
   if (!s.enabled)
     return;
 
@@ -622,18 +568,15 @@ void Esp::Render(Render::DrawList &drawList) {
   if (screenWidth <= 0 || screenHeight <= 0)
     return;
 
-  const auto snapshot = Core::GameManager::GetSnapshot();
-  if (!snapshot) {
-    return;
-  }
+  const auto &game = frame.game;
 
-  DrawBulletTracers(drawList, m_activeTracers, snapshot, s, screenWidth,
+  DrawBulletTracers(drawList, m_activeTracers, game, s, screenWidth,
                     screenHeight);
-  DrawHitmarker(drawList, m_lastHitEventTime, snapshot->frameTimeSeconds, s,
+  DrawHitmarker(drawList, m_lastHitEventTime, game.frameTimeSeconds, s,
                 screenWidth, screenHeight);
 
-  const SDK::Matrix4x4 viewMatrix = snapshot->viewMatrix;
-  const auto &players = snapshot->players;
+  const SDK::Matrix4x4 viewMatrix = game.viewMatrix;
+  const auto &players = game.players;
 
   for (const auto &player : players) {
     if (!player.IsValid() || !player.IsAlive()) {

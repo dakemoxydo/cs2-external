@@ -38,6 +38,12 @@ void RenderPlayerEspCard(Config::GlobalSettings &settings) {
   }
 
   if (settings.esp.enabled) {
+    bool chamsEnabled = settings.chams.enabled;
+    if (UI::SettingToggle("Chams", &chamsEnabled)) {
+      Commit([&](auto &state) { state.chams.enabled = chamsEnabled; });
+      settings.chams.enabled = chamsEnabled;
+    }
+
     bool showTeammates = settings.esp.showTeammates;
     if (UI::SettingToggle("Team Check", &showTeammates)) {
       Commit([&](auto &state) { state.esp.showTeammates = showTeammates; });
@@ -265,6 +271,16 @@ void RenderEffectsCard(Config::GlobalSettings &settings) {
         state.esp.skeletonOutline = skeletonOutline;
       });
       settings.esp.skeletonOutline = skeletonOutline;
+    }
+
+    float skeletonMaxDistance = settings.esp.skeletonMaxDistance;
+    if (ImGui::SliderFloat("Skeleton Distance", &skeletonMaxDistance, 0.0f,
+                           200.0f, skeletonMaxDistance <= 0.0f ? "Unlimited"
+                                                                 : "%.0f m")) {
+      Commit([&](auto &state) {
+        state.esp.skeletonMaxDistance = skeletonMaxDistance;
+      });
+      settings.esp.skeletonMaxDistance = skeletonMaxDistance;
     }
   }
 

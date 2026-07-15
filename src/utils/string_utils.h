@@ -14,11 +14,6 @@ inline std::string ToUpper(std::string str) {
     return str;
 }
 
-inline std::string ToUpper(std::string str) {
-    std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c) { return ::toupper(c); });
-    return str;
-}
-
 inline bool StartsWith(const std::string& str, const std::string& prefix) {
     return str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0;
 }

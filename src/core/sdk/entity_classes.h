@@ -33,41 +33,50 @@ public:
   using CEntityInstance::CEntityInstance;
 
   int GetHealth() const {
+    if (GetOffsets().m_iHealth == 0) return 0;
     return Core::MemoryManager::Read<int>(address + GetOffsets().m_iHealth);
   }
   
   int GetTeam() const {
+    if (GetOffsets().m_iTeamNum == 0) return 0;
     return Core::MemoryManager::Read<int>(address + GetOffsets().m_iTeamNum);
   }
   
   Vector3 GetOldOrigin() const {
+    if (GetOffsets().m_vOldOrigin == 0) return {};
     return Core::MemoryManager::Read<Vector3>(address + GetOffsets().m_vOldOrigin);
   }
   
   Vector3 GetCameraPos() const {
     Vector3 origin = GetOldOrigin();
+    if (GetOffsets().m_vecViewOffset == 0) return origin;
     Vector3 viewOffset =
         Core::MemoryManager::Read<Vector3>(address + GetOffsets().m_vecViewOffset);
     return { origin.x + viewOffset.x, origin.y + viewOffset.y, origin.z + viewOffset.z };
   }
   
   Vector2 GetEyeAngles() const {
+    if (GetOffsets().m_angEyeAngles == 0) return {};
     return Core::MemoryManager::Read<Vector2>(address + GetOffsets().m_angEyeAngles);
   }
 
   bool IsScoped() const {
+    if (GetOffsets().m_bIsScoped == 0) return false;
     return Core::MemoryManager::Read<bool>(address + GetOffsets().m_bIsScoped);
   }
 
   Vector2 GetAimPunch() const {
+    if (GetOffsets().m_aimPunchAngle == 0) return {};
     return Core::MemoryManager::Read<Vector2>(address + GetOffsets().m_aimPunchAngle);
   }
 
   uint32_t GetCrosshairEntityHandle() const {
+    if (GetOffsets().m_iIDEntIndex == 0) return 0;
     return Core::MemoryManager::Read<uint32_t>(address + GetOffsets().m_iIDEntIndex);
   }
 
   int GetShotsFired() const {
+    if (GetOffsets().m_iShotsFired == 0) return 0;
     return Core::MemoryManager::Read<int>(address + GetOffsets().m_iShotsFired);
   }
 
@@ -98,21 +107,25 @@ public:
   }
 
   float GetSimulationTime() const {
+    if (GetOffsets().m_flSimulationTime == 0) return 0.0f;
     return Core::MemoryManager::Read<float>(address + GetOffsets().m_flSimulationTime);
   }
 
   uint64_t GetSpottedStateMask() const {
     const auto& O = GetOffsets();
+    if (O.m_entitySpottedState == 0 || O.m_bSpottedByMask == 0) return 0;
     return Core::MemoryManager::Read<uint64_t>(address + O.m_entitySpottedState +
                                                O.m_bSpottedByMask);
   }
 
   uintptr_t GetGameSceneNode() const {
+    if (GetOffsets().m_pGameSceneNode == 0) return 0;
     return Core::MemoryManager::Read<uintptr_t>(address + GetOffsets().m_pGameSceneNode);
   }
 
   std::string GetWeaponName() const {
     const auto& O = GetOffsets();
+    if (O.m_pClippingWeapon == 0) return {};
     uintptr_t nPtr = Core::MemoryManager::ReadChain<uintptr_t>(
         address, {(uintptr_t)O.m_pClippingWeapon, 0x10, 0x20});
     if (nPtr > 0x10000) {
@@ -197,10 +210,12 @@ public:
   }
   
   bool IsLocalPlayerController() const {
+    if (GetOffsets().m_bIsLocalPlayerController == 0) return false;
     return Core::MemoryManager::Read<bool>(address + GetOffsets().m_bIsLocalPlayerController);
   }
   
   std::string GetPlayerName() const {
+    if (GetOffsets().m_iszPlayerName == 0) return {};
     char nameBuffer[128] = {};
     Core::MemoryManager::ReadRaw(address + GetOffsets().m_iszPlayerName,
                                  nameBuffer, sizeof(nameBuffer) - 1);
@@ -240,21 +255,27 @@ public:
   using CEntityInstance::CEntityInstance;
 
   bool IsTicking() const {
+    if (GetOffsets().m_bBombTicking == 0) return false;
     return Core::MemoryManager::Read<bool>(address + GetOffsets().m_bBombTicking);
   }
   int GetSite() const {
+    if (GetOffsets().m_nBombSite == 0) return -1;
     return Core::MemoryManager::Read<int>(address + GetOffsets().m_nBombSite);
   }
   float GetTimerLength() const {
+    if (GetOffsets().m_flTimerLength == 0) return 0.0f;
     return Core::MemoryManager::Read<float>(address + GetOffsets().m_flTimerLength);
   }
   float GetBlowTime() const {
+    if (GetOffsets().m_flC4Blow == 0) return 0.0f;
     return Core::MemoryManager::Read<float>(address + GetOffsets().m_flC4Blow);
   }
   bool IsBeingDefused() const {
+    if (GetOffsets().m_bBeingDefused == 0) return false;
     return Core::MemoryManager::Read<bool>(address + GetOffsets().m_bBeingDefused);
   }
   float GetDefuseCountDown() const {
+    if (GetOffsets().m_flDefuseCountDown == 0) return 0.0f;
     return Core::MemoryManager::Read<float>(address + GetOffsets().m_flDefuseCountDown);
   }
 };

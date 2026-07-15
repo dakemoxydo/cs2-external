@@ -11,6 +11,7 @@ ComPtr<ID3D11DeviceContext> Renderer::pContext;
 ComPtr<IDXGISwapChain> Renderer::pSwapChain;
 ComPtr<ID3D11RenderTargetView> Renderer::pRenderTargetView;
 bool Renderer::s_vsyncEnabled = false;
+HWND Renderer::s_hwnd = nullptr;
 
 bool Renderer::CreateRenderTarget() {
   if (!pSwapChain || !pDevice) {
@@ -32,6 +33,7 @@ void Renderer::ReleaseRenderTarget() {
 
 bool Renderer::Init(HWND hwnd) {
   Shutdown();
+  s_hwnd = hwnd;
 
   DXGI_SWAP_CHAIN_DESC sd = {};
   sd.BufferCount = 1;
@@ -82,7 +84,12 @@ bool Renderer::HandleResize(int width, int height) {
   if (FAILED(pSwapChain->ResizeBuffers(0, static_cast<UINT>(width),
                                        static_cast<UINT>(height),
                                        DXGI_FORMAT_UNKNOWN, 0))) {
-    CreateRenderTarget();
+    // ResizeBuffers failed; the back buffer is now in an undefined state, so
+    // recreating the render target on top of it would also fail and leave the
+    // swap chain unusable. Recreate the whole device + swap chain instead.
+    if (s_hwnd && Init(s_hwnd)) {
+      return true;
+    }
     return false;
   }
 

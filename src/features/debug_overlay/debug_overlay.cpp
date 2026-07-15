@@ -2,6 +2,7 @@
 #include "config/settings.h"
 #include "core/game/game_manager.h"
 #include "core/sdk/offsets.h"
+#include "features/feature_frame.h"
 #include "render/overlay/overlay.h"
 #include <chrono>
 #include <imgui.h>
@@ -14,24 +15,23 @@ namespace Features {
 
 using Clock = std::chrono::steady_clock;
 
-static Clock::time_point s_lastFrame = Clock::now();
-static float s_fps = 0.0f;
-
-void DebugOverlay::Update() {
-  auto now = Clock::now();
-  float dt = std::chrono::duration<float>(now - s_lastFrame).count();
-  s_lastFrame = now;
-  if (dt > 0.0f)
-    s_fps = 0.9f * s_fps + 0.1f * (1.0f / dt); // smooth
+void DebugOverlay::OnEnable() {
+  lastFrame_ = Clock::now();
+  fps_ = 0.0f;
 }
 
-void DebugOverlay::Render(Render::DrawList & /*drawList*/) {
-  bool isEnabled, devMode;
-  {
-    std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-    isEnabled = Config::Settings.debug.enabled;
-    devMode = Config::Settings.debug.devMode;
-  }
+void DebugOverlay::Update(const FeatureFrame &) {
+  auto now = Clock::now();
+  float dt = std::chrono::duration<float>(now - lastFrame_).count();
+  lastFrame_ = now;
+  if (dt > 0.0f)
+    fps_ = 0.9f * fps_ + 0.1f * (1.0f / dt); // smooth
+}
+
+void DebugOverlay::Render(const FeatureFrame &frame,
+                          Render::DrawList & /*drawList*/) {
+  const bool isEnabled = frame.settings.debug.enabled;
+  const bool devMode = frame.settings.debug.devMode;
   if (!isEnabled) return;
 
   const float PAD = 8.0f;
@@ -57,12 +57,12 @@ void DebugOverlay::Render(Render::DrawList & /*drawList*/) {
   // ── Normal mode (always visible) ──
   ImGui::TextColored(yellow, "FPS");
   ImGui::SameLine(60);
-  ImGui::TextColored(white, "%.0f", s_fps);
+  ImGui::TextColored(white, "%.0f", fps_);
 
-  const auto snapshot = Core::GameManager::GetSnapshot();
+  const auto &snapshot = frame.game;
   ImGui::TextColored(yellow, "Entities");
   ImGui::SameLine(60);
-  ImGui::TextColored(white, "%zu", snapshot->players.size());
+  ImGui::TextColored(white, "%zu", snapshot.players.size());
 
   int gameW = Render::Overlay::GetGameWidth();
   int gameH = Render::Overlay::GetGameHeight();
@@ -75,7 +75,7 @@ void DebugOverlay::Render(Render::DrawList & /*drawList*/) {
     ImGui::Separator();
     ImGui::TextColored(cyan, "-- DEV --");
 
-    uintptr_t base = snapshot->clientBase;
+    uintptr_t base = snapshot.clientBase;
     const auto offsets = SDK::Offsets::GetCopy();
     ImGui::TextColored(yellow, "client.dll");
     ImGui::SameLine(60);

@@ -27,8 +27,8 @@ bool OffsetLoader::LoadOffsets() {
         auto ghFiles = fileLoader.DownloadFromGitHub();
         if (!ghFiles.offsetsJson.empty() && !ghFiles.clientJson.empty()) {
             auto ghParsed = parser.Parse(ghFiles);
+            applier.LogStatus(ghParsed);
             if (HasRequiredOffsets(ghParsed) && applier.Validate(ghParsed)) {
-                applier.LogStatus(ghParsed);
                 if (!fileLoader.SaveToCacheDir(ghFiles.offsetsJson,
                                                ghFiles.clientJson)) {
                     std::cout << "[!] Offsets are valid but the cache could not be saved.\n";
@@ -49,8 +49,8 @@ bool OffsetLoader::LoadOffsets() {
     auto ghFiles = fileLoader.DownloadFromGitHub();
     if (!ghFiles.offsetsJson.empty() && !ghFiles.clientJson.empty()) {
         auto parsed = parser.Parse(ghFiles);
+        applier.LogStatus(parsed);
         if (HasRequiredOffsets(parsed) && applier.Validate(parsed)) {
-            applier.LogStatus(parsed);
             if (!fileLoader.SaveToCacheDir(ghFiles.offsetsJson,
                                            ghFiles.clientJson)) {
                 std::cout << "[!] Offsets are valid but the cache could not be saved.\n";
@@ -93,7 +93,7 @@ bool OffsetLoader::ForceUpdateFromGitHub() {
     auto ghFiles = fileLoader.DownloadFromGitHub();
     if (!ghFiles.offsetsJson.empty() && !ghFiles.clientJson.empty()) {
         auto parsed = parser.Parse(ghFiles);
-        if (HasRequiredOffsets(parsed)) {
+        if (HasRequiredOffsets(parsed) && applier.Validate(parsed)) {
             if (!fileLoader.SaveToCacheDir(ghFiles.offsetsJson,
                                            ghFiles.clientJson)) {
                 std::cout << "[!] Offset cache could not be saved; keeping active offsets unchanged.\n";

@@ -166,6 +166,7 @@ Responsibilities:
 - Windows message pump
 - input polling and hotkeys
 - menu toggle and close handling
+- capture one immutable game snapshot and one settings copy per render frame
 - feature `UpdateAll()`
 - overlay move and resize tracking
 - frame begin and end
@@ -175,8 +176,9 @@ Responsibilities:
 
 Rules:
 - synthetic mouse input and key state queries stay here
-- feature `Update()` is render-thread logic
-- feature `Render()` must assume it runs after `GameManager::Update()` published the latest snapshot
+- feature `Update(frame)` is render-thread logic
+- feature `Update(frame)` and `Render(frame, drawList)` consume the same
+  `FeatureFrame`; features must not reload game or config state independently
 
 ### Memory Thread
 
@@ -196,7 +198,11 @@ Responsibilities:
 
 Rules:
 - raw memory traversal belongs here
+- process access is read-only; runtime code must not allocate or execute memory
+  in the target process
 - if process or offsets become invalid, publish empty state instead of leaving stale state alive
+- `Application::~Application()` is the final ownership boundary and must call
+  the idempotent shutdown path even when `Run()` was never entered
 
 ## 4. Core Runtime Data Model
 
@@ -229,6 +235,8 @@ Rules:
 - render-side code must consume snapshots or thin getters over snapshots
 - do not return mutable references to internal vectors
 - render features must not call `MemoryManager` directly; expensive game reads belong to the memory thread
+- public render-side `GameManager` getters must never resolve handles or read live
+  process memory; publish required values in `GameSnapshot` instead
 
 ### Combat Telemetry
 
@@ -363,11 +371,17 @@ Feature manager behavior:
 - `RegisterAll()` is idempotent
 - instances are lazy-created when config enables them
 - storage is private; configuration uses the `SetEnabled()` facade
+- `UpdateAll()` and `RenderAll()` pass a shared per-frame context containing the
+  immutable `GameSnapshot` and settings copy
 
 Critical rules:
 - every new feature must be registered in `FeatureManager::RegisterAll()`
 - every enable flag must be reflected in `ConfigManager::ApplySettings()`
 - if a feature has persistent settings, they must be in config registry and menu UI
+- exceptions are isolated per feature; a failed feature is quarantined without
+  terminating the render loop
+- mutable runtime state belongs to the feature instance, not file-static storage;
+  reset transient input and animation state in lifecycle hooks
 
 ### `ESP`
 

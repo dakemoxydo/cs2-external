@@ -75,8 +75,8 @@ struct Entity {
   // Full transforms used by skinned renderers such as Chams.
   std::vector<BoneTransform> boneTransforms;
 
-  bool isSpotted =
-      false; // true = local player has line-of-sight (SpottedByMask)
+  // Read-only visibility signal from EntitySpottedState_t::m_bSpottedByMask.
+  bool isSpotted = false;
 
   bool onScreen = false; // true if entity is within screen bounds (+margin)
 

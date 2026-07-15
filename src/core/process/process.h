@@ -24,15 +24,6 @@ public:
   /// Returns NTSTATUS: 0 (STATUS_SUCCESS) on success, error code on failure.
   static NTSTATUS NtRead(void *address, void *buffer, size_t size);
 
-  /// Direct NtWriteVirtualMemory call. Duplicates the handle internally to
-  /// avoid exposing a raw HANDLE that can become stale.
-  static bool NtWrite(void *address, const void *buffer, size_t size);
-
-  static void *AllocRemote(size_t size,
-                           DWORD protect = PAGE_EXECUTE_READWRITE);
-  static bool FreeRemote(void *address);
-  static HANDLE CreateRemoteThreadSimple(void *startAddress, void *parameter);
-
 private:
   static std::mutex s_mutex;
   static HANDLE hProcess;

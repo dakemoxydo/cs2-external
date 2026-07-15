@@ -33,19 +33,19 @@ void ApplyMenuTheme(int theme) {
   const ImVec4 accentSoft = ImVec4(accent.x, accent.y, accent.z, 0.18f);
   const ImVec4 accentMid = ImVec4(accent.x, accent.y, accent.z, 0.45f);
 
-  style.WindowPadding = ImVec2(14.0f, 14.0f);
-  style.FramePadding = ImVec2(10.0f, 6.0f);
-  style.CellPadding = ImVec2(8.0f, 8.0f);
-  style.ItemSpacing = ImVec2(10.0f, 10.0f);
+  style.WindowPadding = ImVec2(16.0f, 16.0f);
+  style.FramePadding = ImVec2(10.0f, 7.0f);
+  style.CellPadding = ImVec2(10.0f, 8.0f);
+  style.ItemSpacing = ImVec2(10.0f, 8.0f);
   style.ItemInnerSpacing = ImVec2(8.0f, 6.0f);
   style.ScrollbarSize = 8.0f;
   style.GrabMinSize = 24.0f;
 
-  style.WindowRounding = 8.0f;
-  style.ChildRounding = 6.0f;
-  style.PopupRounding = 6.0f;
-  style.FrameRounding = 4.0f;
-  style.ScrollbarRounding = 2.0f;
+  style.WindowRounding = 12.0f;
+  style.ChildRounding = 8.0f;
+  style.PopupRounding = 8.0f;
+  style.FrameRounding = 6.0f;
+  style.ScrollbarRounding = 6.0f;
   style.GrabRounding = 999.0f;
   style.TabRounding = 4.0f;
 
@@ -57,15 +57,15 @@ void ApplyMenuTheme(int theme) {
 
   colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
   colors[ImGuiCol_TextDisabled] = ImVec4(0.49f, 0.51f, 0.56f, 1.00f);
-  colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.08f, 0.09f, 0.99f);
-  colors[ImGuiCol_ChildBg] = ImVec4(0.12f, 0.12f, 0.14f, 1.00f);
-  colors[ImGuiCol_PopupBg] = ImVec4(0.12f, 0.12f, 0.15f, 0.98f);
-  colors[ImGuiCol_Border] = ImVec4(0.18f, 0.19f, 0.22f, 1.00f);
+  colors[ImGuiCol_WindowBg] = ImVec4(0.055f, 0.060f, 0.075f, 0.995f);
+  colors[ImGuiCol_ChildBg] = ImVec4(0.095f, 0.105f, 0.130f, 1.00f);
+  colors[ImGuiCol_PopupBg] = ImVec4(0.105f, 0.115f, 0.145f, 0.99f);
+  colors[ImGuiCol_Border] = ImVec4(0.19f, 0.21f, 0.26f, 0.82f);
   colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 
-  colors[ImGuiCol_FrameBg] = ImVec4(0.15f, 0.15f, 0.18f, 1.00f);
-  colors[ImGuiCol_FrameBgHovered] = ImVec4(0.18f, 0.19f, 0.23f, 1.00f);
-  colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.22f, 0.27f, 1.00f);
+  colors[ImGuiCol_FrameBg] = ImVec4(0.135f, 0.145f, 0.180f, 1.00f);
+  colors[ImGuiCol_FrameBgHovered] = ImVec4(0.165f, 0.180f, 0.220f, 1.00f);
+  colors[ImGuiCol_FrameBgActive] = ImVec4(0.195f, 0.215f, 0.265f, 1.00f);
   colors[ImGuiCol_TitleBg] = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
   colors[ImGuiCol_TitleBgActive] = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
   colors[ImGuiCol_MenuBarBg] = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);

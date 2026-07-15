@@ -1,8 +1,7 @@
 #include "triggerbot.h"
 #include "config/settings.h"
 #include "core/game/game_manager.h"
-#include "core/memory/memory_manager.h"
-#include "core/sdk/offsets.h"
+#include "features/feature_frame.h"
 #include "render/menu/menu.h"
 #include "render/draw/draw_list.h"
 #include "input/input_manager.h"
@@ -14,17 +13,11 @@
 
 namespace Features {
 
-static std::mt19937& GetRng() {
-  static std::mt19937 rng(static_cast<unsigned int>(
-      std::chrono::steady_clock::now().time_since_epoch().count()));
-  return rng;
-}
-
-static int RandRange(int lo, int hi) {
+int Triggerbot::RandRange(int lo, int hi) {
   if (lo >= hi)
     return lo;
   std::uniform_int_distribution<int> dist(lo, hi);
-  return dist(GetRng());
+  return dist(rng_);
 }
 
 static auto NowMs() { return std::chrono::steady_clock::now(); }
@@ -33,12 +26,18 @@ static long long ElapsedMs(std::chrono::steady_clock::time_point t) {
       .count();
 }
 
-enum class TBState { IDLE, TARGET_FOUND, WAITING, SHOOTING, COOLDOWN };
-static TBState s_state = TBState::IDLE;
-static std::chrono::steady_clock::time_point s_timer;
-static int s_delayMs = 0;
+void Triggerbot::ResetState() {
+  if (state_ == State::Shooting) {
+    Input::InputManager::SendMouseClick(false);
+  }
+  state_ = State::Idle;
+  timer_ = {};
+  delayMs_ = 0;
+}
 
-void Triggerbot::Update() {
+void Triggerbot::OnDisable() { ResetState(); }
+
+void Triggerbot::Update(const FeatureFrame &frame) {
   // Snapshot triggerbot settings atomically
   struct S {
     bool enabled, teamCheck;
@@ -46,63 +45,62 @@ void Triggerbot::Update() {
   };
   S s;
   {
-    std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-    auto &TB = Config::Settings.triggerbot;
+    const auto &TB = frame.settings.triggerbot;
     s = {TB.enabled, TB.teamCheck, TB.hotkey, TB.delayMin, TB.delayMax};
   }
 
-  if (!s.enabled) { s_state = TBState::IDLE; return; }
-  if (Render::Menu::IsOpen()) { s_state = TBState::IDLE; return; }
+  if (!s.enabled) { ResetState(); return; }
+  if (Render::Menu::IsOpen()) { ResetState(); return; }
 
   bool keyHeld = Input::InputManager::IsKeyDown(s.hotkey);
-  if (!keyHeld) { s_state = TBState::IDLE; return; }
+  if (!keyHeld) { ResetState(); return; }
 
-  const auto snapshot = Core::GameManager::GetSnapshot();
-  uint32_t crossHairHandle = snapshot->localCrosshairHandle;
+  const auto &snapshot = frame.game;
+  uint32_t crossHairHandle = snapshot.localCrosshairHandle;
 
   bool onEnemy = false;
   if (crossHairHandle != 0 && crossHairHandle != 0xFFFFFFFF) {
-    for (const auto &p : snapshot->players) {
+    for (const auto &p : snapshot.players) {
       if (!p.IsValid() || !p.IsAlive()) continue;
       if (s.teamCheck && p.isTeammate) continue;
       if (p.pawnHandle == crossHairHandle) { onEnemy = true; break; }
     }
   }
 
-  switch (s_state) {
-  case TBState::IDLE:
+  switch (state_) {
+  case State::Idle:
     if (onEnemy) {
-      s_delayMs = RandRange(s.delayMin, s.delayMax);
-      s_timer = NowMs();
-      s_state = TBState::TARGET_FOUND;
+      delayMs_ = RandRange(s.delayMin, s.delayMax);
+      timer_ = NowMs();
+      state_ = State::TargetFound;
     }
     break;
-  case TBState::TARGET_FOUND:
-    if (!onEnemy) { s_state = TBState::IDLE; break; }
-    s_state = TBState::WAITING;
+  case State::TargetFound:
+    if (!onEnemy) { ResetState(); break; }
+    state_ = State::Waiting;
     break;
-  case TBState::WAITING:
-    if (!onEnemy) { s_state = TBState::IDLE; break; }
-    if (ElapsedMs(s_timer) >= s_delayMs) {
+  case State::Waiting:
+    if (!onEnemy) { ResetState(); break; }
+    if (ElapsedMs(timer_) >= delayMs_) {
       Input::InputManager::SendMouseClick(true);
-      s_timer = NowMs();
-      s_state = TBState::SHOOTING;
+      timer_ = NowMs();
+      state_ = State::Shooting;
     }
     break;
-  case TBState::SHOOTING:
-    if (ElapsedMs(s_timer) >= 25) {
+  case State::Shooting:
+    if (ElapsedMs(timer_) >= 25) {
       Input::InputManager::SendMouseClick(false);
-      s_timer = NowMs();
-      s_state = TBState::COOLDOWN;
+      timer_ = NowMs();
+      state_ = State::Cooldown;
     }
     break;
-  case TBState::COOLDOWN:
-    if (ElapsedMs(s_timer) >= RandRange(80, 200)) { s_state = TBState::IDLE; }
+  case State::Cooldown:
+    if (ElapsedMs(timer_) >= RandRange(80, 200)) { ResetState(); }
     break;
   }
 }
 
-void Triggerbot::Render(Render::DrawList &) {
+void Triggerbot::Render(const FeatureFrame &, Render::DrawList &) {
 }
 
 void Triggerbot::RenderUI() {}

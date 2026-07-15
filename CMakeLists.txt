@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.24)
 project(cs2overlay VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -80,10 +80,11 @@ endif()
 
 include(GNUInstallDirs)
 install(TARGETS cs2overlay RUNTIME DESTINATION .)
-install(FILES
-    "${CMAKE_SOURCE_DIR}/assets/models/tm_phoenix.glb"
-    "${CMAKE_SOURCE_DIR}/assets/models/ctm_sas.glb"
-    DESTINATION assets/models
+# Install the whole models directory so the Chams textures (PNGs) are
+# shipped alongside the GLB meshes.
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets/models"
+    DESTINATION assets
+    FILES_MATCHING PATTERN "*.*"
 )
 
 include(CTest)

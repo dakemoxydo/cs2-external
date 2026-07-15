@@ -6,12 +6,14 @@ class DrawList;
 }
 
 namespace Features {
+struct FeatureFrame;
+
 class IFeature {
 public:
   virtual ~IFeature() = default;
 
-  virtual void Update() = 0;
-  virtual void Render(Render::DrawList &drawList) = 0;
+  virtual void Update(const FeatureFrame &frame) = 0;
+  virtual void Render(const FeatureFrame &frame, Render::DrawList &drawList) = 0;
   virtual std::string_view GetName() = 0;
 
   virtual void Initialize() {}

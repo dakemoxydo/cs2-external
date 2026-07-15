@@ -72,89 +72,6 @@ NTSTATUS Process::NtRead(void *address, void *buffer, size_t size) {
 }
 
 // ─── NtWrite ─────────────────────────────────────────────────────────────────
-bool Process::NtWrite(void *address, const void *buffer, size_t size) {
-  std::lock_guard lock(s_mutex);
-  if (!hProcess)
-    return false;
-  SIZE_T written = 0;
-  BOOL ok = WriteProcessMemory(hProcess, address, buffer, size, &written);
-  return ok && written == size;
-}
-
-void *Process::AllocRemote(size_t size, DWORD protect) {
-  if (size == 0) {
-    return nullptr;
-  }
-
-  HANDLE h = nullptr;
-  {
-    std::lock_guard lock(s_mutex);
-    if (!hProcess) {
-      return nullptr;
-    }
-    if (!DuplicateHandle(GetCurrentProcess(), hProcess, GetCurrentProcess(), &h,
-                         PROCESS_VM_OPERATION | PROCESS_VM_WRITE |
-                             PROCESS_QUERY_INFORMATION,
-                         FALSE, 0)) {
-      return nullptr;
-    }
-  }
-
-  void *remote = VirtualAllocEx(h, nullptr, size, MEM_COMMIT | MEM_RESERVE, protect);
-  CloseHandle(h);
-  return remote;
-}
-
-bool Process::FreeRemote(void *address) {
-  if (!address) {
-    return false;
-  }
-
-  HANDLE h = nullptr;
-  {
-    std::lock_guard lock(s_mutex);
-    if (!hProcess) {
-      return false;
-    }
-    if (!DuplicateHandle(GetCurrentProcess(), hProcess, GetCurrentProcess(), &h,
-                         PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE,
-                         0)) {
-      return false;
-    }
-  }
-
-  const BOOL ok = VirtualFreeEx(h, address, 0, MEM_RELEASE);
-  CloseHandle(h);
-  return ok != FALSE;
-}
-
-HANDLE Process::CreateRemoteThreadSimple(void *startAddress, void *parameter) {
-  if (!startAddress) {
-    return nullptr;
-  }
-
-  HANDLE h = nullptr;
-  {
-    std::lock_guard lock(s_mutex);
-    if (!hProcess) {
-      return nullptr;
-    }
-    if (!DuplicateHandle(GetCurrentProcess(), hProcess, GetCurrentProcess(), &h,
-                         PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
-                             PROCESS_VM_OPERATION | PROCESS_VM_READ |
-                             PROCESS_VM_WRITE,
-                         FALSE, 0)) {
-      return nullptr;
-    }
-  }
-
-  HANDLE thread = CreateRemoteThread(
-      h, nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(startAddress),
-      parameter, 0, nullptr);
-  CloseHandle(h);
-  return thread;
-}
-
 // ─── TryStealHandle ─────────────────────────────────────────────────────────
 // Enumerate all handles in the system; look for one pointing to cs2.exe (by
 // PID) that is owned by a trusted process, then DuplicateHandle it into our
@@ -272,9 +189,7 @@ bool Process::Attach(const std::wstring &processName) {
     return false;
   }
 
-  HANDLE stolen = OpenProcess(PROCESS_VM_READ | PROCESS_VM_WRITE |
-                                  PROCESS_VM_OPERATION | PROCESS_CREATE_THREAD |
-                                  PROCESS_QUERY_INFORMATION |
+  HANDLE stolen = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION |
                                   PROCESS_QUERY_LIMITED_INFORMATION,
                               FALSE, entry.th32ProcessID);
 

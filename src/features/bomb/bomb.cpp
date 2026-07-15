@@ -2,9 +2,8 @@
 #include "config/settings.h"
 #include "core/game/game_manager.h"
 #include "core/math/math.h"
-#include "core/memory/memory_manager.h"
-#include "core/sdk/offsets.h"
 #include "core/sdk/entity.h"
+#include "features/feature_frame.h"
 #include "render/draw/draw_list.h"
 #include "render/overlay/overlay.h"
 #include <algorithm>
@@ -17,46 +16,41 @@
 
 namespace Features {
 
-static bool s_planted = false;
-static float s_timeLeft = 0.0f;
-static float s_totalTime = 40.0f;
-static bool s_isBeingDefused = false;
-static float s_defuseTimeLeft = 0.0f;
-static int s_site = -1;
-
-void Bomb::Update() {
-  SDK::BombInfo info = Core::GameManager::GetBombInfo();
-
-  if (!info.isPlanted) {
-    s_planted = false;
-    s_timeLeft = 0.0f;
-    s_totalTime = 40.0f;
-    s_isBeingDefused = false;
-    s_defuseTimeLeft = 0.0f;
-    s_site = -1;
-    return;
-  }
-
-  s_planted = true;
-  s_site = info.site;
-  s_timeLeft = info.timeLeft;
-  s_totalTime = info.totalTime > 0.0f ? info.totalTime : 40.0f;
-  s_isBeingDefused = info.isBeingDefused;
-  s_defuseTimeLeft = info.defuseTimeLeft;
+void Bomb::ResetState() {
+  planted_ = false;
+  timeLeft_ = 0.0f;
+  totalTime_ = 40.0f;
+  isBeingDefused_ = false;
+  defuseTimeLeft_ = 0.0f;
+  site_ = -1;
 }
 
-void Bomb::Render(Render::DrawList & /*drawList*/) {
-  bool bombEnabled;
-  {
-    std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-    bombEnabled = Config::Settings.bomb.enabled;
+void Bomb::OnDisable() { ResetState(); }
+
+void Bomb::Update(const FeatureFrame &frame) {
+  const SDK::BombInfo &info = frame.game.bombInfo;
+
+  if (!info.isPlanted) {
+    ResetState();
+    return;
   }
-  if (!bombEnabled || !s_planted || s_timeLeft <= 0.0f)
+
+  planted_ = true;
+  site_ = info.site;
+  timeLeft_ = info.timeLeft;
+  totalTime_ = info.totalTime > 0.0f ? info.totalTime : 40.0f;
+  isBeingDefused_ = info.isBeingDefused;
+  defuseTimeLeft_ = info.defuseTimeLeft;
+}
+
+void Bomb::Render(const FeatureFrame &frame, Render::DrawList & /*drawList*/) {
+  const bool bombEnabled = frame.settings.bomb.enabled;
+  if (!bombEnabled || !planted_ || timeLeft_ <= 0.0f)
     return;
 
-  float progress = s_totalTime > 0.0f ? s_timeLeft / s_totalTime : 0.0f;
+  float progress = totalTime_ > 0.0f ? timeLeft_ / totalTime_ : 0.0f;
   progress = (std::clamp)(progress, 0.0f, 1.0f);
-  const char *site = (s_site == 1) ? "B" : "A";
+  const char *site = (site_ == 1) ? "B" : "A";
 
   int gameW = Render::Overlay::GetGameWidth();
   if (gameW <= 0) return;
@@ -87,14 +81,14 @@ void Bomb::Render(Render::DrawList & /*drawList*/) {
 
   ImGui::PushStyleColor(ImGuiCol_PlotHistogram, col);
   char label[32];
-  snprintf(label, sizeof(label), "BOMB [%s]  %.0fs", site, ceilf(s_timeLeft));
+  snprintf(label, sizeof(label), "BOMB [%s]  %.0fs", site, ceilf(timeLeft_));
   ImGui::ProgressBar(progress, ImVec2(-1.0f, 22.0f), label);
   ImGui::PopStyleColor();
-  if (s_isBeingDefused && s_defuseTimeLeft > 0.0f) {
-    ImGui::TextColored(col, "%.1fs left  |  Defuse %.1fs  |  Site: %s", s_timeLeft,
-                       s_defuseTimeLeft, site);
+  if (isBeingDefused_ && defuseTimeLeft_ > 0.0f) {
+    ImGui::TextColored(col, "%.1fs left  |  Defuse %.1fs  |  Site: %s", timeLeft_,
+                       defuseTimeLeft_, site);
   } else {
-    ImGui::TextColored(col, "%.1fs left  |  Site: %s", s_timeLeft, site);
+    ImGui::TextColored(col, "%.1fs left  |  Site: %s", timeLeft_, site);
   }
   ImGui::End();
 }
