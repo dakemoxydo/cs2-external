@@ -3,6 +3,8 @@
 #include <vector>
 #include <winternl.h>
 #include <memory>
+#include <algorithm>
+#include <cstddef>
 
 
 // NtQuerySystemInformation (undocumented but stable ntdll export)
@@ -11,7 +13,8 @@ using NtQsiFunc = NTSTATUS(NTAPI *)(ULONG, PVOID, ULONG, PULONG);
 // Our own struct to avoid conflicting with winternl typedefs
 namespace {
 struct Cs2HandleEntry {
-  ULONG OwnerPid;
+  USHORT OwnerPid;
+  USHORT CreatorBackTraceIndex;
   BYTE ObjectTypeIndex;
   BYTE Flags;
   USHORT HandleValue;
@@ -54,48 +57,27 @@ NTSTATUS Process::NtRead(void *address, void *buffer, size_t size) {
   if (!s_ntRvm)
     return (NTSTATUS)0xC000000DL;
 
-  // Duplicate the handle to protect against Detach() closing it concurrently.
-  // Without this, there's a use-after-free: we copy hProcess under lock,
-  // release the lock, then another thread calls Detach() which closes the
-  // handle before we reach s_ntRvm below.
-  HANDLE h = nullptr;
-  {
-    std::lock_guard lock(s_mutex);
-    if (!hProcess)
-      return (NTSTATUS)0xC000000DL;
-    if (!DuplicateHandle(GetCurrentProcess(), hProcess, GetCurrentProcess(),
-                         &h, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
-      return (NTSTATUS)0xC000000DL;
-    }
-  }
-
+  std::lock_guard lock(s_mutex);
+  if (!hProcess)
+    return (NTSTATUS)0xC000000DL;
   SIZE_T read = 0;
-  NTSTATUS status = s_ntRvm(h, address, buffer, (SIZE_T)size, &read);
-  CloseHandle(h);
+  NTSTATUS status = s_ntRvm(hProcess, address, buffer, (SIZE_T)size, &read);
 
   if (status != 0 || read != size) {
     // Read failed — expected behavior for invalid entity pointers
   }
-  return status;
+  return (status == 0 && read != size)
+             ? static_cast<NTSTATUS>(0x8000000DL)
+             : status;
 }
 
 // ─── NtWrite ─────────────────────────────────────────────────────────────────
 bool Process::NtWrite(void *address, const void *buffer, size_t size) {
-  // Duplicate the handle to protect against Detach() closing it concurrently.
-  HANDLE h = nullptr;
-  {
-    std::lock_guard lock(s_mutex);
-    if (!hProcess)
-      return false;
-    if (!DuplicateHandle(GetCurrentProcess(), hProcess, GetCurrentProcess(),
-                         &h, PROCESS_VM_WRITE | PROCESS_VM_OPERATION, FALSE, 0)) {
-      return false;
-    }
-  }
-
+  std::lock_guard lock(s_mutex);
+  if (!hProcess)
+    return false;
   SIZE_T written = 0;
-  BOOL ok = WriteProcessMemory(h, address, buffer, size, &written);
-  CloseHandle(h);
+  BOOL ok = WriteProcessMemory(hProcess, address, buffer, size, &written);
   return ok && written == size;
 }
 
@@ -196,18 +178,22 @@ HANDLE Process::TryStealHandle(DWORD targetPid) {
     ULONG retLen = 0;
     st = ntqsi(16 /*SystemHandleInformation*/, buf.data(), bufSize, &retLen);
     bufSize <<= 1;
+    if (bufSize > (1u << 26)) return nullptr;
   } while (st == (NTSTATUS)0xC0000004L); // STATUS_INFO_LENGTH_MISMATCH
   if (st < 0)
     return nullptr;
 
   auto *info = reinterpret_cast<Cs2HandleInfo *>(buf.data());
+  const ULONG maxEntries = static_cast<ULONG>(
+      (buf.size() - offsetof(Cs2HandleInfo, Entries)) / sizeof(Cs2HandleEntry));
+  const ULONG entryCount = (std::min)(info->Count, maxEntries);
 
   // Trusted process names whose handles we would steal
   const wchar_t *trusted[] = {L"steam.exe", L"steamwebhelper.exe",
                               L"gameoverlayrenderer64.exe", L"nvcontainer.exe",
                               nullptr};
 
-  for (ULONG i = 0; i < info->Count; i++) {
+  for (ULONG i = 0; i < entryCount; i++) {
     Cs2HandleEntry &e = info->Entries[i];
 
     if (!(e.GrantedAccess & PROCESS_VM_READ))

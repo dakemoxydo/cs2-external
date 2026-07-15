@@ -1,11 +1,8 @@
 #include "chams.h"
 #include "chams_config.h"
 #include "config/settings.h"
-#include "core/constants.h"
 #include "core/game/game_manager.h"
-#include "core/memory/memory_manager.h"
 #include "core/sdk/entity.h"
-#include "core/sdk/offsets.h"
 #include "core/sdk/structs.h"
 #include <DirectXMath.h>
 #include "render/overlay/overlay.h"
@@ -21,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <shared_mutex>
 #include <span>
@@ -188,15 +186,6 @@ struct DrawCommand {
   float alpha = 1.0f;
   int renderMode = 0;
   int materialType = 1;
-};
-
-struct GameBoneTransform {
-  SDK::Vector3 position{};
-  float scale = 1.0f;
-  float qx = 0.0f;
-  float qy = 0.0f;
-  float qz = 0.0f;
-  float qw = 1.0f;
 };
 
 struct LiveBonePose {
@@ -729,12 +718,38 @@ bool LoadGlbMesh(const std::filesystem::path &path, SkinnedMesh &mesh) {
                          accessor.value("type", std::string("SCALAR"))});
   }
 
+  const size_t binSize = static_cast<size_t>(binLength);
+  for (const auto &view : bufferViews) {
+    if (view.byteOffset > binSize || view.byteLength > binSize - view.byteOffset) {
+      return false;
+    }
+  }
+  for (const auto &accessor : accessors) {
+    if (accessor.bufferView < 0 ||
+        accessor.bufferView >= static_cast<int>(bufferViews.size()) ||
+        accessor.count < 0 || ComponentCountForType(accessor.type) <= 0 ||
+        ComponentSize(accessor.componentType) <= 0) {
+      return false;
+    }
+    const auto &view = bufferViews[static_cast<size_t>(accessor.bufferView)];
+    const size_t elementSize = static_cast<size_t>(ComponentCountForType(accessor.type)) *
+                               static_cast<size_t>(ComponentSize(accessor.componentType));
+    const size_t stride = AccessorStride(accessor, view);
+    if (stride < elementSize || accessor.byteOffset > view.byteLength ||
+        (accessor.count > 0 &&
+         static_cast<size_t>(accessor.count - 1) >
+             (view.byteLength - accessor.byteOffset - elementSize) / stride)) {
+      return false;
+    }
+  }
+
   const auto &skin = gltf["skins"][0];
   if (!skin.contains("joints") || !skin.contains("inverseBindMatrices")) {
     return false;
   }
 
   const int ibmIndex = skin["inverseBindMatrices"].get<int>();
+  if (ibmIndex < 0 || ibmIndex >= static_cast<int>(accessors.size())) return false;
   const auto &ibmAccessor = accessors[ibmIndex];
   mesh.inverseBindMatrices.resize(static_cast<size_t>(ibmAccessor.count));
   mesh.bindPoseMatrices.resize(static_cast<size_t>(ibmAccessor.count));
@@ -759,7 +774,12 @@ bool LoadGlbMesh(const std::filesystem::path &path, SkinnedMesh &mesh) {
       continue;
     }
 
-    const auto &gltfMesh = gltf["meshes"][node["mesh"].get<int>()];
+    const int nodeMeshIndex = node["mesh"].get<int>();
+    if (nodeMeshIndex < 0 || nodeMeshIndex >= static_cast<int>(gltf["meshes"].size())) {
+      return false;
+    }
+
+    const auto &gltfMesh = gltf["meshes"][nodeMeshIndex];
     for (const auto &primitive : gltfMesh["primitives"]) {
       if (!primitive.contains("attributes") || !primitive.contains("indices")) {
         continue;
@@ -774,10 +794,18 @@ bool LoadGlbMesh(const std::filesystem::path &path, SkinnedMesh &mesh) {
       const int jointsAccessor = attributes["JOINTS_0"].get<int>();
       const int weightsAccessor = attributes["WEIGHTS_0"].get<int>();
       const int indicesAccessor = primitive["indices"].get<int>();
-      const int normalAccessor =
-          attributes.contains("NORMAL") ? attributes["NORMAL"].get<int>() : -1;
+       const int normalAccessor =
+           attributes.contains("NORMAL") ? attributes["NORMAL"].get<int>() : -1;
 
-      const auto &positionInfo = accessors[positionAccessor];
+       if (positionAccessor < 0 || jointsAccessor < 0 || weightsAccessor < 0 ||
+           indicesAccessor < 0 || positionAccessor >= static_cast<int>(accessors.size()) ||
+           jointsAccessor >= static_cast<int>(accessors.size()) ||
+           weightsAccessor >= static_cast<int>(accessors.size()) ||
+           indicesAccessor >= static_cast<int>(accessors.size()) ||
+           (normalAccessor >= static_cast<int>(accessors.size()))) {
+         return false;
+       }
+       const auto &positionInfo = accessors[positionAccessor];
       const auto &jointsInfo = accessors[jointsAccessor];
       const auto &indicesInfo = accessors[indicesAccessor];
 
@@ -850,6 +878,11 @@ bool LoadGlbMesh(const std::filesystem::path &path, SkinnedMesh &mesh) {
   }
 
   for (size_t i = 0; i + 2 < mesh.indices.size(); i += 3) {
+    if (mesh.indices[i] >= mesh.vertices.size() ||
+        mesh.indices[i + 1] >= mesh.vertices.size() ||
+        mesh.indices[i + 2] >= mesh.vertices.size()) {
+      return false;
+    }
     auto &v0 = mesh.vertices[mesh.indices[i]];
     auto &v1 = mesh.vertices[mesh.indices[i + 1]];
     auto &v2 = mesh.vertices[mesh.indices[i + 2]];
@@ -954,7 +987,7 @@ bool IsFiniteVector(const SDK::Vector3 &value) {
   return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
 
-BoneMatrix3x4 MakeOrientedBoneMatrix(const GameBoneTransform &transform,
+BoneMatrix3x4 MakeOrientedBoneMatrix(const SDK::BoneTransform &transform,
                                      bool &hasOrientation) {
   hasOrientation = false;
   BoneMatrix3x4 matrix = MakeTranslationBoneMatrix(transform.position);
@@ -1406,11 +1439,6 @@ public:
       previousLocalPawn = snapshot->localPawn;
     }
 
-    const auto offsets = SDK::Offsets::GetCopy();
-    if (offsets.m_pGameSceneNode == 0 || offsets.m_boneArrayOffset == 0) {
-      return;
-    }
-
     const int screenWidth = Render::Overlay::GetGameWidth();
     const int screenHeight = Render::Overlay::GetGameHeight();
     if (screenWidth <= 0 || screenHeight <= 0) {
@@ -1430,9 +1458,9 @@ public:
         continue;
       }
 
-      auto gameBones =
-          ReadGameBones(player.address, offsets,
-                        static_cast<int>(mesh->gltfToGameBoneMap.size()));
+      auto gameBones = BuildGameBones(
+          player.boneTransforms,
+          static_cast<int>(mesh->gltfToGameBoneMap.size()));
       if (gameBones.empty()) {
         continue;
       }
@@ -1586,35 +1614,16 @@ private:
     return nullptr;
   }
 
-  std::vector<LiveBonePose> ReadGameBones(uintptr_t pawnAddress,
-                                          const SDK::OffsetSet &offsets,
-                                          int boneCount) {
+  std::vector<LiveBonePose> BuildGameBones(
+      const std::vector<SDK::BoneTransform> &transforms, int boneCount) {
     std::vector<LiveBonePose> bones;
-    if (pawnAddress <= Core::Constants::MIN_VALID_ADDRESS || boneCount <= 0) {
+    if (boneCount <= 0 || transforms.size() < static_cast<size_t>(boneCount)) {
       return bones;
-    }
-
-    const uintptr_t gameScene = Core::MemoryManager::Read<uintptr_t>(
-        pawnAddress + offsets.m_pGameSceneNode);
-    if (gameScene <= Core::Constants::MIN_VALID_ADDRESS) {
-      return bones;
-    }
-
-    const uintptr_t boneArray = Core::MemoryManager::Read<uintptr_t>(
-        gameScene + offsets.m_boneArrayOffset);
-    if (boneArray <= Core::Constants::MIN_VALID_ADDRESS) {
-      return bones;
-    }
-
-    std::vector<GameBoneTransform> rawBones(static_cast<size_t>(boneCount));
-    if (!Core::MemoryManager::ReadRaw(boneArray, rawBones.data(),
-                                      rawBones.size() * sizeof(GameBoneTransform))) {
-      return {};
     }
 
     bones.resize(static_cast<size_t>(boneCount));
     for (int i = 0; i < boneCount; ++i) {
-      const GameBoneTransform &transform = rawBones[static_cast<size_t>(i)];
+      const SDK::BoneTransform &transform = transforms[static_cast<size_t>(i)];
       if (!IsFiniteVector(transform.position)) {
         return {};
       }

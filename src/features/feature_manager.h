@@ -21,9 +21,11 @@ public:
   static void RenderAll(Render::DrawList &drawList);
   static void EnsureFeatureInitialized(std::string_view name);
   static void EnsureAllInitialized();
+  static void SetEnabled(std::string_view name, bool enabled);
+  static void ForEachInitialized(const std::function<void(IFeature &)> &visitor);
   static IFeature* GetFeature(std::string_view name);
 
-public:
+private:
   struct FeatureSlot {
     std::string name;
     FeatureFactory factory;

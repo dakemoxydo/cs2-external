@@ -115,7 +115,7 @@ if defined CACHED_SOURCE if /I not "%CACHED_SOURCE%"=="%EXPECTED_SOURCE%" (
 if not exist "CMakeCache.txt" if exist "_deps" rmdir /s /q "_deps"
 
 echo [BUILD] Configuring CMake...
-cmake %GENERATOR% -A x64 -S "%~dp0." -B "%~dp0build"
+cmake %GENERATOR% -A x64 -S "%~dp0." -B "%~dp0build" -DCS2OVERLAY_MUTATE_BINARY=OFF -DCS2OVERLAY_BUILD_TESTS=ON
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] CMake configuration failed!
     echo.

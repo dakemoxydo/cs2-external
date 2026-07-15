@@ -16,9 +16,9 @@ bool OffsetLoader::LoadOffsets() {
 
     if (files.hasAny()) {
         auto parsed = parser.Parse(files);
-        applier.Apply(parsed);
         applier.LogStatus(parsed);
         if (applier.Validate(parsed)) {
+            applier.Apply(parsed);
             std::cout << "[+] Offsets loaded from cache_offsets/.\n";
             return true;
         }
@@ -27,16 +27,15 @@ bool OffsetLoader::LoadOffsets() {
         auto ghFiles = fileLoader.DownloadFromGitHub();
         if (!ghFiles.offsetsJson.empty() && !ghFiles.clientJson.empty()) {
             auto ghParsed = parser.Parse(ghFiles);
-            if (HasRequiredOffsets(ghParsed)) {
-                fileLoader.SaveToCacheDir(ghFiles.offsetsJson, ghFiles.clientJson);
-                applier.Apply(ghParsed);
+            if (HasRequiredOffsets(ghParsed) && applier.Validate(ghParsed)) {
                 applier.LogStatus(ghParsed);
-                if (applier.Validate(ghParsed)) {
-                    std::cout << "[+] Offsets updated from GitHub.\n";
-                    return true;
+                if (!fileLoader.SaveToCacheDir(ghFiles.offsetsJson,
+                                               ghFiles.clientJson)) {
+                    std::cout << "[!] Offsets are valid but the cache could not be saved.\n";
                 }
-                std::cout << "[!] GitHub offsets failed validation, keeping cache.\n";
-                return false;
+                applier.Apply(ghParsed);
+                std::cout << "[+] Offsets updated from GitHub.\n";
+                return true;
             }
 
             std::cout << "[!] GitHub returned incomplete or invalid offsets, keeping cache.\n";
@@ -50,16 +49,15 @@ bool OffsetLoader::LoadOffsets() {
     auto ghFiles = fileLoader.DownloadFromGitHub();
     if (!ghFiles.offsetsJson.empty() && !ghFiles.clientJson.empty()) {
         auto parsed = parser.Parse(ghFiles);
-        if (HasRequiredOffsets(parsed)) {
-            fileLoader.SaveToCacheDir(ghFiles.offsetsJson, ghFiles.clientJson);
-            applier.Apply(parsed);
+        if (HasRequiredOffsets(parsed) && applier.Validate(parsed)) {
             applier.LogStatus(parsed);
-            if (applier.Validate(parsed)) {
-                std::cout << "[+] Offsets updated from GitHub.\n";
-                return true;
+            if (!fileLoader.SaveToCacheDir(ghFiles.offsetsJson,
+                                           ghFiles.clientJson)) {
+                std::cout << "[!] Offsets are valid but the cache could not be saved.\n";
             }
-            std::cout << "[!] GitHub offsets failed validation.\n";
-            return false;
+            applier.Apply(parsed);
+            std::cout << "[+] Offsets updated from GitHub.\n";
+            return true;
         }
 
         std::cout << "[!] Failed to load valid offsets from GitHub.\n";
@@ -75,9 +73,9 @@ bool OffsetLoader::ReloadOffsets() {
     auto files = fileLoader.LoadFromCacheDir();
     if (files.hasAny()) {
         auto parsed = parser.Parse(files);
-        applier.Apply(parsed);
         applier.LogStatus(parsed);
         if (applier.Validate(parsed)) {
+            applier.Apply(parsed);
             std::cout << "[+] Offsets reloaded successfully.\n";
             return true;
         } else {
@@ -96,7 +94,13 @@ bool OffsetLoader::ForceUpdateFromGitHub() {
     if (!ghFiles.offsetsJson.empty() && !ghFiles.clientJson.empty()) {
         auto parsed = parser.Parse(ghFiles);
         if (HasRequiredOffsets(parsed)) {
-            fileLoader.SaveToCacheDir(ghFiles.offsetsJson, ghFiles.clientJson);
+            if (!fileLoader.SaveToCacheDir(ghFiles.offsetsJson,
+                                           ghFiles.clientJson)) {
+                std::cout << "[!] Offset cache could not be saved; keeping active offsets unchanged.\n";
+                return false;
+            }
+            // Publish only after the complete cache generation has committed.
+            // Readers receive this immutable snapshot atomically.
             applier.Apply(parsed);
             applier.LogStatus(parsed);
             std::cout << "[+] Offsets updated from GitHub!\n";

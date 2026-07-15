@@ -8,7 +8,6 @@
 #include "core/game/game_manager.h"
 #include "core/game/visibility_manager.h"
 #include "core/process/process.h"
-#include "core/process/stealth.h"
 #include "core/sdk/offsets.h"
 #include "core/sdk/updater.h"
 #include "features/chams/chams.h"
@@ -36,11 +35,6 @@ bool Application::Initialize() {
     std::cout << "[App] Initialize() entry\n";
     Utils::Logger::Init("cs2overlay.log");
     Utils::Logger::Info("Application starting...");
-
-    // Stealth
-    std::cout << "[App] Applying stealth...\n";
-    Stealth::Apply();
-    Utils::Logger::Info("Stealth module applied (PEB spoofed)");
 
     // Offsets — with timeout to avoid infinite blocking
     std::cout << "[App] Updating offsets...\n";
@@ -72,60 +66,45 @@ bool Application::Initialize() {
         std::cout << "[App] cs2.exe NOT found, will retry in memory thread\n";
     }
 
-    // Overlay
-    std::cout << "[App] Creating overlay...\n";
-    Utils::Logger::Info("Creating hardware overlay...");
-    if (!Render::Overlay::Create()) {
-        Utils::Logger::Error("Failed to create overlay");
-        std::cout << "[App] Overlay creation FAILED\n";
-        Process::Detach();
-        return false;
-    }
-    std::cout << "[App] Overlay created\n";
-
-    // Renderer
-    std::cout << "[App] Initializing renderer...\n";
-    if (!Render::Renderer::Init(Render::Overlay::GetWindowHandle())) {
-        Utils::Logger::Error("Failed to initialize renderer");
-        std::cout << "[App] Renderer init FAILED\n";
-        Render::Overlay::Destroy();
-        Process::Detach();
-        return false;
-    }
-    std::cout << "[App] Renderer initialized\n";
-
-    std::cout << "[App] Initializing ImGuiManager...\n";
-    if (!Render::ImGuiManager::Init()) {
-        Utils::Logger::Error("Failed to initialize ImGuiManager");
-        std::cout << "[App] ImGuiManager init FAILED\n";
-        Render::Renderer::Shutdown();
-        Render::Overlay::Destroy();
-        Process::Detach();
-        return false;
-    }
-    std::cout << "[App] ImGuiManager initialized\n";
     std::cout << "[App] Registering features...\n";
     Features::FeatureManager::RegisterAll();
-    Features::FeatureManager::EnsureAllInitialized();
-
-    if (auto *feature = Features::FeatureManager::GetFeature("Chams")) {
-        std::cout << "[App] Warming up chams resources...\n";
-        auto *chams = dynamic_cast<Features::Chams *>(feature);
-        if (chams && !chams->Warmup()) {
-            Utils::Logger::Warn("Chams warmup failed during startup; feature will stay unavailable until restart");
-            std::cout << "[App] Chams warmup failed\n";
-        } else {
-            std::cout << "[App] Chams warmup complete\n";
-        }
-    }
 
     std::cout << "[App] Loading config...\n";
     Config::ConfigManager::Load("default");
+
+    if (!InitializeRendering()) {
+        Utils::Logger::Info("Waiting for a target window before creating the overlay");
+    }
 
     Utils::Logger::Info("Features initialized & config loaded");
     Utils::Logger::Info("Engine running. Press [INSERT] to toggle Menu");
     std::cout << "[App] Initialize() SUCCESS\n";
 
+    return true;
+}
+
+bool Application::InitializeRendering() {
+    if (Render::Overlay::GetWindowHandle()) {
+        return true;
+    }
+    if (!Render::Overlay::Create()) {
+        return false;
+    }
+    if (!Render::Renderer::Init(Render::Overlay::GetWindowHandle())) {
+        Render::Overlay::Destroy();
+        return false;
+    }
+    if (!Render::ImGuiManager::Init()) {
+        Render::Renderer::Shutdown();
+        Render::Overlay::Destroy();
+        return false;
+    }
+    if (auto *feature = Features::FeatureManager::GetFeature("Chams")) {
+        auto *chams = dynamic_cast<Features::Chams *>(feature);
+        if (chams && !chams->Warmup()) {
+            Utils::Logger::Warn("Chams warmup failed; preview rendering is unavailable");
+        }
+    }
     return true;
 }
 
@@ -151,6 +130,7 @@ void Application::Shutdown() {
     }
 
     VisibilityManager::ResetProcessState();
+    SDK::Updater::Shutdown();
     Render::ImGuiManager::Shutdown();
     Render::Renderer::Shutdown();
     Render::Overlay::Destroy();
@@ -183,14 +163,16 @@ void Application::MemoryThreadLoop() {
                 std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
                 if (Config::Settings.performance.vsyncEnabled) {
                     float frameTimeMS = overlayFrameTimeMs_.load();
-                    ups = frameTimeMS > 0 ? std::min(256, (int)(1000.0f / frameTimeMS)) : 64;
+                    ups = frameTimeMS > 0 ? (int)(1000.0f / frameTimeMS) : 64;
                 } else {
                     ups = Config::Settings.performance.upsLimit;
                     if (ups <= 0) ups = Constants::DEFAULT_UPS_LIMIT;
                 }
             }
 
-            auto frameTimeTarget = std::chrono::milliseconds(1000 / ups);
+            ups = (std::clamp)(ups, 10, 500);
+
+            const auto frameTimeTarget = std::chrono::duration<double>(1.0 / ups);
             auto timeTaken = std::chrono::steady_clock::now() - frameStart;
             if (timeTaken < frameTimeTarget) {
                 std::this_thread::sleep_for(frameTimeTarget - timeTaken);
@@ -225,13 +207,22 @@ void Application::RenderLoop() {
                 break;
             }
 
+            if (!Render::Overlay::GetWindowHandle()) {
+                if (!InitializeRendering()) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                    continue;
+                }
+            }
+
             ProcessInput();
 
             // Read config settings under shared_lock to avoid data race with
             // MemoryThread and ConfigManager::Load/Save which write under unique_lock.
             {
                 std::shared_lock<std::shared_mutex> lock(Config::SettingsMutex);
-                bool readBones = Config::Settings.esp.showBones || Config::Settings.aimbot.enabled;
+                bool readBones = Config::Settings.esp.showBones ||
+                                 Config::Settings.aimbot.enabled ||
+                                 Config::Settings.chams.enabled;
                 bool readWeapons = Config::Settings.esp.showWeapon;
                 Core::GameManager::EnableBoneRead(readBones);
                 Core::GameManager::EnableWeaponRead(readWeapons);
@@ -256,7 +247,19 @@ void Application::RenderLoop() {
             Features::FeatureManager::RenderAll(drawList);
 
             Render::ImGuiManager::Render();
-            Render::Renderer::EndFrame();
+            if (!Render::Renderer::EndFrame()) {
+                Utils::Logger::Warn("Renderer lost its device; recreating graphics resources");
+                Render::ImGuiManager::Shutdown();
+                Render::Renderer::Shutdown();
+                if (!Render::Renderer::Init(Render::Overlay::GetWindowHandle()) ||
+                    !Render::ImGuiManager::Init()) {
+                    Utils::Logger::Error("Renderer recovery failed; stopping application");
+                    state_.running = false;
+                    break;
+                }
+                vsyncInitialized_ = false;
+                continue;
+            }
 
             auto frameEnd = std::chrono::steady_clock::now();
             float frameTimeMs = std::chrono::duration<float, std::milli>(frameEnd - frameStart).count();
@@ -281,8 +284,9 @@ void Application::RenderLoop() {
             if (!vsyncEnabled) {
                 int fps = fpsLimit;
                 if (fps <= 0) fps = Constants::DEFAULT_FPS_LIMIT;
+                fps = (std::clamp)(fps, 10, 500);
 
-                auto frameTimeTarget = std::chrono::milliseconds(1000 / fps);
+                const auto frameTimeTarget = std::chrono::duration<double>(1.0 / fps);
                 auto timeTaken = std::chrono::steady_clock::now() - frameStart;
                 if (timeTaken < frameTimeTarget) {
                     std::this_thread::sleep_for(frameTimeTarget - timeTaken);

@@ -101,10 +101,10 @@ public:
     return Core::MemoryManager::Read<float>(address + GetOffsets().m_flSimulationTime);
   }
 
-  uint32_t GetSpottedStateMask() const {
+  uint64_t GetSpottedStateMask() const {
     const auto& O = GetOffsets();
-    return Core::MemoryManager::Read<uint32_t>(address + O.m_entitySpottedState +
-                                               O.m_bSpottedByMaskOffset);
+    return Core::MemoryManager::Read<uint64_t>(address + O.m_entitySpottedState +
+                                               O.m_bSpottedByMask);
   }
 
   uintptr_t GetGameSceneNode() const {
@@ -191,7 +191,9 @@ public:
   using CEntityInstance::CEntityInstance;
 
   uint32_t GetPawnHandle() const {
-    return Core::MemoryManager::Read<uint32_t>(address + GetOffsets().m_hPawn);
+    const auto &pawnOffsets = GetOffsets();
+    if (pawnOffsets.m_hPlayerPawn == 0) return 0;
+    return Core::MemoryManager::Read<uint32_t>(address + pawnOffsets.m_hPlayerPawn);
   }
   
   bool IsLocalPlayerController() const {

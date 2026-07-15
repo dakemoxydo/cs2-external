@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include <dxgi.h>
+#include "utils/logger.h"
 
 namespace Render {
 
@@ -112,12 +113,18 @@ void Renderer::BeginFrame() {
   pContext->ClearRenderTargetView(renderTarget, clearColorWithAlpha);
 }
 
-void Renderer::EndFrame() {
+bool Renderer::EndFrame() {
   if (!pSwapChain) {
-    return;
+    return false;
   }
 
-  pSwapChain->Present(s_vsyncEnabled ? 1 : 0, 0);
+  const HRESULT result = pSwapChain->Present(s_vsyncEnabled ? 1 : 0, 0);
+  if (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET) {
+    Utils::Logger::Error("D3D11 device was lost during Present (0x%08X)",
+                         static_cast<unsigned int>(result));
+    return false;
+  }
+  return SUCCEEDED(result);
 }
 
 ID3D11Device *Renderer::GetDevice() {

@@ -259,7 +259,7 @@ void RenderTabWorld(int subTab) {
   Config::GlobalSettings settings = Config::CopySettings();
 
   ImGui::BeginChild("WorldLeftColumn", ImVec2(columnWidth, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   if (subTab == 0) {
     RenderRadarCard(settings);
   } else {
@@ -270,7 +270,7 @@ void RenderTabWorld(int subTab) {
   ImGui::SameLine(0.0f, gap);
 
   ImGui::BeginChild("WorldRightColumn", ImVec2(0.0f, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   if (subTab == 0) {
     RenderRadarColorsCard(settings);
   } else {

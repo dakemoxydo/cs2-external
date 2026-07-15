@@ -8,6 +8,9 @@
 namespace Render {
 namespace {
 bool s_initialized = false;
+bool s_contextCreated = false;
+bool s_win32Initialized = false;
+bool s_dx11Initialized = false;
 ImFont *s_regularFont = nullptr;
 ImFont *s_semiboldFont = nullptr;
 
@@ -22,8 +25,9 @@ bool ImGuiManager::Init() {
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
+  s_contextCreated = true;
   ImGuiIO &io = ImGui::GetIO();
-  (void)io;
+  io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
   ImFontConfig regularConfig;
   regularConfig.FontDataOwnedByAtlas = false;
@@ -103,27 +107,33 @@ bool ImGuiManager::Init() {
     Shutdown();
     return false;
   }
+  s_win32Initialized = true;
   if (!ImGui_ImplDX11_Init(Renderer::GetDevice(), Renderer::GetContext())) {
     Shutdown();
     return false;
   }
+  s_dx11Initialized = true;
 
   s_initialized = true;
   return true;
 }
 
 void ImGuiManager::Shutdown() {
-  if (!s_initialized) {
+  if (!s_contextCreated && !s_win32Initialized && !s_dx11Initialized &&
+      !s_initialized) {
     return;
   }
 
-  ImGui_ImplDX11_Shutdown();
-  ImGui_ImplWin32_Shutdown();
-  if (ImGui::GetCurrentContext()) {
+  if (s_dx11Initialized) ImGui_ImplDX11_Shutdown();
+  if (s_win32Initialized) ImGui_ImplWin32_Shutdown();
+  if (s_contextCreated && ImGui::GetCurrentContext()) {
     ImGui::DestroyContext();
   }
   s_regularFont = nullptr;
   s_semiboldFont = nullptr;
+  s_dx11Initialized = false;
+  s_win32Initialized = false;
+  s_contextCreated = false;
   s_initialized = false;
 }
 

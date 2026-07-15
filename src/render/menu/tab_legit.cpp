@@ -262,7 +262,7 @@ void RenderTabLegit(int subTab) {
   Config::GlobalSettings settings = Config::CopySettings();
 
   ImGui::BeginChild("LegitLeftColumn", ImVec2(columnWidth, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   if (subTab == 0) {
     RenderAimbotCoreCard(settings);
   } else if (subTab == 1) {
@@ -275,7 +275,7 @@ void RenderTabLegit(int subTab) {
   ImGui::SameLine(0.0f, gap);
 
   ImGui::BeginChild("LegitRightColumn", ImVec2(0.0f, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   if (subTab == 0) {
     RenderAimbotRulesCard(settings);
   } else if (subTab == 1) {

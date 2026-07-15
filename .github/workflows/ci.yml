@@ -1,0 +1,21 @@
+name: Windows build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DCS2OVERLAY_MUTATE_BINARY=OFF -DCS2OVERLAY_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure

@@ -19,7 +19,8 @@ public:
 
   template <typename T> static std::optional<T> ReadOptional(uintptr_t address) {
     T buffer{};
-    if (address < Constants::MIN_VALID_ADDRESS || address > Constants::MAX_VALID_ADDRESS) {
+    if (address < Constants::MIN_VALID_ADDRESS ||
+        address > Constants::MAX_VALID_ADDRESS - sizeof(T)) {
       return std::nullopt;
     }
     NTSTATUS status = Process::NtRead(reinterpret_cast<void *>(address), &buffer, sizeof(T));
@@ -30,7 +31,8 @@ public:
   }
 
   template <typename T> static bool Write(uintptr_t address, const T &value) {
-    if (address < Constants::MIN_VALID_ADDRESS || address > Constants::MAX_VALID_ADDRESS) {
+    if (address < Constants::MIN_VALID_ADDRESS ||
+        address > Constants::MAX_VALID_ADDRESS - sizeof(T)) {
       return false;
     }
     return Process::NtWrite(reinterpret_cast<void *>(address), &value, sizeof(T));
@@ -43,16 +45,22 @@ public:
       return Read<T>(current);
     auto it = offsets.begin();
     while (it != offsets.end() - 1) {
+      if (*it > Constants::MAX_VALID_ADDRESS - current)
+        return T{};
       current = Read<uintptr_t>(current + *it);
       if (current < Constants::MIN_VALID_ADDRESS || current > Constants::MAX_VALID_ADDRESS)
         return T{};
       ++it;
     }
+    if (*it > Constants::MAX_VALID_ADDRESS - current)
+      return T{};
     return Read<T>(current + *it);
   }
 
   static bool ReadRaw(uintptr_t address, void *buffer, size_t size) {
-    if (address < Constants::MIN_VALID_ADDRESS || address > Constants::MAX_VALID_ADDRESS || buffer == nullptr || size == 0) {
+    if (address < Constants::MIN_VALID_ADDRESS ||
+        address > Constants::MAX_VALID_ADDRESS || buffer == nullptr || size == 0 ||
+        size > Constants::MAX_VALID_ADDRESS - address) {
       return false;
     }
     NTSTATUS status = Process::NtRead(reinterpret_cast<void *>(address), buffer, size);
@@ -61,8 +69,8 @@ public:
 
   static bool WriteRaw(uintptr_t address, const void *buffer, size_t size) {
     if (address < Constants::MIN_VALID_ADDRESS ||
-        address > Constants::MAX_VALID_ADDRESS || buffer == nullptr ||
-        size == 0) {
+        address > Constants::MAX_VALID_ADDRESS || buffer == nullptr || size == 0 ||
+        size > Constants::MAX_VALID_ADDRESS - address) {
       return false;
     }
     return Process::NtWrite(reinterpret_cast<void *>(address), buffer, size);

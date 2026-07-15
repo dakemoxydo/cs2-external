@@ -5,7 +5,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
-#include <random>
 
 #include <imgui.h>
 
@@ -19,7 +18,8 @@ HWND Overlay::hwnd = nullptr;
 HWND Overlay::hwndCS2 = nullptr;
 int Overlay::gameWidth = 0;
 int Overlay::gameHeight = 0;
-static const char* s_currentClassName = nullptr;
+static constexpr const char* kOverlayClassName = "CS2OverlayWindow";
+static constexpr const char* kOverlayWindowName = "CS2 Overlay";
 static bool s_classRegistered = false;
 
 bool Overlay::FindCS2Window() {
@@ -117,7 +117,7 @@ bool Overlay::FindCS2Window() {
 }
 
 bool Overlay::Create() {
-    SetProcessDPIAware();
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     if (hwnd) {
         return true;
@@ -126,16 +126,6 @@ bool Overlay::Create() {
     if (!FindCS2Window()) {
         std::cout << "[-] Cannot create overlay: CS2 window not found!\n";
         return false;
-    }
-
-    static const char* classNames[] = {"CEF-OSC-Widget", "DiscordOverlay", "NVIDIA GeForce Overlay", "Steam Overlay"};
-    static const char* windowNames[] = {"CEF-OSC-Widget", "Discord", "NVIDIA GeForce Overlay", "Steam"};
-
-    if (!s_currentClassName) {
-        static std::random_device rd;
-        static std::mt19937 gen(rd());
-        static std::uniform_int_distribution<> dist(0, 3);
-        s_currentClassName = classNames[dist(gen)];
     }
 
     WNDCLASSEXA wc = {
@@ -149,30 +139,29 @@ bool Overlay::Create() {
         nullptr,
         nullptr,
         nullptr,
-        s_currentClassName,
+        kOverlayClassName,
         nullptr};
     if (!RegisterClassExA(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         return false;
     }
     s_classRegistered = true;
 
-    RECT rc;
-    GetWindowRect(hwndCS2, &rc);
-    int overlayX = rc.left;
-    int overlayY = rc.top;
-    int overlayW = rc.right - rc.left;
-    int overlayH = rc.bottom - rc.top;
-
-    const char* currentWinName = "CS2 External";
-    for (int i = 0; i < 4; i++) {
-        if (classNames[i] == s_currentClassName) {
-            currentWinName = windowNames[i];
-            break;
-        }
+    RECT clientRect{};
+    GetClientRect(hwndCS2, &clientRect);
+    POINT origin{clientRect.left, clientRect.top};
+    ClientToScreen(hwndCS2, &origin);
+    int overlayX = origin.x;
+    int overlayY = origin.y;
+    int overlayW = clientRect.right - clientRect.left;
+    int overlayH = clientRect.bottom - clientRect.top;
+    if (overlayW <= 0 || overlayH <= 0) {
+        UnregisterClassA(kOverlayClassName, wc.hInstance);
+        s_classRegistered = false;
+        return false;
     }
 
     hwnd = CreateWindowExA(WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED,
-                           wc.lpszClassName, currentWinName, WS_POPUP,
+                           wc.lpszClassName, kOverlayWindowName, WS_POPUP,
                            overlayX, overlayY, overlayW, overlayH, nullptr, nullptr,
                            wc.hInstance, nullptr);
 
@@ -206,13 +195,16 @@ bool Overlay::UpdatePosition() {
         if (!FindCS2Window()) return false;
     }
 
-    RECT rc;
-    if (!GetWindowRect(hwndCS2, &rc)) return false;
+    RECT clientRect{};
+    if (!GetClientRect(hwndCS2, &clientRect)) return false;
+    POINT origin{clientRect.left, clientRect.top};
+    ClientToScreen(hwndCS2, &origin);
 
-    int curW = rc.right - rc.left;
-    int curH = rc.bottom - rc.top;
-    int curX = rc.left;
-    int curY = rc.top;
+    int curW = clientRect.right - clientRect.left;
+    int curH = clientRect.bottom - clientRect.top;
+    int curX = origin.x;
+    int curY = origin.y;
+    if (curW <= 0 || curH <= 0) return false;
 
     static int lastX = curX;
     static int lastY = curY;
@@ -249,8 +241,8 @@ void Overlay::Destroy() {
     hwnd = nullptr;
   }
 
-  if (s_classRegistered && s_currentClassName) {
-      UnregisterClassA(s_currentClassName, GetModuleHandle(nullptr));
+  if (s_classRegistered) {
+      UnregisterClassA(kOverlayClassName, GetModuleHandle(nullptr));
       s_classRegistered = false;
   }
 

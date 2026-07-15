@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cfloat>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <windows.h>
@@ -274,6 +275,7 @@ bool DrawSidebarEntry(MenuSection section) {
                : hovered ? ImVec4(0.12f, 0.13f, 0.15f, 0.85f)
                          : ImVec4(0.00f, 0.00f, 0.00f, 0.0f));
   window->DrawList->AddRectFilled(bb.Min, bb.Max, bg, 4.0f);
+  ImGui::RenderNavHighlight(bb, id);
   if (selected) {
     window->DrawList->AddRectFilled(
         ImVec2(bb.Min.x - 2.0f, bb.Min.y + 4.0f),
@@ -294,7 +296,7 @@ bool DrawSidebarEntry(MenuSection section) {
 
 void DrawSidebar(const Config::GlobalSettings &settings) {
   ImGui::BeginChild("GenesisSidebar", ImVec2(kSidebarWidth, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   DrawSidebarBrand();
   ImGui::Dummy(ImVec2(0.0f, 18.0f));
 
@@ -576,7 +578,7 @@ void DrawPreviewViewport(const Config::GlobalSettings &settings) {
 
 void DrawPreviewShell(MenuSection section, const Config::GlobalSettings &settings) {
   ImGui::BeginChild("PreviewShell", ImVec2(kPreviewWidth, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   if (ImFont *font = Render::ImGuiManager::GetSemiboldFont()) {
     ImGui::PushFont(font);
     ImGui::TextColored(ImVec4(0.96f, 0.97f, 1.0f, 1.0f), "%s",
@@ -630,7 +632,7 @@ void DrawSubTabBar(MenuSection section) {
 
 void DrawContentHeader(MenuSection section, const Config::GlobalSettings &settings) {
   ImGui::BeginChild("ContentHeader", ImVec2(0.0f, kHeaderHeight), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
 
   if (ImFont *font = Render::ImGuiManager::GetSemiboldFont()) {
     ImGui::PushFont(font);
@@ -670,6 +672,9 @@ void DrawContentHeader(MenuSection section, const Config::GlobalSettings &settin
   if (ImGui::Button("X", ImVec2(closeWidth, 24.0f))) {
     Menu::isOpen = false;
     RestoreOverlayTransparency();
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Close menu (Insert)");
   }
 
   ImGui::Dummy(ImVec2(0.0f, 12.0f));
@@ -730,12 +735,20 @@ void Menu::Render() {
   ImGuiStyle &style = ImGui::GetStyle();
   const ImVec4 accent = style.Colors[ImGuiCol_ButtonActive];
 
-  ImGui::SetNextWindowSize(ImVec2(1360.0f, 820.0f), ImGuiCond_FirstUseEver);
+  const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+  const float maxWidth = (std::max)(1.0f, displaySize.x - 24.0f);
+  const float maxHeight = (std::max)(1.0f, displaySize.y - 24.0f);
+  const float minWidth = (std::min)(720.0f, maxWidth);
+  const float minHeight = (std::min)(500.0f, maxHeight);
+  ImGui::SetNextWindowSizeConstraints(ImVec2(minWidth, minHeight),
+                                      ImVec2(maxWidth, maxHeight));
+  ImGui::SetNextWindowSize(ImVec2((std::min)(1360.0f, maxWidth),
+                                  (std::min)(820.0f, maxHeight)),
+                           ImGuiCond_FirstUseEver);
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 14.0f));
 
   if (ImGui::Begin("GenesisMenu###MainWindow", &isOpen,
-                   ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
-                       ImGuiWindowFlags_NoScrollbar)) {
+                       ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar)) {
     ImGui::PopStyleVar();
 
     const ImVec2 windowPos = ImGui::GetWindowPos();
@@ -747,16 +760,19 @@ void Menu::Render() {
 
     const bool showPreview = ShouldShowPreview(s_currentSection) && s_previewExpanded;
     const float availableWidth = ImGui::GetContentRegionAvail().x;
-    const float mainWidth =
-        showPreview ? availableWidth - kPreviewWidth - kPanelGap : availableWidth;
+    const bool previewFits = availableWidth >= 640.0f + kPreviewWidth + kPanelGap;
+    const bool showPreviewNow = showPreview && previewFits;
+    const float mainWidth = showPreviewNow
+                                ? availableWidth - kPreviewWidth - kPanelGap
+                                : availableWidth;
 
     ImGui::BeginChild("MainColumn", ImVec2(mainWidth, 0.0f), false,
-                      ImGuiWindowFlags_NoScrollbar);
+                      ImGuiWindowFlags_None);
     DrawContentHeader(s_currentSection, settings);
     RenderSectionContent(s_currentSection);
     ImGui::EndChild();
 
-    if (showPreview) {
+    if (showPreviewNow) {
       ImGui::SameLine(0.0f, kPanelGap);
       DrawPreviewShell(s_currentSection, settings);
     }

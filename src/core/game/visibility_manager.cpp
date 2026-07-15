@@ -38,6 +38,7 @@ constexpr uint64_t MASK_PLAYER_VISIBLE =
 constexpr int kTraceLayer = 4;
 constexpr float kVisibilityCacheSeconds = 0.10f;
 constexpr int kMaxTracesPerFrame = 16;
+constexpr size_t kMaxRemoteThunkSize = 1024;
 
 enum RayType : uint8_t {
   RAY_TYPE_LINE = 0,
@@ -145,6 +146,7 @@ TraceFilter *s_remoteTraceFilter = nullptr;
 uintptr_t s_traceFilterLocalPawn = 0;
 bool s_initialized = false;
 bool s_failed = false;
+HANDLE s_pendingRemoteThread = nullptr;
 DWORD s_initializedProcessId = 0;
 float s_frameTime = -1.0f;
 int s_remainingBudget = kMaxTracesPerFrame;
@@ -216,12 +218,27 @@ bool EnsureRemoteBuffer(void *&remoteAddress, size_t size, const void *initialDa
 
 bool ExecuteRemoteProcedure(void *remoteStart, void *remoteCtx,
                             DWORD timeoutMs = 250) {
+  if (s_pendingRemoteThread != nullptr) {
+    const DWORD pendingWait = WaitForSingleObject(s_pendingRemoteThread, 0);
+    if (pendingWait == WAIT_TIMEOUT) {
+      return false;
+    }
+    CloseHandle(s_pendingRemoteThread);
+    s_pendingRemoteThread = nullptr;
+  }
+
   HANDLE thread = Process::CreateRemoteThreadSimple(remoteStart, remoteCtx);
   if (!thread) {
     return false;
   }
 
   const DWORD wait = WaitForSingleObject(thread, timeoutMs);
+  if (wait == WAIT_TIMEOUT) {
+    // Keep the handle and all remote buffers alive. A later call will reap the
+    // thread after it completes; reusing its context while it runs is unsafe.
+    s_pendingRemoteThread = thread;
+    return false;
+  }
   DWORD exitCode = 0;
   GetExitCodeThread(thread, &exitCode);
   CloseHandle(thread);
@@ -276,6 +293,12 @@ bool EnsureCoreInitialized() {
   const size_t initThunkSize =
       reinterpret_cast<uintptr_t>(&RemoteInitFilterThunkEnd) -
       reinterpret_cast<uintptr_t>(&RemoteInitFilterThunk);
+  if (traceThunkSize == 0 || traceThunkSize > kMaxRemoteThunkSize ||
+      initThunkSize == 0 || initThunkSize > kMaxRemoteThunkSize) {
+    Utils::Logger::Warn("VisibilityManager: compiler produced an unsafe thunk layout");
+    s_failed = true;
+    return false;
+  }
   Ray defaultRay{};
   defaultRay.line.startOffset = {0.0f, 0.0f, 0.0f};
   defaultRay.line.radius = 0.0f;
@@ -455,32 +478,39 @@ void VisibilityManager::ResetFrameState() {
 void VisibilityManager::ResetProcessState() {
   ResetFrameState();
   s_traceFilterLocalPawn = 0;
+  bool canFreeRemoteBuffers = true;
+  if (s_pendingRemoteThread != nullptr) {
+    const DWORD wait = WaitForSingleObject(s_pendingRemoteThread, 0);
+    canFreeRemoteBuffers = wait != WAIT_TIMEOUT;
+    CloseHandle(s_pendingRemoteThread);
+    s_pendingRemoteThread = nullptr;
+  }
   if (s_remoteTraceFilter != nullptr) {
-    Process::FreeRemote(s_remoteTraceFilter);
+    if (canFreeRemoteBuffers) Process::FreeRemote(s_remoteTraceFilter);
     s_remoteTraceFilter = nullptr;
   }
   if (s_remoteTraceShapeShellcode != nullptr) {
-    Process::FreeRemote(s_remoteTraceShapeShellcode);
+    if (canFreeRemoteBuffers) Process::FreeRemote(s_remoteTraceShapeShellcode);
     s_remoteTraceShapeShellcode = nullptr;
   }
   if (s_remoteTraceShapeCtx != nullptr) {
-    Process::FreeRemote(s_remoteTraceShapeCtx);
+    if (canFreeRemoteBuffers) Process::FreeRemote(s_remoteTraceShapeCtx);
     s_remoteTraceShapeCtx = nullptr;
   }
   if (s_remoteTraceResult != nullptr) {
-    Process::FreeRemote(s_remoteTraceResult);
+    if (canFreeRemoteBuffers) Process::FreeRemote(s_remoteTraceResult);
     s_remoteTraceResult = nullptr;
   }
   if (s_remoteRay != nullptr) {
-    Process::FreeRemote(s_remoteRay);
+    if (canFreeRemoteBuffers) Process::FreeRemote(s_remoteRay);
     s_remoteRay = nullptr;
   }
   if (s_remoteInitFilterShellcode != nullptr) {
-    Process::FreeRemote(s_remoteInitFilterShellcode);
+    if (canFreeRemoteBuffers) Process::FreeRemote(s_remoteInitFilterShellcode);
     s_remoteInitFilterShellcode = nullptr;
   }
   if (s_remoteInitFilterCtx != nullptr) {
-    Process::FreeRemote(s_remoteInitFilterCtx);
+    if (canFreeRemoteBuffers) Process::FreeRemote(s_remoteInitFilterCtx);
     s_remoteInitFilterCtx = nullptr;
   }
   s_traceShapeAddress = 0;

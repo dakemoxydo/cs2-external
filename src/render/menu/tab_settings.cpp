@@ -320,7 +320,7 @@ void RenderTabSettings(int subTab) {
   Config::GlobalSettings settings = Config::CopySettings();
 
   ImGui::BeginChild("SettingsLeftColumn", ImVec2(columnWidth, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   if (subTab == 0) {
     RenderProfilesCard(settings);
   } else {
@@ -331,7 +331,7 @@ void RenderTabSettings(int subTab) {
   ImGui::SameLine(0.0f, gap);
 
   ImGui::BeginChild("SettingsRightColumn", ImVec2(0.0f, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   if (subTab == 0) {
     RenderOffsetsCard();
   } else {

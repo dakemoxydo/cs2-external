@@ -11,7 +11,8 @@ public:
   static bool HandleResize(int width, int height);
 
   static void BeginFrame();
-  static void EndFrame();
+  // Returns false when the D3D device has been lost and must be recreated.
+  static bool EndFrame();
 
   static ID3D11Device *GetDevice();
   static ID3D11DeviceContext *GetContext();

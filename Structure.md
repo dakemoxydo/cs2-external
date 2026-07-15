@@ -138,11 +138,11 @@ cs2overlay/
 
 ## 2. Entry Points
 
-There are two executable boot paths:
-- `src/main.cpp`
-- `src/core/application/application.cpp`
+There is one executable boot path:
+- `src/main.cpp` constructs `Core::Application`.
+- `src/core/application/application.cpp` owns initialization and runtime loops.
 
-Both must stay behaviorally aligned for:
+The single path must keep these responsibilities aligned:
 - stealth setup
 - offset update startup behavior
 - process attach and detach
@@ -151,7 +151,7 @@ Both must stay behaviorally aligned for:
 - config load
 - cleanup on failure
 
-If one path changes, review the other path in the same task unless it is being explicitly deprecated.
+Do not add a second startup path without documenting ownership and shutdown semantics.
 
 ## 3. Runtime Model
 
@@ -160,8 +160,7 @@ The runtime is split into two long-lived threads.
 ### Render Thread
 
 Owned by:
-- the loop in `src/main.cpp`
-- or `Core::Application::RenderLoop()`
+- `Core::Application::RenderLoop()`
 
 Responsibilities:
 - Windows message pump
@@ -222,12 +221,14 @@ Current snapshot contents include:
   - `shotEvents`
   - `bulletTraceEvents`
   - `hitEvents`
-  - `movementAudioEvents`
+- `movementAudioEvents`
+- per-entity `boneTransforms` (up to `SDK::MAX_GAME_BONES`) when bone reading is enabled
 
 Rules:
 - never add a new render-visible gameplay field as a hidden global if it belongs in the frame snapshot
 - render-side code must consume snapshots or thin getters over snapshots
 - do not return mutable references to internal vectors
+- render features must not call `MemoryManager` directly; expensive game reads belong to the memory thread
 
 ### Combat Telemetry
 
@@ -361,6 +362,7 @@ Feature manager behavior:
 - registration is factory-based
 - `RegisterAll()` is idempotent
 - instances are lazy-created when config enables them
+- storage is private; configuration uses the `SetEnabled()` facade
 
 Critical rules:
 - every new feature must be registered in `FeatureManager::RegisterAll()`
@@ -517,7 +519,8 @@ Responsibilities:
 
 ## 10. Current Constraints
 
-- there are still two startup paths
+- runtime integration still requires a real CS2 session; automated tests cover parsers and pure state logic
+- the optional binary mutation step is disabled by default because it breaks reproducible builds
 - offset files are still external inputs
 - `Chams` currently use GLB bind-pose orientation plus live game translation, not a verified full Source 2 bone rotation pipeline
 - final visual correctness of `Chams` depends on mesh export quality and bone mapping quality

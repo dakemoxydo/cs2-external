@@ -4,12 +4,6 @@
 #include <string>
 #include <vector>
 
-// Bone data layout: Vec3 position + 0x14 bytes padding = 0x1C per bone
-struct BoneData {
-  SDK::Vector3 pos;
-  uint8_t pad[0x14];
-};
-
 // Bone indices (from reference)
 enum BoneIndex : int {
   BONE_PELVIS = 0,
@@ -46,6 +40,22 @@ inline constexpr int s_boneConnections[16][2] = {
 };
 
 namespace SDK {
+// Source 2 bone array entry: world position, scale and orientation quaternion.
+// It is read only by the memory thread and then published in GameSnapshot.
+struct BoneTransform {
+  Vector3 position{};
+  float scale = 1.0f;
+  float qx = 0.0f;
+  float qy = 0.0f;
+  float qz = 0.0f;
+  float qw = 1.0f;
+};
+
+static_assert(sizeof(BoneTransform) == 0x20,
+              "BoneTransform must match the Source 2 bone array stride");
+
+inline constexpr size_t MAX_GAME_BONES = 128;
+
 struct Entity {
   uintptr_t address = 0;
   uintptr_t controllerAddress = 0;
@@ -62,6 +72,8 @@ struct Entity {
   uint32_t pawnHandle = 0; // Cached pawn handle for triggerbot/feature lookups
   // Bone positions (world space), indexed by BoneIndex enum
   std::vector<Vector3> bonePositions; // size 30 when valid
+  // Full transforms used by skinned renderers such as Chams.
+  std::vector<BoneTransform> boneTransforms;
 
   bool isSpotted =
       false; // true = local player has line-of-sight (SpottedByMask)

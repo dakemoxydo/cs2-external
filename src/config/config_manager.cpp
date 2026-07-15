@@ -11,6 +11,8 @@
 #include "../features/sound_esp/sound_esp_config.h"
 #include "settings.h"
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -41,6 +43,63 @@ static std::string NormalizeConfigName(std::string name) {
   return name;
 }
 
+static bool IsSafeConfigName(const std::string &name) {
+  const std::string normalized = NormalizeConfigName(name);
+  if (normalized.empty() || normalized == "." || normalized == ".." ||
+      normalized.size() > 63 || normalized.find("..") != std::string::npos) {
+    return false;
+  }
+  for (const unsigned char ch : normalized) {
+    if (!(std::isalnum(ch) || ch == '_' || ch == '-' || ch == ' ')) return false;
+  }
+  return true;
+}
+
+static void ClampSettings(GlobalSettings &settings) {
+  auto color = [](float (&v)[4]) {
+    for (float &component : v) {
+      component = std::isfinite(component) ? std::clamp(component, 0.0f, 1.0f) : 0.0f;
+    }
+  };
+  auto finite = [](float &v, float low, float high) {
+    v = std::isfinite(v) ? std::clamp(v, low, high) : low;
+  };
+  settings.performance.fpsLimit = std::clamp(settings.performance.fpsLimit, 10, 500);
+  settings.performance.upsLimit = std::clamp(settings.performance.upsLimit, 10, 500);
+  settings.misc.menuTheme = std::clamp(settings.misc.menuTheme, 0, 6);
+  settings.misc.crosshairStyle = std::clamp(settings.misc.crosshairStyle, 0, 3);
+  finite(settings.misc.crosshairSize, 1.0f, 100.0f);
+  finite(settings.misc.crosshairThickness, 0.5f, 10.0f);
+  finite(settings.aimbot.fov, 0.1f, 180.0f);
+  finite(settings.aimbot.smooth, 1.0f, 100.0f);
+  finite(settings.aimbot.sensitivity, 0.01f, 20.0f);
+  finite(settings.aimbot.jitter, 0.0f, 10.0f);
+  settings.triggerbot.delayMin = std::clamp(settings.triggerbot.delayMin, 0, 1000);
+  settings.triggerbot.delayMax = std::clamp(settings.triggerbot.delayMax, settings.triggerbot.delayMin, 2000);
+  settings.rcs.startBullet = std::clamp(settings.rcs.startBullet, 1, 100);
+  finite(settings.rcs.pitchStrength, 0.0f, 10.0f);
+  finite(settings.rcs.yawStrength, 0.0f, 10.0f);
+  finite(settings.rcs.smooth, 1.0f, 100.0f);
+  finite(settings.radar.zoom, 0.01f, 10.0f);
+  finite(settings.radar.pointSize, 1.0f, 32.0f);
+  settings.soundEsp.segments = std::clamp(settings.soundEsp.segments, 12, 128);
+  finite(settings.soundEsp.expandDuration, 0.01f, 10.0f);
+  finite(settings.soundEsp.fadeDuration, 0.01f, 10.0f);
+  finite(settings.soundEsp.thickness, 0.1f, 20.0f);
+  finite(settings.chams.alpha, 0.1f, 1.0f);
+  finite(settings.chams.wireAmount, 0.0f, 1.0f);
+  color(settings.misc.crosshairColor);
+  color(settings.esp.boxColor); color(settings.esp.teamColor); color(settings.esp.nameColor);
+  color(settings.esp.weaponColor); color(settings.esp.distColor); color(settings.esp.snapLineColor);
+  color(settings.esp.boneColor); color(settings.esp.skeletonOutlineColor); color(settings.esp.offscreenColor);
+  color(settings.esp.bulletTracerColor); color(settings.esp.bulletTracerImpactColor); color(settings.esp.hitmarkerColor);
+  color(settings.chams.fillColor); color(settings.chams.hiddenColor); color(settings.chams.fillColorTeam);
+  color(settings.chams.hiddenColorTeam); color(settings.chams.wireColor);
+  color(settings.radar.visibleColor); color(settings.radar.hiddenColor); color(settings.radar.enemyColor);
+  color(settings.radar.teamColor); color(settings.soundEsp.footstepColor); color(settings.soundEsp.jumpColor);
+  color(settings.soundEsp.landColor);
+}
+
 static fs::path ConfigDir() {
   char exePath[MAX_PATH];
   GetModuleFileNameA(nullptr, exePath, MAX_PATH);
@@ -58,18 +117,18 @@ struct ConfigEntry {
   void *ptr;
 };
 
-static std::vector<ConfigEntry> BuildRegistry() {
-  auto &E = Settings.esp;
-  auto &A = Settings.aimbot;
-  auto &T = Settings.triggerbot;
-  auto &M = Settings.misc;
-  auto &B = Settings.bomb;
-  auto &C = Settings.chams;
-  auto &R = Settings.radar;
-  auto &P = Settings.performance;
-  auto &D = Settings.debug;
-  auto &RCS = Settings.rcs;
-  auto &SE = Settings.soundEsp;
+static std::vector<ConfigEntry> BuildRegistry(GlobalSettings &settings) {
+  auto &E = settings.esp;
+  auto &A = settings.aimbot;
+  auto &T = settings.triggerbot;
+  auto &M = settings.misc;
+  auto &B = settings.bomb;
+  auto &C = settings.chams;
+  auto &R = settings.radar;
+  auto &P = settings.performance;
+  auto &D = settings.debug;
+  auto &RCS = settings.rcs;
+  auto &SE = settings.soundEsp;
 
   return {
       // ESP
@@ -198,14 +257,17 @@ static std::vector<ConfigEntry> BuildRegistry() {
 
 // ─── Save ────────────────────────────────────────────────────────────────────
 bool ConfigManager::Save(const std::string &name) {
-  std::unique_lock<std::shared_mutex> lock(SettingsMutex);
-  
+  if (!IsSafeConfigName(name)) {
+    LastError = "Invalid profile name";
+    return false;
+  }
+  GlobalSettings snapshot = CopySettings();
   fs::create_directories(ConfigDir());
   
   json j;
   
   // Основные настройки через registry
-  auto reg = BuildRegistry();
+  auto reg = BuildRegistry(snapshot);
   for (const auto &e : reg) {
     if (e.type == ConfigEntry::BOOL)
       j[e.key] = *reinterpret_cast<bool *>(e.ptr);
@@ -226,21 +288,26 @@ bool ConfigManager::Save(const std::string &name) {
   }
   
   f << j.dump(2);
+  f.flush();
+  if (!f.good()) {
+    LastError = "Failed while writing: " + ConfigPath(name).string();
+    return false;
+  }
   LastError.clear();
   return true;
 }
 
 // ─── Load ────────────────────────────────────────────────────────────────────
 bool ConfigManager::Load(const std::string &name) {
-  std::unique_lock<std::shared_mutex> lock(SettingsMutex);
-
+  if (!IsSafeConfigName(name) && NormalizeConfigName(name) != "default") {
+    LastError = "Invalid profile name";
+    return false;
+  }
   const std::string normalizedName = NormalizeConfigName(name);
   std::ifstream f(ConfigPath(name));
   if (!f) {
     if (normalizedName == "default") {
-      LastError.clear();
-      Settings = GlobalSettings{};
-      ApplySettings();
+      LoadDefault();
       return true;
     }
 
@@ -248,11 +315,12 @@ bool ConfigManager::Load(const std::string &name) {
     return false;
   }
   
+  GlobalSettings candidate = CopySettings();
   try {
     json j = json::parse(f);
     
     // Основные настройки через registry
-    auto reg = BuildRegistry();
+    auto reg = BuildRegistry(candidate);
     for (const auto &e : reg) {
       if (j.contains(e.key)) {
         if (e.type == ConfigEntry::BOOL)
@@ -273,42 +341,25 @@ bool ConfigManager::Load(const std::string &name) {
   } catch (const json::parse_error &e) {
     LastError = "JSON parse error: " + std::string(e.what());
     std::cerr << "Config parse error: " << LastError << "\n";
-    Settings = GlobalSettings{};
-    ApplySettings();
     return false;
   } catch (const std::exception &e) {
     LastError = "Error loading config: " + std::string(e.what());
     std::cerr << "Config load error: " << LastError << "\n";
-    Settings = GlobalSettings{};
-    ApplySettings();
     return false;
   }
 
-  ApplySettings();
+  ClampSettings(candidate);
+  {
+    std::unique_lock<std::shared_mutex> lock(SettingsMutex);
+    Settings = candidate;
+  }
+  ApplySettingsThreadSafe();
   LastError.clear();
 
   return true;
 }
 
 // ─── ApplySettings ───────────────────────────────────────────────────────────
-// NOTE: This function is called with SettingsMutex already held (unique_lock)
-// from Load()/Save(). It applies the current settings to feature enable state.
-// The mapping from config fields → feature names is intentional coupling;
-// a full decoupling would require a coordinator/service layer (future work).
-static bool IsFeatureEnabled(std::string_view name) {
-    if (name == "ESP") return Settings.esp.enabled;
-    if (name == "Aimbot") return Settings.aimbot.enabled;
-    if (name == "Triggerbot") return Settings.triggerbot.enabled;
-    if (name == "Misc") return Settings.misc.awpCrosshair;
-    if (name == "Bomb") return Settings.bomb.enabled;
-    if (name == "Chams") return Settings.chams.enabled;
-    if (name == "Radar") return Settings.radar.enabled;
-    if (name == "DebugOverlay") return Settings.debug.enabled;
-    if (name == "RCSSystem") return Settings.rcs.enabled;
-    if (name == "SoundEsp") return Settings.soundEsp.enabled;
-    return false;
-}
-
 namespace Detail {
 
 void ApplySettingsUnderLock() {
@@ -319,40 +370,30 @@ void ApplySettingsUnderLock() {
 
 void ConfigManager::ApplySettings() {
   // Lazy-init features when their enabled state changes to true
-  if (Settings.esp.enabled)
-    Features::FeatureManager::EnsureFeatureInitialized("ESP");
-  if (Settings.aimbot.enabled)
-    Features::FeatureManager::EnsureFeatureInitialized("Aimbot");
-  if (Settings.triggerbot.enabled)
-    Features::FeatureManager::EnsureFeatureInitialized("Triggerbot");
-  if (Settings.misc.awpCrosshair)
-    Features::FeatureManager::EnsureFeatureInitialized("Misc");
-  if (Settings.bomb.enabled)
-    Features::FeatureManager::EnsureFeatureInitialized("Bomb");
-  if (Settings.chams.enabled)
-    Features::FeatureManager::EnsureFeatureInitialized("Chams");
-  if (Settings.radar.enabled)
-    Features::FeatureManager::EnsureFeatureInitialized("Radar");
-  if (Settings.debug.enabled)
-    Features::FeatureManager::EnsureFeatureInitialized("DebugOverlay");
-  if (Settings.rcs.enabled)
-    Features::FeatureManager::EnsureFeatureInitialized("RCSSystem");
-  if (Settings.soundEsp.enabled)
-    Features::FeatureManager::EnsureFeatureInitialized("SoundEsp");
-
-  // Also handle disabling for already-initialized features
-  for (auto &slot : Features::FeatureManager::featureSlots) {
-    if (!slot.instance) continue;
-    std::string n(slot.instance->GetName());
-    bool shouldBeEnabled = IsFeatureEnabled(n);
-    if (!shouldBeEnabled && slot.instance->IsEnabled())
-      slot.instance->SetEnabled(false);
+  // Apply all feature states through the manager facade. The manager owns
+  // creation and lifecycle; config code must not inspect its storage.
+  static constexpr std::pair<std::string_view, bool (*)(const GlobalSettings &)>
+      features[] = {
+          {"ESP", [](const auto &s) { return s.esp.enabled; }},
+          {"Aimbot", [](const auto &s) { return s.aimbot.enabled; }},
+          {"Triggerbot", [](const auto &s) { return s.triggerbot.enabled; }},
+          {"Misc", [](const auto &s) { return s.misc.awpCrosshair; }},
+          {"Bomb", [](const auto &s) { return s.bomb.enabled; }},
+          {"Chams", [](const auto &s) { return s.chams.enabled; }},
+          {"Radar", [](const auto &s) { return s.radar.enabled; }},
+          {"DebugOverlay", [](const auto &s) { return s.debug.enabled; }},
+          {"RCSSystem", [](const auto &s) { return s.rcs.enabled; }},
+          {"SoundEsp", [](const auto &s) { return s.soundEsp.enabled; }},
+      };
+  for (const auto &[name, enabled] : features) {
+    Features::FeatureManager::SetEnabled(name, enabled(Settings));
   }
 }
 
 // ─── ApplySettingsThreadSafe ─────────────────────────────────────────────────
 void ConfigManager::ApplySettingsThreadSafe() {
-  std::unique_lock<std::shared_mutex> lock(SettingsMutex);
+  // Lifecycle hooks may allocate resources and read settings. Never run them
+  // while holding the settings mutex.
   Detail::ApplySettingsUnderLock();
 }
 
@@ -369,9 +410,13 @@ std::vector<std::string> ConfigManager::ListConfigs() {
 }
 
 void ConfigManager::LoadDefault() {
-  std::unique_lock<std::shared_mutex> lock(SettingsMutex);
-  Settings = GlobalSettings{};
-  ApplySettings();
+  GlobalSettings defaults;
+  ClampSettings(defaults);
+  {
+    std::unique_lock<std::shared_mutex> lock(SettingsMutex);
+    Settings = defaults;
+  }
+  ApplySettingsThreadSafe();
   LastError.clear();
 }
 

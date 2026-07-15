@@ -25,6 +25,9 @@ public:
   static OffsetUpdateJob UpdateOffsets();
   static OffsetUpdateJob ForceUpdateOffsets();
   static OffsetUpdateJob ReloadOffsets();
+  // Joins outstanding jobs before process teardown so no background work
+  // accesses static state after the application has begun shutting down.
+  static void Shutdown();
 };
 
 } // namespace SDK

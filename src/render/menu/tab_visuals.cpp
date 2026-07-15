@@ -411,7 +411,7 @@ void RenderTabVisuals(int subTab) {
   const float columnWidth = (totalWidth - gap) * 0.5f;
 
   ImGui::BeginChild("VisualsLeftColumn", ImVec2(columnWidth, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   if (subTab == 0) {
     RenderPlayerEspCard(settings);
   } else {
@@ -422,7 +422,7 @@ void RenderTabVisuals(int subTab) {
   ImGui::SameLine(0.0f, gap);
 
   ImGui::BeginChild("VisualsRightColumn", ImVec2(0.0f, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   if (subTab == 0) {
     RenderVisibilityCard(settings);
     RenderTraceCard(settings);

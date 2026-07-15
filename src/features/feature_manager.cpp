@@ -77,6 +77,30 @@ void FeatureManager::EnsureAllInitialized() {
   }
 }
 
+void FeatureManager::SetEnabled(std::string_view name, bool enabled) {
+  for (auto &slot : featureSlots) {
+    if (slot.name != name) {
+      continue;
+    }
+    if (enabled && !slot.instance) {
+      slot.instance = slot.factory();
+    }
+    if (slot.instance) {
+      slot.instance->SetEnabled(enabled);
+    }
+    return;
+  }
+}
+
+void FeatureManager::ForEachInitialized(
+    const std::function<void(IFeature &)> &visitor) {
+  for (auto &slot : featureSlots) {
+    if (slot.instance) {
+      visitor(*slot.instance);
+    }
+  }
+}
+
 IFeature* FeatureManager::GetFeature(std::string_view name) {
   for (auto &slot : featureSlots) {
     if (slot.name == name && slot.instance) {

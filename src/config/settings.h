@@ -12,6 +12,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <utility>
+#include <type_traits>
 
 namespace Config {
 
@@ -65,16 +66,23 @@ auto ReadSettings(Fn &&fn) {
 
 template <typename Fn>
 auto MutateSettings(Fn &&fn) {
-  std::unique_lock<std::shared_mutex> lock(SettingsMutex);
-  auto result = fn(Settings);
+  using Result = std::invoke_result_t<Fn &, GlobalSettings &>;
+  static_assert(!std::is_void_v<Result>, "Use MutateSettingsVoid for void callbacks");
+  Result result{};
+  {
+    std::unique_lock<std::shared_mutex> lock(SettingsMutex);
+    result = fn(Settings);
+  }
   Detail::ApplySettingsUnderLock();
   return result;
 }
 
 template <typename Fn>
 void MutateSettingsVoid(Fn &&fn) {
-  std::unique_lock<std::shared_mutex> lock(SettingsMutex);
-  fn(Settings);
+  {
+    std::unique_lock<std::shared_mutex> lock(SettingsMutex);
+    fn(Settings);
+  }
   Detail::ApplySettingsUnderLock();
 }
 

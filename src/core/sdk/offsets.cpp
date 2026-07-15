@@ -17,6 +17,7 @@ int OffsetSet::MissingCount() const {
   CHECK(dwLocalPlayerController);
   CHECK(dwViewMatrix);
   CHECK(dwPlantedC4);
+  CHECK(dwGlobalVars);
   CHECK(m_fFlags);
   CHECK(m_vecVelocity);
   CHECK(m_iHealth);
@@ -29,12 +30,17 @@ int OffsetSet::MissingCount() const {
   CHECK(m_pClippingWeapon);
   CHECK(m_vecViewOffset);
   CHECK(m_flSimulationTime);
+  CHECK(m_bIsLocalPlayerController);
+  CHECK(m_entitySpottedState);
+  CHECK(m_bSpottedByMask);
   CHECK(m_angEyeAngles);
   CHECK(m_aimPunchAngle);
+  CHECK(m_angShootAngleHistory);
   CHECK(m_iIDEntIndex);
   CHECK(m_bIsScoped);
   CHECK(m_iShotsFired);
   CHECK(m_flRange);
+  CHECK(m_pBulletServices);
   CHECK(m_nBombSite);
   CHECK(m_bBombTicking);
   CHECK(m_flTimerLength);
@@ -46,7 +52,12 @@ int OffsetSet::MissingCount() const {
 }
 
 bool OffsetSet::HasRequired() const {
-  return dwEntityList != 0 && dwLocalPlayerPawn != 0 && dwViewMatrix != 0;
+  return dwEntityList > 0 && dwLocalPlayerPawn > 0 && dwViewMatrix > 0 &&
+         m_fFlags > 0 && m_vecVelocity > 0 && m_iHealth > 0 &&
+         m_iTeamNum > 0 && m_vOldOrigin > 0 && m_pGameSceneNode > 0 &&
+         m_hPlayerPawn > 0 && m_iszPlayerName > 0 && m_vecViewOffset > 0 &&
+         m_flSimulationTime > 0 && m_bIsLocalPlayerController > 0 &&
+         m_entitySpottedState > 0 && m_bSpottedByMask > 0;
 }
 
 namespace Offsets {

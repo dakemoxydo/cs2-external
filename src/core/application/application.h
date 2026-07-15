@@ -22,6 +22,7 @@ private:
     void RenderLoop();
     void ProcessInput();
     void CheckOffsetsUpdate();
+    bool InitializeRendering();
 
     AppState state_;
     std::thread memoryThread_;

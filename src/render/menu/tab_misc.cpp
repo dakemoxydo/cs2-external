@@ -101,14 +101,14 @@ void RenderTabMisc(int subTab) {
   Config::GlobalSettings settings = Config::CopySettings();
 
   ImGui::BeginChild("MiscLeftColumn", ImVec2(columnWidth, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   RenderCrosshairCard(settings);
   ImGui::EndChild();
 
   ImGui::SameLine(0.0f, gap);
 
   ImGui::BeginChild("MiscRightColumn", ImVec2(0.0f, 0.0f), false,
-                    ImGuiWindowFlags_NoScrollbar);
+                    ImGuiWindowFlags_None);
   RenderCrosshairNotesCard(settings);
   ImGui::EndChild();
 }

@@ -18,12 +18,12 @@ public:
 
     FileResult LoadFromCacheDir();
     FileResult DownloadFromGitHub();
-    void SaveToCacheDir(const std::string& offsetsJson, const std::string& clientJson);
+    bool SaveToCacheDir(const std::string& offsetsJson, const std::string& clientJson);
 
 private:
     std::string ReadFile(const std::string& path);
-    void WriteFile(const std::string& path, const std::string& content);
-    std::string FetchHTTP(const std::string& url, int timeoutSeconds = 10);
+    bool WriteFile(const std::string& path, const std::string& content);
+    std::string FetchHTTP(const std::string& url, int timeoutSeconds = 5);
     std::string GetExeDir();
     std::string GetCacheDir();
 };

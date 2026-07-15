@@ -8,6 +8,7 @@
 #include "../sdk/offsets.h"
 #include "config/settings.h"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -936,6 +937,11 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
   constexpr float maxDistSq =
       Constants::ESP_MAX_DISTANCE_UNITS * Constants::ESP_MAX_DISTANCE_UNITS;
   VisibilityManager::PrepareFrame(frameTimeSeconds);
+  const bool needVisibility = Config::ReadSettings([](const auto &settings) {
+    return (settings.aimbot.enabled && settings.aimbot.visibleOnly) ||
+           (settings.radar.enabled && settings.radar.visibleCheck) ||
+           (settings.chams.enabled && settings.chams.visibleCheck);
+  });
 
   for (uintptr_t controllerPtr : context.controllerPointers) {
     SDK::CPlayerController controller(controllerPtr, &offsets);
@@ -1028,9 +1034,10 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
       }
     }
 
-    const uint32_t spottedMask = pawn.GetSpottedStateMask();
+    const uint64_t spottedMask = pawn.GetSpottedStateMask();
     const bool fallbackSpotted =
-        localSlot >= 0 && (spottedMask & (1u << localSlot)) != 0;
+        localSlot >= 0 && localSlot < 64 &&
+        (spottedMask & (uint64_t{1} << localSlot)) != 0;
 
     if (s_nameCache.find(pawnHandle) == s_nameCache.end()) {
       s_nameCache[pawnHandle] = controller.GetPlayerName();
@@ -1054,11 +1061,12 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
         const uintptr_t boneArray = MemoryManager::Read<uintptr_t>(
             gameScene + offsets.m_boneArrayOffset);
         if (boneArray > Constants::MIN_VALID_ADDRESS) {
-          BoneData rawBones[BONE_COUNT];
-          if (MemoryManager::ReadRaw(boneArray, rawBones, sizeof(rawBones))) {
+          std::array<SDK::BoneTransform, SDK::MAX_GAME_BONES> rawBones{};
+          if (MemoryManager::ReadRaw(boneArray, rawBones.data(), sizeof(rawBones))) {
+            entity.boneTransforms.assign(rawBones.begin(), rawBones.end());
             entity.bonePositions.resize(BONE_COUNT);
             for (int boneIndex = 0; boneIndex < BONE_COUNT; ++boneIndex) {
-              entity.bonePositions[boneIndex] = rawBones[boneIndex].pos;
+              entity.bonePositions[boneIndex] = rawBones[boneIndex].position;
             }
           }
         }
@@ -1093,12 +1101,14 @@ void GameManager::RebuildPlayers(const FrameContext &context, int localSlot,
       visibilityTargets.push_back({position.x, position.y, position.z + 24.0f});
     }
 
-    for (const auto &visibilityTarget : visibilityTargets) {
-      const auto visibility = VisibilityManager::QueryPlayerVisibility(
-          localPawn, entity.address, localEyePos, visibilityTarget);
-      if (visibility.hasValue && visibility.visible) {
-        visibilityConfirmed = true;
-        break;
+    if (needVisibility) {
+      for (const auto &visibilityTarget : visibilityTargets) {
+        const auto visibility = VisibilityManager::QueryPlayerVisibility(
+            localPawn, entity.address, localEyePos, visibilityTarget);
+        if (visibility.hasValue && visibility.visible) {
+          visibilityConfirmed = true;
+          break;
+        }
       }
     }
 

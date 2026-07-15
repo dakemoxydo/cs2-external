@@ -3,6 +3,10 @@ project(cs2overlay VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(CS2OVERLAY_MUTATE_BINARY "Randomize the built executable (breaks reproducible builds)" OFF)
+option(CS2OVERLAY_BUILD_TESTS "Build project unit tests" ON)
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 
@@ -13,15 +17,18 @@ include(FetchContent)
 cmake_policy(SET CMP0135 NEW)
 FetchContent_Declare(nlohmann_json
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(nlohmann_json)
-
-# libcurl via find_package (optional, not required - using WinHTTP instead)
-find_package(CURL QUIET)
 
 # ── ImGui sources ─────────────────────────────────────────────────────────────
 
 set(IMGUI_DIR "external/imgui")
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/${IMGUI_DIR}/imgui.cpp")
+  message(FATAL_ERROR
+    "Dear ImGui is missing. Run: git submodule update --init --recursive")
+endif()
 # NOTE: If you add or remove ImGui files, re-run CMake configuration.
 set(IMGUI_SOURCES
     "${IMGUI_DIR}/imgui.cpp"
@@ -46,7 +53,7 @@ target_compile_definitions(cs2overlay PRIVATE
 )
 
 if(MSVC)
-  target_compile_options(cs2overlay PRIVATE /W4)
+  target_compile_options(cs2overlay PRIVATE /W4 /utf-8 /permissive-)
 endif()
 
 target_include_directories(cs2overlay PRIVATE
@@ -57,13 +64,10 @@ target_include_directories(cs2overlay PRIVATE
 
 # Add minimal linking for windows
 target_link_libraries(cs2overlay PRIVATE user32 d3d11 d3dcompiler dxgi dwmapi wininet ntdll psapi dxguid nlohmann_json::nlohmann_json)
-if(CURL_FOUND)
-    target_link_libraries(cs2overlay PRIVATE CURL::libcurl)
-endif()
 
 # ── Post-build: mutate EXE signature so each build has a unique SHA256 ──
 set(MUTATE_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/mutate_signature.ps1")
-if(EXISTS "${MUTATE_SCRIPT}")
+if(CS2OVERLAY_MUTATE_BINARY AND EXISTS "${MUTATE_SCRIPT}")
   add_custom_command(
     TARGET cs2overlay POST_BUILD
     COMMAND powershell -ExecutionPolicy Bypass -NonInteractive
@@ -72,6 +76,17 @@ if(EXISTS "${MUTATE_SCRIPT}")
     COMMENT "Mutating EXE signature..."
     VERBATIM
   )
-else()
-  message(STATUS "mutate_signature.ps1 not found, skipping post-build signature mutation")
+endif()
+
+include(GNUInstallDirs)
+install(TARGETS cs2overlay RUNTIME DESTINATION .)
+install(FILES
+    "${CMAKE_SOURCE_DIR}/assets/models/tm_phoenix.glb"
+    "${CMAKE_SOURCE_DIR}/assets/models/ctm_sas.glb"
+    DESTINATION assets/models
+)
+
+include(CTest)
+if(BUILD_TESTING AND CS2OVERLAY_BUILD_TESTS AND EXISTS "${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt")
+  add_subdirectory(tests)
 endif()

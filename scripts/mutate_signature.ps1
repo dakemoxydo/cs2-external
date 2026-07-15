@@ -58,7 +58,7 @@ for ($i = 0; $i -lt $numberOfSections; $i++) {
 $seed = [byte[]]::new(256)
 $rng.GetBytes($seed)
 $allBytes = $bytes + $seed
-Write-Host "[MUTATE] Appended 256-byte random seed to PE overlay"
+Write-Host "[MUTATE] Appended a 256-byte random seed to the PE overlay"
 
 # ── 4. Write result ───────────────────────────────────────────────────────
 [System.IO.File]::WriteAllBytes($ExePath, $allBytes)

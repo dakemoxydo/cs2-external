@@ -46,11 +46,14 @@ struct OffsetSet {
   ptrdiff_t m_bBeingDefused = 0;
   ptrdiff_t m_flDefuseCountDown = 0;
 
-  // -- Entity system internals (not exported by cs2-dumper) --
-  ptrdiff_t m_hPawn = 0x6C4;
-  ptrdiff_t m_bIsLocalPlayerController = 0x788;
-  ptrdiff_t m_entitySpottedState = 0x26E0;
-  ptrdiff_t m_bSpottedByMaskOffset = 0x00C;
+  // -- Entity fields exported by cs2-dumper --
+  ptrdiff_t m_bIsLocalPlayerController = 0;
+  ptrdiff_t m_entitySpottedState = 0;
+  ptrdiff_t m_bSpottedByMask = 0;
+
+  // -- Runtime layout values not exported by cs2-dumper --
+  // Keep these separate from dumped schema offsets. They must be verified
+  // whenever the game layout changes.
   ptrdiff_t m_boneArrayOffset = 0x1E0;
 
   int MissingCount() const;
